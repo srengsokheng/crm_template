@@ -1,0 +1,40 @@
+{
+  "name": "acme-crm",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "engines": {
+    "node": ">=26.13.0"
+  },
+  "scripts": {
+    "dev": "concurrently -n api,worker,web -c blue,magenta,green \"npm run dev -w @crm/api\" \"npm run worker:dev -w @crm/api\" \"npm run dev -w @crm/web\"",
+    "build": "npm run build -w @crm/web",
+    "start": "npm run start -w @crm/api",
+    "typecheck": "tsc -p packages/shared && tsc -p apps/api && tsc -p apps/web",
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "test": "vitest run",
+    "e2e": "playwright test",
+    "db:generate": "npm run db:generate -w @crm/api",
+    "db:migrate": "npm run db:migrate -w @crm/api",
+    "db:seed": "npm run db:seed -w @crm/api"
+  },
+  "devDependencies": {
+    "@eslint/js": "10.0.1",
+    "@playwright/test": "1.64.1",
+    "@types/node": "26.6.6",
+    "concurrently": "10.0.6",
+    "eslint": "10.14.0",
+    "eslint-plugin-react-hooks": "7.1.1",
+    "prettier": "3.9.10",
+    "typescript": "6.0.3",
+    "typescript-eslint": "8.72.1",
+    "vitest": "5.0.5"
+  },
+  "overrides": {
+    "minimatch": "11.0.3"
+  }
+}
