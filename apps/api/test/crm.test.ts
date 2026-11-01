@@ -1,4 +1,4 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
+ 
 import { afterAll, describe, expect, it } from 'vitest';
 import { pool } from '../src/db/pool.ts';
 import { getApp, signup } from './helpers.ts';
@@ -118,6 +118,12 @@ describe('deals & pipelines', () => {
     expect(ok.body.custom).toEqual({ customer_segment: 'smb' });
     // Clearing a required value while in that stage is refused.
     expect((await c.patch(`/deals/${d.id}`, { custom: { customer_segment: null } })).status).toBe(422);
+    // "From stage" also covers later stages, but never blocks losing a deal.
+    const d2 = (await c.post('/deals', { title: 'Skips ahead' })).body;
+    expect((await c.post(`/deals/${d2.id}/move`, { stageId: stage(dealPipeline, 'Negotiation').id })).status).toBe(422);
+    expect((await c.post(`/deals/${d2.id}/close`, { outcome: 'won' })).status).toBe(422);
+    expect((await c.post(`/deals/${d2.id}/close`, { outcome: 'lost' })).status).toBe(200);
+    expect((await c.post(`/deals/${d2.id}/reopen`)).body.status).toBe('open');
   });
 
   it('computes line items server-side and keeps auto amounts consistent', async () => {

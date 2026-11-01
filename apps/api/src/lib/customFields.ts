@@ -65,16 +65,28 @@ export function mergeCustom(defs: FieldDef[], input: Record<string, unknown> | u
   return out;
 }
 
-export function missingRequired(defs: FieldDef[], custom: Record<string, unknown>, stageId?: number | null): FieldDef[] {
-  return defs.filter((d) => {
-    if (!d.is_active) return false;
-    const needed = d.required === 'always' || (d.required === 'from_stage' && stageId != null && d.required_stage_ids.map(Number).includes(Number(stageId)));
-    return needed && isEmpty(custom[d.key]);
+/**
+ * Fields still empty that are required for a record at `stageId`.
+ * "from_stage" means: required once the record reaches the earliest listed stage (or any later stage in the same
+ * pipeline, including won) — but never when the record is lost.
+ */
+export async function missingRequired(defs: FieldDef[], custom: Record<string, unknown>, stageId?: number | null, db: Db = pool): Promise<FieldDef[]> {
+  const fromDefs = defs.filter((d) => d.is_active && d.required === 'from_stage' && d.required_stage_ids.length);
+  const info = new Map<number, { pipeline_id: number; sort: number; kind: string }>();
+  if (stageId != null && fromDefs.length) {
+    const ids = [Number(stageId), ...fromDefs.flatMap((d) => d.required_stage_ids.map(Number))];
+    for (const r of await q<{ id: number; pipeline_id: number; sort: number; kind: string }>(sql`SELECT id, pipeline_id, sort, kind FROM stages WHERE id = ANY(${ids})`, db)) info.set(r.id, r);
+  }
+  const target = stageId != null ? info.get(Number(stageId)) : undefined;
+  const reached = (d: FieldDef) => !!target && target.kind !== 'lost' && d.required_stage_ids.map(Number).some((id) => {
+    const s = info.get(id);
+    return !!s && s.pipeline_id === target.pipeline_id && target.sort >= s.sort;
   });
+  return defs.filter((d) => d.is_active && isEmpty(custom[d.key]) && (d.required === 'always' || (d.required === 'from_stage' && reached(d))));
 }
 
-export function assertRequired(defs: FieldDef[], custom: Record<string, unknown>, stageId?: number | null): void {
-  const missing = missingRequired(defs, custom, stageId);
+export async function assertRequired(defs: FieldDef[], custom: Record<string, unknown>, stageId?: number | null, db: Db = pool): Promise<void> {
+  const missing = await missingRequired(defs, custom, stageId, db);
   if (missing.length) {
     throw new AppError(422, 'REQUIRED_FIELDS', `Please fill in: ${missing.map((m) => m.label).join(', ')}`,
       Object.fromEntries(missing.map((m) => [`custom.${m.key}`, 'Required'])),

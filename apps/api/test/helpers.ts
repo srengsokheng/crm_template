@@ -1,4 +1,4 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
+ 
 import type { FastifyInstance } from 'fastify';
 import { buildApp } from '../src/app.ts';
 

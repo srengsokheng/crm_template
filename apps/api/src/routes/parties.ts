@@ -98,7 +98,7 @@ export async function partyRoutes(app: FastifyInstance) {
     await assertMembers(ctx, [body.ownerId]);
     const defs = await loadDefs(ctx.workspaceId, 'contact');
     const custom = mergeCustom(defs, body.custom);
-    assertRequired(defs, custom);
+    await assertRequired(defs, custom);
     const primaryCompany = body.primaryCompanyId ?? body.companyIds?.[0] ?? null;
     const created = await tx(async (db) => {
       const row = await insertRow(db, 'contacts', {
@@ -130,7 +130,7 @@ export async function partyRoutes(app: FastifyInstance) {
       if (body.custom !== undefined) {
         const defs = await loadDefs(ctx.workspaceId, 'contact', db);
         values.custom = mergeCustom(defs, body.custom, before.custom);
-        assertRequired(defs, values.custom as Record<string, unknown>);
+        await assertRequired(defs, values.custom as Record<string, unknown>);
       }
       const merged = { ...before, ...values };
       if (!merged.first_name && !merged.last_name) throw badRequest('Enter a first or last name', { firstName: 'Required' });
@@ -195,7 +195,7 @@ export async function partyRoutes(app: FastifyInstance) {
     await assertMembers(ctx, [body.ownerId]);
     const defs = await loadDefs(ctx.workspaceId, 'company');
     const custom = mergeCustom(defs, body.custom);
-    assertRequired(defs, custom);
+    await assertRequired(defs, custom);
     const created = await tx(async (db) => {
       const row = await insertRow(db, 'companies', {
         ...pickColumns(body, COMPANY_COLS), currency: body.currency ?? ctx.baseCurrency, workspace_id: ctx.workspaceId,
@@ -221,7 +221,7 @@ export async function partyRoutes(app: FastifyInstance) {
       if (body.custom !== undefined) {
         const defs = await loadDefs(ctx.workspaceId, 'company', db);
         values.custom = mergeCustom(defs, body.custom, before.custom);
-        assertRequired(defs, values.custom as Record<string, unknown>);
+        await assertRequired(defs, values.custom as Record<string, unknown>);
       }
       const changes = diff(before, values);
       const row = await updateRow(db, 'companies', id, ctx.workspaceId, { ...values, updated_by: ctx.userId }, { version: body.version });

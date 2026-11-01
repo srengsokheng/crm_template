@@ -5,6 +5,8 @@ import type { SqlQuery } from './sql.ts';
 // int8 → number (ids stay well below 2^53); numeric stays string (money); date stays 'YYYY-MM-DD'.
 pg.types.setTypeParser(20, (v) => Number(v));
 pg.types.setTypeParser(1082, (v) => v);
+// int8[] → number[] (reuse the int4[] parser)
+pg.types.setTypeParser(1016 as never, pg.types.getTypeParser(1007 as never));
 
 export const pool = new pg.Pool({ connectionString: config.databaseUrl, max: 10 });
 

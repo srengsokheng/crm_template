@@ -1,4 +1,4 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
+ 
 import { afterAll, describe, expect, it } from 'vitest';
 import { pool } from '../src/db/pool.ts';
 import { getApp, inviteUser, signup } from './helpers.ts';
@@ -12,6 +12,7 @@ describe('role-based access', () => {
     const rep2 = await inviteUser(admin, 'Sales rep', 'Rep Two');
     const outsider = await inviteUser(admin, 'Sales rep', 'Outsider');
     expect((await admin.post('/teams', { name: 'East', memberIds: [rep1.id, rep2.id] })).status).toBe(201);
+    expect((await admin.get('/meta')).body.teams[0].memberIds.sort()).toEqual([rep1.id, rep2.id].sort());
     // Teams are loaded at sign-in time per request, so new membership applies immediately.
     const d1 = (await rep1.c.post('/deals', { title: 'Rep1 deal' })).body;
     const d2 = (await rep2.c.post('/deals', { title: 'Rep2 deal' })).body;

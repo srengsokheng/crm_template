@@ -2,12 +2,11 @@ import type { FastifyInstance } from 'fastify';
 import {
   convertLeadSchema, disqualifySchema, leadCreateSchema, leadUpdateSchema, lineItemsSchema, listQuerySchema, moveSchema, personName,
 } from '@crm/shared';
-import type { z } from 'zod';
 import { and, pool, q, q1, sql, tx, type Db } from '../db/index.ts';
 import { audit, diff } from '../lib/audit.ts';
 import { copyMethods, findDuplicates, loadMethods, replaceMethods } from '../lib/contactMethods.ts';
 import type { Ctx } from '../lib/context.ts';
-import { assertRequired, loadDefs, mergeCustom } from '../lib/customFields.ts';
+import { assertRequired, loadDefs, mergeCustom, missingRequired } from '../lib/customFields.ts';
 import { badRequest } from '../lib/errors.ts';
 import { emit } from '../lib/events.ts';
 import { ctxOf } from '../lib/http.ts';
@@ -71,7 +70,7 @@ export async function moveLead(db: Db, ctx: Ctx, id: number, input: MoveInput, o
   const from = await getStage(db, ctx, before.stage_id);
   const defs = await loadDefs(ctx.workspaceId, 'lead', db);
   const custom = mergeCustom(defs, input.custom, before.custom);
-  assertRequired(defs, custom, to.id);
+  await assertRequired(defs, custom, to.id);
   const row = (await updateRow(db, 'leads', id, ctx.workspaceId, {
     stage_id: to.id, status: to.kind, custom, stage_changed_at: new Date(), stage_changed_by: ctx.roleName === 'system' ? null : ctx.userId,
     disqualify_reason_id: to.kind === 'lost' ? (input.lostReasonId ?? null) : null, updated_by: ctx.userId,
@@ -134,7 +133,7 @@ export async function leadRoutes(app: FastifyInstance) {
       if (stage.kind !== 'open') throw badRequest('New leads must start in an open stage', { stageId: 'Choose an open stage' });
       const defs = await loadDefs(ctx.workspaceId, 'lead', db);
       const custom = mergeCustom(defs, body.custom);
-      assertRequired(defs, custom, stage.id);
+      await assertRequired(defs, custom, stage.id);
       const r = (await insertRow(db, 'leads', {
         ...pickColumns(body, LEAD_COLS), title: autoTitle(body), currency: body.currency ?? ctx.baseCurrency,
         pipeline_id: stage.pipeline_id, stage_id: stage.id, status: 'open', workspace_id: ctx.workspaceId,
@@ -162,7 +161,7 @@ export async function leadRoutes(app: FastifyInstance) {
       if (body.custom !== undefined) {
         const defs = await loadDefs(ctx.workspaceId, 'lead', db);
         values.custom = mergeCustom(defs, body.custom, before.custom);
-        assertRequired(defs, values.custom as Record<string, unknown>, before.stage_id);
+        await assertRequired(defs, values.custom as Record<string, unknown>, before.stage_id);
       }
       const changes = diff(before, values);
       let row = await updateRow(db, 'leads', id, ctx.workspaceId, { ...values, updated_by: ctx.userId }, { version: body.version });
@@ -226,8 +225,7 @@ export async function leadRoutes(app: FastifyInstance) {
       contactMatches: hits.filter((h) => h.entityType === 'contact'),
       companyMatches: hits.filter((h) => h.entityType === 'company'),
       dealDefaults: { title: lead.title, amount: lead.amount, pipelineId: dealStage.pipeline_id, stageId: dealStage.id },
-      dealRequiredFields: defs.filter((d) => d.required === 'always' || (d.required === 'from_stage' && d.required_stage_ids.map(Number).includes(dealStage.id)))
-        .map((d) => ({ key: d.key, label: d.label, type: d.type, options: d.options })),
+      dealRequiredFields: (await missingRequired(defs, {}, dealStage.id)).map((d) => ({ key: d.key, label: d.label, type: d.type, options: d.options })),
     };
   });
 

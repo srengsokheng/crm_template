@@ -49,7 +49,7 @@ export async function createDeal(db: Db, ctx: Ctx, body: z.output<typeof dealCre
   const stage = await resolvePipelineStage(db, ctx, 'deal', body.pipelineId, body.stageId);
   const defs = await loadDefs(ctx.workspaceId, 'deal', db);
   const custom = mergeCustom(defs, body.custom);
-  assertRequired(defs, custom, stage.id);
+  await assertRequired(defs, custom, stage.id);
   const row = (await insertRow(db, 'deals', {
     ...pickColumns(body, DEAL_COLS),
     amount: body.amount ?? '0',
@@ -76,7 +76,7 @@ export async function moveDeal(db: Db, ctx: Ctx, id: number, input: MoveInput, o
   const from = await getStage(db, ctx, before.stage_id);
   const defs = await loadDefs(ctx.workspaceId, 'deal', db);
   const custom = mergeCustom(defs, input.custom, before.custom);
-  assertRequired(defs, custom, to.id);
+  await assertRequired(defs, custom, to.id);
   if (to.kind === 'lost' && input.lostReasonId) await assertRefs(ctx, [{ table: 'dictionary_items', ids: [input.lostReasonId], label: 'Lost reason', kind: 'lost_reason' }], db);
   if (to.id === before.stage_id) {
     return (await updateRow(db, 'deals', id, ctx.workspaceId, { custom, updated_by: ctx.userId })) as DealRow;
@@ -234,11 +234,10 @@ export async function dealRoutes(app: FastifyInstance) {
       await assertMembers(ctx, [body.ownerId], db);
       const values = pickColumns(body, DEAL_COLS);
       if (body.amount !== undefined && body.amountMode === undefined) values.amount_mode = 'manual';
-      let custom = before.custom;
       if (body.custom !== undefined) {
         const defs = await loadDefs(ctx.workspaceId, 'deal', db);
-        custom = mergeCustom(defs, body.custom, before.custom);
-        assertRequired(defs, custom, before.stage_id);
+        const custom = mergeCustom(defs, body.custom, before.custom);
+        await assertRequired(defs, custom, before.stage_id);
         values.custom = custom;
       }
       // Pipeline change: requires a stage in the new pipeline.

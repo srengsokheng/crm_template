@@ -1,4 +1,4 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
+ 
 import { afterAll, describe, expect, it } from 'vitest';
 import { processJobs, processOutbox, sendReminders } from '../src/automation/engine.ts';
 import { q, sql } from '../src/db/index.ts';

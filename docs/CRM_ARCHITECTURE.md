@@ -1,4 +1,20 @@
-# Proposed Technical Architecture
+# Technical Architecture
+
+> **As built (Nov 2026).** The plan below was followed with these deliberate changes, made to keep the dependency surface small
+> after a security audit of the latest package versions:
+>
+> | Planned | Built | Why |
+> |---|---|---|
+> | Node 22 | **Node 26 LTS**, TypeScript run natively (type stripping) | Current Active LTS; no build step for the API |
+> | Drizzle ORM + drizzle-kit | **Plain parameterised SQL** (`pg` + a 60-line tagged-template builder) and hand-written SQL migrations | drizzle-kit pulled a vulnerable esbuild; raw SQL also suits reports, scope filters and trigram search |
+> | pg-boss | **Own `jobs` + `outbox_events` tables** with `FOR UPDATE SKIP LOCKED` | Fewer dependencies; easy time-travel in tests |
+> | fastify-type-provider-zod | Small `parse()` helper calling zod directly | One less plugin; identical error shape |
+> | @fastify/static | Tiny built-in static handler with SPA fallback | @fastify/static pulled vulnerable glob/minimatch |
+> | TanStack Table, react-hook-form | Own `DataTable` and `useForm` | Server-side sorting/paging makes them unnecessary |
+> | TypeScript 7 | **TypeScript 6.0** | typescript-eslint does not support TS 7 yet |
+>
+> "Required from stage" fields are required from the earliest chosen stage onward (including Won), never when a record is lost.
+
 
 ## 1. Summary
 
