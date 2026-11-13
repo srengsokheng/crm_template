@@ -16,7 +16,7 @@ export function useDebounced<T>(value: T, ms = 250): T {
 /** Can the current user perform an action (optionally on a specific record)? Mirrors server rules for UI hints. */
 export function useCan() {
   const { data: me } = useMe();
-  return (entity: keyof Me['permissions'], action: 'view' | 'create' | 'edit' | 'delete' | 'export', ownerId?: number | null, visibility?: string): boolean => {
+  return (entity: keyof Me['permissions'], action: 'view' | 'create' | 'edit' | 'delete' | 'export' | 'import', ownerId?: number | null, visibility?: string): boolean => {
     if (!me) return false;
     if (me.role.isAdmin) return true;
     const s: Scope = me.permissions[entity]?.[action] ?? 'none';

@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router';
 import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query';
-import { KanbanSquare, List, Plus, Zap } from 'lucide-react';
+import { KanbanSquare, List, Plus, Upload, Zap } from 'lucide-react';
 import { api, errorMessage, qsOf } from '../../lib/api.ts';
 import { money, personName, relative } from '../../lib/format.ts';
 import { useCan, useDict, useMe, usePipelines } from '../../lib/hooks.ts';
@@ -59,6 +59,7 @@ export function LeadsPage() {
     <div>
       <PageHeader title="Leads" subtitle="New interest to qualify before it becomes a deal" actions={<>
         <Segmented value={view} onChange={(v) => lp.set({ view: v === 'board' ? null : v })} options={[{ value: 'board', label: 'Board', icon: <KanbanSquare className="size-4" /> }, { value: 'list', label: 'List', icon: <List className="size-4" /> }]} />
+        {can('lead', 'import') && <Button icon={<Upload className="size-4" />} onClick={() => nav('/import/lead')}>Import</Button>}
         {can('lead', 'create') && <Button variant="primary" icon={<Plus className="size-4" />} onClick={() => create.open('lead')}>New lead</Button>}
       </>} />
       <Toolbar>

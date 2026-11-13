@@ -1,8 +1,10 @@
 import type { FastifyInstance } from 'fastify';
+import type { z } from 'zod';
 import {
   companyCreateSchema, companyUpdateSchema, contactCreateSchema, contactUpdateSchema, listQuerySchema, personName,
 } from '@crm/shared';
-import { pool, q, q1, raw, sql, tx } from '../db/index.ts';
+import { pool, q, q1, raw, sql, tx, type Db } from '../db/index.ts';
+import type { Ctx } from '../lib/context.ts';
 import { badRequest } from '../lib/errors.ts';
 import { audit, diff } from '../lib/audit.ts';
 import { findDuplicates, loadMethods, replaceMethods } from '../lib/contactMethods.ts';
@@ -37,6 +39,96 @@ async function setContactCompanies(db: Parameters<typeof q>[1], contactId: numbe
   for (const id of ids) {
     await q(sql`INSERT INTO contact_companies (contact_id, company_id) VALUES (${contactId}, ${id}) ON CONFLICT DO NOTHING`, db);
   }
+}
+
+type PartyRow = Record<string, unknown> & { id: number; owner_id: number; visibility: string; custom: Record<string, unknown> };
+export type ContactCreateInput = z.output<typeof contactCreateSchema>;
+export type ContactUpdateInput = z.output<typeof contactUpdateSchema>;
+export type CompanyCreateInput = z.output<typeof companyCreateSchema>;
+export type CompanyUpdateInput = z.output<typeof companyUpdateSchema>;
+/** Extra keys stored with the audit event (e.g. `{ _import: { id, file } }` when a record comes from a CSV import). */
+type AuditExtra = Record<string, unknown>;
+
+export async function createContact(db: Db, ctx: Ctx, body: ContactCreateInput, extra: AuditExtra = {}): Promise<PartyRow> {
+  requireAny(ctx, 'contact', 'create');
+  await assertRefs(ctx, [
+    { table: 'companies', ids: [body.primaryCompanyId, ...(body.companyIds ?? [])], label: 'Company' },
+    { table: 'dictionary_items', ids: [body.typeId], label: 'Contact type', kind: 'contact_type' },
+    { table: 'dictionary_items', ids: [body.sourceId], label: 'Source', kind: 'lead_source' },
+  ], db);
+  await assertMembers(ctx, [body.ownerId], db);
+  const defs = await loadDefs(ctx.workspaceId, 'contact', db);
+  const custom = mergeCustom(defs, body.custom);
+  await assertRequired(defs, custom, undefined, db);
+  const primaryCompany = body.primaryCompanyId ?? body.companyIds?.[0] ?? null;
+  const row = await insertRow(db, 'contacts', {
+    ...pickColumns(body, CONTACT_COLS), primary_company_id: primaryCompany, workspace_id: ctx.workspaceId,
+    owner_id: body.ownerId ?? ctx.userId, custom, created_by: ctx.userId, updated_by: ctx.userId,
+  }) as PartyRow;
+  await replaceMethods(db, ctx.workspaceId, 'contact', row.id, body.methods);
+  await setContactCompanies(db, row.id, body.companyIds ?? (primaryCompany ? [primaryCompany] : []), primaryCompany);
+  await audit(db, ctx, 'contact', row.id, 'created', { name: personName(body.firstName, body.lastName), ...extra });
+  return row;
+}
+
+export async function updateContact(db: Db, ctx: Ctx, id: number, body: ContactUpdateInput, extra: AuditExtra = {}): Promise<PartyRow> {
+  const before = await getActive<PartyRow>(db, 'contacts', id, ctx, 'Contact');
+  assertOnRecord(ctx, 'contact', 'edit', before);
+  await assertRefs(ctx, [
+    { table: 'companies', ids: [body.primaryCompanyId, ...(body.companyIds ?? [])], label: 'Company' },
+    { table: 'dictionary_items', ids: [body.typeId, body.sourceId], label: 'Option' },
+  ], db);
+  await assertMembers(ctx, [body.ownerId], db);
+  const values = pickColumns(body, CONTACT_COLS);
+  if (body.custom !== undefined) {
+    const defs = await loadDefs(ctx.workspaceId, 'contact', db);
+    values.custom = mergeCustom(defs, body.custom, before.custom);
+    await assertRequired(defs, values.custom as Record<string, unknown>, undefined, db);
+  }
+  const merged = { ...before, ...values };
+  if (!merged.first_name && !merged.last_name) throw badRequest('Enter a first or last name', { firstName: 'Required' });
+  const changes: Record<string, unknown> = diff(before, values);
+  const row = await updateRow(db, 'contacts', id, ctx.workspaceId, { ...values, updated_by: ctx.userId }, { version: body.version }) as PartyRow;
+  await replaceMethods(db, ctx.workspaceId, 'contact', id, body.methods);
+  await setContactCompanies(db, id, body.companyIds, body.primaryCompanyId);
+  if (body.methods) changes.methods = [null, body.methods.map((m) => m.value)];
+  if (Object.keys(changes).length) await audit(db, ctx, 'contact', id, 'updated', { ...changes, ...extra });
+  return row;
+}
+
+export async function createCompany(db: Db, ctx: Ctx, body: CompanyCreateInput, extra: AuditExtra = {}): Promise<PartyRow> {
+  requireAny(ctx, 'company', 'create');
+  await assertRefs(ctx, [{ table: 'dictionary_items', ids: [body.typeId, body.industryId, body.sizeId, body.sourceId], label: 'Option' }], db);
+  await assertMembers(ctx, [body.ownerId], db);
+  const defs = await loadDefs(ctx.workspaceId, 'company', db);
+  const custom = mergeCustom(defs, body.custom);
+  await assertRequired(defs, custom, undefined, db);
+  const row = await insertRow(db, 'companies', {
+    ...pickColumns(body, COMPANY_COLS), currency: body.currency ?? ctx.baseCurrency, workspace_id: ctx.workspaceId,
+    owner_id: body.ownerId ?? ctx.userId, custom, created_by: ctx.userId, updated_by: ctx.userId,
+  }) as PartyRow;
+  await replaceMethods(db, ctx.workspaceId, 'company', row.id, body.methods);
+  await audit(db, ctx, 'company', row.id, 'created', { name: body.name, ...extra });
+  return row;
+}
+
+export async function updateCompany(db: Db, ctx: Ctx, id: number, body: CompanyUpdateInput, extra: AuditExtra = {}): Promise<PartyRow> {
+  const before = await getActive<PartyRow>(db, 'companies', id, ctx, 'Company');
+  assertOnRecord(ctx, 'company', 'edit', before);
+  await assertRefs(ctx, [{ table: 'dictionary_items', ids: [body.typeId, body.industryId, body.sizeId, body.sourceId], label: 'Option' }], db);
+  await assertMembers(ctx, [body.ownerId], db);
+  const values = pickColumns(body, COMPANY_COLS);
+  if (body.custom !== undefined) {
+    const defs = await loadDefs(ctx.workspaceId, 'company', db);
+    values.custom = mergeCustom(defs, body.custom, before.custom);
+    await assertRequired(defs, values.custom as Record<string, unknown>, undefined, db);
+  }
+  const changes: Record<string, unknown> = diff(before, values);
+  const row = await updateRow(db, 'companies', id, ctx.workspaceId, { ...values, updated_by: ctx.userId }, { version: body.version }) as PartyRow;
+  await replaceMethods(db, ctx.workspaceId, 'company', id, body.methods);
+  if (body.methods) changes.methods = [null, body.methods.map((m) => m.value)];
+  if (Object.keys(changes).length) await audit(db, ctx, 'company', id, 'updated', { ...changes, ...extra });
+  return row;
 }
 
 export async function partyRoutes(app: FastifyInstance) {
@@ -90,58 +182,13 @@ export async function partyRoutes(app: FastifyInstance) {
     const ctx = ctxOf(req);
     requireAny(ctx, 'contact', 'create');
     const body = parse(contactCreateSchema, req.body);
-    await assertRefs(ctx, [
-      { table: 'companies', ids: [body.primaryCompanyId, ...(body.companyIds ?? [])], label: 'Company' },
-      { table: 'dictionary_items', ids: [body.typeId], label: 'Contact type', kind: 'contact_type' },
-      { table: 'dictionary_items', ids: [body.sourceId], label: 'Source', kind: 'lead_source' },
-    ]);
-    await assertMembers(ctx, [body.ownerId]);
-    const defs = await loadDefs(ctx.workspaceId, 'contact');
-    const custom = mergeCustom(defs, body.custom);
-    await assertRequired(defs, custom);
-    const primaryCompany = body.primaryCompanyId ?? body.companyIds?.[0] ?? null;
-    const created = await tx(async (db) => {
-      const row = await insertRow(db, 'contacts', {
-        ...pickColumns(body, CONTACT_COLS), primary_company_id: primaryCompany, workspace_id: ctx.workspaceId,
-        owner_id: body.ownerId ?? ctx.userId, custom, created_by: ctx.userId, updated_by: ctx.userId,
-      });
-      const id = row.id as number;
-      await replaceMethods(db, ctx.workspaceId, 'contact', id, body.methods);
-      await setContactCompanies(db, id, body.companyIds ?? (primaryCompany ? [primaryCompany] : []), primaryCompany);
-      await audit(db, ctx, 'contact', id, 'created', { name: personName(body.firstName, body.lastName) });
-      return row;
-    });
-    return reply.code(201).send(camel(created));
+    return reply.code(201).send(camel(await tx((db) => createContact(db, ctx, body))));
   });
 
   app.patch<IdParams>('/contacts/:id', async (req) => {
     const ctx = ctxOf(req);
-    const id = Number(req.params.id);
     const body = parse(contactUpdateSchema, req.body);
-    return tx(async (db) => {
-      const before = await getActive<Record<string, unknown> & { owner_id: number; visibility: string; custom: Record<string, unknown> }>(db, 'contacts', id, ctx, 'Contact');
-      assertOnRecord(ctx, 'contact', 'edit', before);
-      await assertRefs(ctx, [
-        { table: 'companies', ids: [body.primaryCompanyId, ...(body.companyIds ?? [])], label: 'Company' },
-        { table: 'dictionary_items', ids: [body.typeId, body.sourceId], label: 'Option' },
-      ], db);
-      await assertMembers(ctx, [body.ownerId], db);
-      const values = pickColumns(body, CONTACT_COLS);
-      if (body.custom !== undefined) {
-        const defs = await loadDefs(ctx.workspaceId, 'contact', db);
-        values.custom = mergeCustom(defs, body.custom, before.custom);
-        await assertRequired(defs, values.custom as Record<string, unknown>);
-      }
-      const merged = { ...before, ...values };
-      if (!merged.first_name && !merged.last_name) throw badRequest('Enter a first or last name', { firstName: 'Required' });
-      const changes = diff(before, values);
-      const row = await updateRow(db, 'contacts', id, ctx.workspaceId, { ...values, updated_by: ctx.userId }, { version: body.version });
-      await replaceMethods(db, ctx.workspaceId, 'contact', id, body.methods);
-      await setContactCompanies(db, id, body.companyIds, body.primaryCompanyId);
-      if (body.methods) changes.methods = [null, body.methods.map((m) => m.value)];
-      if (Object.keys(changes).length) await audit(db, ctx, 'contact', id, 'updated', changes);
-      return camel(row);
-    });
+    return camel(await tx((db) => updateContact(db, ctx, Number(req.params.id), body)));
   });
 
   // ─────────────── Companies ───────────────
@@ -191,45 +238,13 @@ export async function partyRoutes(app: FastifyInstance) {
     const ctx = ctxOf(req);
     requireAny(ctx, 'company', 'create');
     const body = parse(companyCreateSchema, req.body);
-    await assertRefs(ctx, [{ table: 'dictionary_items', ids: [body.typeId, body.industryId, body.sizeId, body.sourceId], label: 'Option' }]);
-    await assertMembers(ctx, [body.ownerId]);
-    const defs = await loadDefs(ctx.workspaceId, 'company');
-    const custom = mergeCustom(defs, body.custom);
-    await assertRequired(defs, custom);
-    const created = await tx(async (db) => {
-      const row = await insertRow(db, 'companies', {
-        ...pickColumns(body, COMPANY_COLS), currency: body.currency ?? ctx.baseCurrency, workspace_id: ctx.workspaceId,
-        owner_id: body.ownerId ?? ctx.userId, custom, created_by: ctx.userId, updated_by: ctx.userId,
-      });
-      await replaceMethods(db, ctx.workspaceId, 'company', row.id as number, body.methods);
-      await audit(db, ctx, 'company', row.id as number, 'created', { name: body.name });
-      return row;
-    });
-    return reply.code(201).send(camel(created));
+    return reply.code(201).send(camel(await tx((db) => createCompany(db, ctx, body))));
   });
 
   app.patch<IdParams>('/companies/:id', async (req) => {
     const ctx = ctxOf(req);
-    const id = Number(req.params.id);
     const body = parse(companyUpdateSchema, req.body);
-    return tx(async (db) => {
-      const before = await getActive<Record<string, unknown> & { owner_id: number; visibility: string; custom: Record<string, unknown> }>(db, 'companies', id, ctx, 'Company');
-      assertOnRecord(ctx, 'company', 'edit', before);
-      await assertRefs(ctx, [{ table: 'dictionary_items', ids: [body.typeId, body.industryId, body.sizeId, body.sourceId], label: 'Option' }], db);
-      await assertMembers(ctx, [body.ownerId], db);
-      const values = pickColumns(body, COMPANY_COLS);
-      if (body.custom !== undefined) {
-        const defs = await loadDefs(ctx.workspaceId, 'company', db);
-        values.custom = mergeCustom(defs, body.custom, before.custom);
-        await assertRequired(defs, values.custom as Record<string, unknown>);
-      }
-      const changes = diff(before, values);
-      const row = await updateRow(db, 'companies', id, ctx.workspaceId, { ...values, updated_by: ctx.userId }, { version: body.version });
-      await replaceMethods(db, ctx.workspaceId, 'company', id, body.methods);
-      if (body.methods) changes.methods = [null, body.methods.map((m) => m.value)];
-      if (Object.keys(changes).length) await audit(db, ctx, 'company', id, 'updated', changes);
-      return camel(row);
-    });
+    return camel(await tx((db) => updateCompany(db, ctx, Number(req.params.id), body)));
   });
 
   // ─────────────── Duplicates ───────────────

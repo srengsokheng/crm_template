@@ -37,12 +37,14 @@ export async function stageOfKind(db: Db, pipelineId: number, kind: 'won' | 'los
     WHERE pipeline_id = ${pipelineId} AND kind = ${kind} ORDER BY sort, id LIMIT 1`, db);
 }
 
-/** Write history, audit and outbox event for a stage change. */
-export async function recordStageChange(db: Db, ctx: Ctx, entity: 'lead' | 'deal', id: number, from: StageRow | null, to: StageRow, extra: Record<string, unknown> = {}): Promise<void> {
+/** Write history, audit and (unless `emit: false`) the outbox event automation listens to. */
+export async function recordStageChange(db: Db, ctx: Ctx, entity: 'lead' | 'deal', id: number, from: StageRow | null, to: StageRow, extra: Record<string, unknown> = {},
+  opts: { emit?: boolean } = {}): Promise<void> {
   await q(sql`INSERT INTO stage_history (workspace_id, entity_type, entity_id, from_stage_id, to_stage_id, moved_by)
     VALUES (${ctx.workspaceId}, ${entity}, ${id}, ${from?.id ?? null}, ${to.id}, ${ctx.roleName === 'system' ? null : ctx.userId})`, db);
   const action = to.kind === 'won' ? (entity === 'lead' ? 'converted' : 'won') : to.kind === 'lost' ? (entity === 'lead' ? 'disqualified' : 'lost')
     : from && from.kind !== 'open' ? 'reopened' : 'stage_changed';
   await audit(db, ctx, entity, id, from ? action : 'created', { stage: [from?.name ?? null, to.name], ...extra });
+  if (opts.emit === false) return; // e.g. CSV import with automation turned off
   await emit(db, ctx.workspaceId, `${entity}.stage_entered`, entity, id, { stageId: to.id, fromStageId: from?.id ?? null }, ctx.depth ?? 0);
 }

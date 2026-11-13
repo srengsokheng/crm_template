@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
-import { Plus, Users } from 'lucide-react';
+import { Plus, Upload, Users } from 'lucide-react';
 import { api, errorMessage, qsOf } from '../../lib/api.ts';
 import { relative, personName } from '../../lib/format.ts';
 import { useCan, useDict } from '../../lib/hooks.ts';
@@ -33,7 +33,10 @@ export function ContactsPage() {
   ];
   return (
     <div>
-      <PageHeader title="Contacts" subtitle="People you work with" actions={can('contact', 'create') && <Button variant="primary" icon={<Plus className="size-4" />} onClick={() => create.open('contact')}>New contact</Button>} />
+      <PageHeader title="Contacts" subtitle="People you work with" actions={<>
+        {can('contact', 'import') && <Button icon={<Upload className="size-4" />} onClick={() => nav('/import/contact')}>Import</Button>}
+        {can('contact', 'create') && <Button variant="primary" icon={<Plus className="size-4" />} onClick={() => create.open('contact')}>New contact</Button>}
+      </>} />
       <Toolbar>
         <SearchBox value={lp.get('q')} onChange={(v) => lp.set({ q: v })} placeholder="Search name, email, phone, company" />
         <FilterSelect label="Owner" value={lp.get('ownerId')} onChange={(v) => lp.set({ ownerId: v })} options={[{ value: 'me', label: 'Me' }]} />

@@ -62,3 +62,15 @@ export async function buildCtx(row: {
     baseCurrency: row.base_currency, useLeads: row.settings?.useLeads !== false,
   };
 }
+
+/** Context for background work done on behalf of a user (e.g. a CSV import). Null if they lost access to the workspace. */
+export async function ctxForUser(workspaceId: number, userId: number, db: Db = pool): Promise<Ctx | null> {
+  const row = await q1<Parameters<typeof buildCtx>[0]>(sql`
+    SELECT m.user_id, m.workspace_id, u.name, u.email, m.role_id, r.name AS role_name, r.is_admin, w.base_currency, w.settings
+    FROM memberships m
+    JOIN users u ON u.id = m.user_id AND u.is_active
+    JOIN roles r ON r.id = m.role_id
+    JOIN workspaces w ON w.id = m.workspace_id
+    WHERE m.workspace_id = ${workspaceId} AND m.user_id = ${userId} AND m.status = 'active'`, db);
+  return row ? buildCtx(row, db) : null;
+}
