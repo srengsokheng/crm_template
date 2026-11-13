@@ -4,6 +4,9 @@ A modern, full-stack CRM built from scratch, using Bitrix24 as a functional refe
 Leads, deals with pipelines and Kanban, contacts, companies, products and line items, activities and reminders, a unified timeline,
 custom fields (including "required from stage"), role-based permissions with teams, automation rules, dashboard and reports.
 
+> **Continuing this project?** Start with [docs/HANDOFF.md](docs/HANDOFF.md) and [CLAUDE.md](CLAUDE.md).
+> A ready-to-paste prompt for a new AI agent is in [docs/AGENT_PROMPT.md](docs/AGENT_PROMPT.md).
+
 ## Stack
 
 | Layer | Choice |
