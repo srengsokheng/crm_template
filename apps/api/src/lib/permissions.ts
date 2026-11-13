@@ -52,7 +52,7 @@ export function assertOnRecord(ctx: Ctx, entity: PermissionEntity, action: Permi
 /** Grants summary sent to the web app so it can hide actions the user cannot take. */
 export function permissionSummary(ctx: Ctx): Record<string, Record<string, Scope>> {
   const entities: PermissionEntity[] = ['lead', 'deal', 'contact', 'company', 'product', 'activity'];
-  const actions: PermissionAction[] = ['view', 'create', 'edit', 'delete', 'export'];
+  const actions: PermissionAction[] = ['view', 'create', 'edit', 'delete', 'export', 'import'];
   const out: Record<string, Record<string, Scope>> = {};
   for (const e of entities) { out[e] = {}; for (const a of actions) out[e][a] = scopeOf(ctx, e, a); }
   return out;

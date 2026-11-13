@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
-import { Building2, Plus } from 'lucide-react';
+import { Building2, Plus, Upload } from 'lucide-react';
 import { api, errorMessage, qsOf } from '../../lib/api.ts';
 import { relative } from '../../lib/format.ts';
 import { useCan, useDict, useDictLabel } from '../../lib/hooks.ts';
@@ -36,7 +36,10 @@ export function CompaniesPage() {
   ];
   return (
     <div>
-      <PageHeader title="Companies" subtitle="Organisations you do business with" actions={can('company', 'create') && <Button variant="primary" icon={<Plus className="size-4" />} onClick={() => create.open('company')}>New company</Button>} />
+      <PageHeader title="Companies" subtitle="Organisations you do business with" actions={<>
+        {can('company', 'import') && <Button icon={<Upload className="size-4" />} onClick={() => nav('/import/company')}>Import</Button>}
+        {can('company', 'create') && <Button variant="primary" icon={<Plus className="size-4" />} onClick={() => create.open('company')}>New company</Button>}
+      </>} />
       <Toolbar>
         <SearchBox value={lp.get('q')} onChange={(v) => lp.set({ q: v })} placeholder="Search name, website, phone" />
         <FilterSelect label="Owner" value={lp.get('ownerId')} onChange={(v) => lp.set({ ownerId: v })} options={[{ value: 'me', label: 'Me' }]} />

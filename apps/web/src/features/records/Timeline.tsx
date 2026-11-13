@@ -180,19 +180,21 @@ const FIELD_LABELS: Record<string, string> = {
 function describeEvent(d: Record<string, any>, userName: (id: number) => string): { icon: typeof History; text: string; tone?: string } {
   const ch = d.changes ?? {};
   const stage = Array.isArray(ch.stage) ? ch.stage : null;
+  const imp = ch._import as { id: number; file: string; undo?: boolean } | undefined;
+  const viaImport = imp ? ` by import of ${imp.file}` : '';
   switch (d.action) {
-    case 'created': return { icon: Flag, text: `${d.entityType[0].toUpperCase()}${d.entityType.slice(1)} created${ch.fromLead ? ' from a lead' : ''}${stage?.[1] ? ` in ${stage[1]}` : ''}` };
+    case 'created': return { icon: Flag, text: `${d.entityType[0].toUpperCase()}${d.entityType.slice(1)} created${ch.fromLead ? ' from a lead' : ''}${viaImport}${stage?.[1] ? ` in ${stage[1]}` : ''}` };
     case 'stage_changed': return { icon: ArrowRightLeft, text: `Stage: ${stage?.[0]} → ${stage?.[1]}` };
     case 'won': return { icon: CheckCircle2, text: `Deal won${stage?.[1] ? ` (${stage[1]})` : ''}`, tone: 'text-emerald-600' };
     case 'lost': return { icon: Flag, text: `Deal lost${ch.lostReason?.[1] ? ` — ${ch.lostReason[1]}` : ''}`, tone: 'text-rose-600' };
     case 'converted': return { icon: CheckCircle2, text: 'Lead converted', tone: 'text-emerald-600' };
     case 'disqualified': return { icon: Flag, text: 'Lead disqualified', tone: 'text-rose-600' };
     case 'reopened': return { icon: ArrowRightLeft, text: `Reopened in ${stage?.[1]}` };
-    case 'deleted': return { icon: Trash2, text: 'Moved to recycle bin' };
+    case 'deleted': return { icon: Trash2, text: imp?.undo ? `Moved to recycle bin (import of ${imp.file} undone)` : 'Moved to recycle bin' };
     case 'restored': return { icon: History, text: 'Restored from recycle bin' };
     case 'owner_changed': return { icon: Users, text: `Owner changed to ${userName(Number(ch.owner?.[1]))}` };
     case 'updated': {
-      const parts = Object.entries(ch).map(([k, v]) => {
+      const parts = Object.entries(ch).filter(([k]) => !k.startsWith('_')).map(([k, v]) => {
         const label = FIELD_LABELS[k] ?? k;
         const [, to] = (v as [unknown, unknown]) ?? [];
         if (k === 'owner_id') return `${label} → ${userName(Number(to))}`;
@@ -200,7 +202,7 @@ function describeEvent(d: Record<string, any>, userName: (id: number) => string)
         if (typeof to === 'string' && to.length < 40 && !['custom', 'methods'].includes(k)) return `${label} → ${to}`;
         return label;
       });
-      return { icon: History, text: `Updated ${parts.join(', ')}` };
+      return { icon: History, text: `Updated ${parts.join(', ')}${viaImport}` };
     }
     default: return { icon: History, text: d.action.replace(/_/g, ' ') };
   }

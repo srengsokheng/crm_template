@@ -5,6 +5,7 @@ import { loadDefs, mergeCustom } from '../lib/customFields.ts';
 import { createActivity } from '../routes/activities.ts';
 import { moveDeal } from '../routes/deals.ts';
 import { moveLead } from '../routes/leads.ts';
+import { runChunk } from '../imports/engine.ts';
 
 export const MAX_DEPTH = 5;
 const RETENTION_DAYS = 30;
@@ -59,12 +60,17 @@ export async function processJobs(limit = 20, now?: Date): Promise<number> {
       if (job.type === 'automation.run') await runAutomation(job.payload as never);
       else if (job.type === 'reminders') await sendReminders(now ?? new Date());
       else if (job.type === 'purge') await purge();
+      else if (job.type === 'import.run') await runChunk(Number((job.payload as { importId: number }).importId));
       await q(sql`UPDATE jobs SET status = 'done' WHERE id = ${job.id}`);
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       const retry = job.attempts < 3;
       await q(sql`UPDATE jobs SET status = ${retry ? 'pending' : 'failed'}, last_error = ${msg},
         run_at = now() + (${job.attempts * 30} || ' seconds')::interval WHERE id = ${job.id}`);
+      if (!retry && job.type === 'import.run') {
+        await q(sql`UPDATE imports SET status = 'failed', error = 'The import stopped because of an unexpected error', finished_at = now()
+          WHERE id = ${(job.payload as { importId: number }).importId} AND status IN ('queued','running')`);
+      }
       if (!retry && job.type === 'automation.run') {
         await q(sql`UPDATE automation_runs SET status = 'failed', finished_at = now(), message = ${msg} WHERE id = ${(job.payload as { runId: number }).runId}`);
       }
@@ -227,6 +233,9 @@ export async function purge() {
     UNION ALL SELECT 1 FROM companies c WHERE cm.party_type = 'company' AND c.id = cm.party_id
     UNION ALL SELECT 1 FROM leads l WHERE cm.party_type = 'lead' AND l.id = cm.party_id)`);
   await q(sql`DELETE FROM sessions WHERE expires_at < now()`);
+  // CSV imports: drop the raw cells 30 days after finishing; drafts that were never started go after 7 days.
+  await q(sql`UPDATE imports SET rows = NULL WHERE rows IS NOT NULL AND finished_at < now() - ${RETENTION_DAYS + ' days'}::interval`);
+  await q(sql`DELETE FROM imports WHERE status = 'draft' AND created_at < now() - interval '7 days'`);
   await q(sql`DELETE FROM jobs WHERE status IN ('done','failed') AND created_at < now() - interval '14 days'`);
   await q(sql`DELETE FROM outbox_events WHERE processed_at < now() - interval '14 days'`);
 }

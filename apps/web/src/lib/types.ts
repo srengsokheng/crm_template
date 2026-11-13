@@ -3,7 +3,7 @@ export interface Me {
   user: { id: number; name: string; email: string };
   role: { id: number; name: string; isAdmin: boolean };
   workspace: { id: number; name: string; baseCurrency: string; useLeads: boolean };
-  permissions: Record<'lead' | 'deal' | 'contact' | 'company' | 'product' | 'activity', Record<'view' | 'create' | 'edit' | 'delete' | 'export', Scope>>;
+  permissions: Record<'lead' | 'deal' | 'contact' | 'company' | 'product' | 'activity', Record<'view' | 'create' | 'edit' | 'delete' | 'export' | 'import', Scope>>;
 }
 export interface Stage { id: number; pipelineId: number; name: string; color: string; sort: number; kind: 'open' | 'won' | 'lost'; probability: number | null; rotDays: number | null }
 export interface Pipeline { id: number; entityType: 'lead' | 'deal'; name: string; sort: number; isDefault: boolean; stages: Stage[] }

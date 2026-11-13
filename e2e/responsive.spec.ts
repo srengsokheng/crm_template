@@ -20,6 +20,23 @@ test.describe('mobile', () => {
   });
 });
 
+test.describe('mobile import', () => {
+  test.use({ viewport: { width: 390, height: 844 }, hasTouch: true });
+  test('CSV import mapping and review fit a phone', async ({ page }) => {
+    await signUp(page);
+    await page.goto('/import/contact');
+    await page.getByLabel('CSV file').setInputFiles({ name: 'p.csv', mimeType: 'text/csv', buffer: Buffer.from(['First name,Last name,Email', 'Ada,Lovelace,ada@example.com'].join('\n')) });
+    await expect(page.getByLabel('Import column Email as')).toHaveValue('email');
+    let overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+    expect(overflow).toBeLessThanOrEqual(1);
+    await page.getByRole('button', { name: 'Review import' }).click();
+    await page.getByRole('button', { name: 'Import 1 row' }).click();
+    await expect(page.getByText('Import finished')).toBeVisible({ timeout: 20_000 });
+    overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+    expect(overflow).toBeLessThanOrEqual(1);
+  });
+});
+
 test.describe('tablet', () => {
   test.use({ viewport: { width: 834, height: 1112 } });
   test('collapsed icon rail navigation', async ({ page }) => {
