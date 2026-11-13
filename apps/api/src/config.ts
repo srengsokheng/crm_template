@@ -1,3 +1,5 @@
+import { fileURLToPath } from 'node:url';
+
 const env = process.env;
 
 export const config = {
@@ -9,5 +11,5 @@ export const config = {
   databaseUrl: env.DATABASE_URL ?? 'postgres://crm:crm@127.0.0.1:5432/crm_dev',
   appUrl: env.APP_URL ?? 'http://localhost:5173',
   sessionDays: 30,
-  webDist: env.WEB_DIST ?? new URL('../../web/dist/', import.meta.url).pathname,
+  webDist: env.WEB_DIST ?? fileURLToPath(new URL('../../web/dist/', import.meta.url)),
 };

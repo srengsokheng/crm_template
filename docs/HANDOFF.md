@@ -39,7 +39,7 @@ The research behind every decision is in this folder:
 - Recycle bin: 30-day soft delete, restore keeps the same id; hourly purge job.
 - Responsive layouts (sidebar / tablet rail / phone bottom tabs), dark mode, command palette (Ctrl/⌘-K).
 
-**Quality:** 33 Vitest tests (API against real PostgreSQL), 10 Playwright tests (desktop, tablet, phone), lint and
+**Quality:** 39 Vitest tests (API against real PostgreSQL), 10 Playwright tests (desktop, tablet, phone), lint and
 typecheck clean, `npm audit` = 0, GitHub Actions CI in `.github/workflows/ci.yml`.
 
 ## 3. Not built yet — suggested next work (in priority order)
@@ -114,6 +114,20 @@ su postgres -c "createdb -O crm crm_dev; createdb -O crm crm_test; createdb -O c
 
 # Playwright: a Chromium is preinstalled at /opt/pw-browsers/chromium
 PW_CHROMIUM_PATH=/opt/pw-browsers/chromium npm run e2e
+```
+
+### On Windows
+
+Verified on Windows 10 with Git Bash. Everything works natively (the API resolves the web `dist` folder with
+`fileURLToPath`, so no `WEB_DIST` override is needed). If another PostgreSQL already listens on 5432, run the project
+database on another port and point the URLs at it (`.env` is gitignored; tests read the env vars, not `.env`):
+
+```bash
+docker run -d --name crm-pg16 -e POSTGRES_USER=crm -e POSTGRES_PASSWORD=crm -e POSTGRES_DB=crm_dev -p 127.0.0.1:5433:5432 postgres:16
+docker exec crm-pg16 psql -U crm -d crm_dev -c "CREATE DATABASE crm_test OWNER crm" -c "CREATE DATABASE crm_e2e OWNER crm"
+export DATABASE_URL=postgres://crm:crm@127.0.0.1:5433/crm_dev
+export TEST_DATABASE_URL=postgres://crm:crm@127.0.0.1:5433/crm_test
+export E2E_DATABASE_URL=postgres://crm:crm@127.0.0.1:5433/crm_e2e
 ```
 
 Gotchas learned the hard way:
