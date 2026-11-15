@@ -11,11 +11,12 @@ import { assertRequired, loadDefs, mergeCustom } from '../lib/customFields.ts';
 import { badRequest } from '../lib/errors.ts';
 import { emit } from '../lib/events.ts';
 import { ctxOf } from '../lib/http.ts';
-import { likeTerm, qs, runList } from '../lib/list.ts';
+import { likeTerm, qs, runList, type ListSpec } from '../lib/list.ts';
 import { assertOnRecord, requireAny, scopeWhere } from '../lib/permissions.ts';
 import { assertMembers, assertRefs, camel, camelAll, getActive, insertRow, pickColumns, updateRow } from '../lib/records.ts';
 import { getStage, recordStageChange, resolvePipelineStage, stageOfKind, type MoveInput, type StageRow } from '../lib/stages.ts';
 import { parse } from '../lib/validate.ts';
+import { exportCsv } from '../lib/exportList.ts';
 
 type IdParams = { Params: { id: string } };
 type DealRow = Record<string, unknown> & {
@@ -158,16 +159,23 @@ const DEAL_SELECT = sql`d.id, d.title, d.amount, d.currency, d.status, d.stage_i
 const DEAL_FROM = sql`deals d JOIN stages s ON s.id = d.stage_id LEFT JOIN companies co ON co.id = d.company_id LEFT JOIN users u ON u.id = d.owner_id`;
 
 export async function dealRoutes(app: FastifyInstance) {
-  app.get('/deals', async (req) => {
+  app.get('/deals', async (req, reply) => {
     const ctx = ctxOf(req);
     requireAny(ctx, 'deal', 'view');
     const query = parse(listQuerySchema, req.query);
-    const r = await runList({
+    const spec: ListSpec = {
       select: DEAL_SELECT, from: DEAL_FROM, where: dealFilters(ctx, query), search: dealSearch,
       sorts: { title: 'lower(d.title)', amount: 'd.amount', stage: 's.sort', owner: 'u.name', company: 'lower(co.name)', expectedCloseDate: 'd.expected_close_date', createdAt: 'd.created_at', updatedAt: 'd.updated_at' },
       defaultSort: '-createdAt',
       aggregates: sql`coalesce(sum(d.amount), 0)::text AS amount_sum`,
-    }, query);
+    };
+    if (query.format === 'csv') {
+      return exportCsv(reply, ctx, 'deal', spec, query, 'd', [['ID', 'id'], ['Title', 'title'], ['Stage', 'stage_name'], ['Status', 'status'],
+        ['Amount', 'amount'], ['Currency', 'currency'], ['Probability %', 'probability'], ['Expected close', 'expected_close_date'],
+        ['Company', 'company_name'], ['Contact', 'contact_name'], ['Owner', 'owner_name'], ['Closed', 'closed_at'],
+        ['Created', 'created_at'], ['Updated', 'updated_at']], 'deals');
+    }
+    const r = await runList(spec, query);
     return { ...r, data: camelAll(r.data as Record<string, unknown>[]) };
   });
 

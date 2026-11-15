@@ -10,10 +10,11 @@ import { audit, diff } from '../lib/audit.ts';
 import { findDuplicates, loadMethods, replaceMethods } from '../lib/contactMethods.ts';
 import { loadDefs, mergeCustom, assertRequired } from '../lib/customFields.ts';
 import { ctxOf } from '../lib/http.ts';
-import { likeTerm, qs, runList } from '../lib/list.ts';
+import { likeTerm, qs, runList, type ListSpec } from '../lib/list.ts';
 import { assertOnRecord, requireAny, scopeWhere } from '../lib/permissions.ts';
 import { assertMembers, assertRefs, camel, camelAll, getActive, insertRow, pickColumns, updateRow } from '../lib/records.ts';
 import { parse } from '../lib/validate.ts';
+import { exportCsv } from '../lib/exportList.ts';
 import { mergedOr404 } from './merge.ts';
 
 type IdParams = { Params: { id: string } };
@@ -134,12 +135,12 @@ export async function updateCompany(db: Db, ctx: Ctx, id: number, body: CompanyU
 
 export async function partyRoutes(app: FastifyInstance) {
   // ─────────────── Contacts ───────────────
-  app.get('/contacts', async (req) => {
+  app.get('/contacts', async (req, reply) => {
     const ctx = ctxOf(req);
     requireAny(ctx, 'contact', 'view');
     const query = parse(listQuerySchema, req.query);
     const owner = query.ownerId === 'me' ? ctx.userId : qs.id(query.ownerId);
-    return runList({
+    const spec: ListSpec = {
       select: sql`c.id, c.first_name, c.last_name, c.job_title, c.type_id, c.owner_id, c.created_at, c.updated_at,
         c.primary_company_id, co.name AS company_name, u.name AS owner_name,
         ${primaryMethod('contact', 'c', 'email')} AS email, ${primaryMethod('contact', 'c', 'phone')} AS phone`,
@@ -159,7 +160,14 @@ export async function partyRoutes(app: FastifyInstance) {
                    AND (cm.normalized ILIKE ${likeTerm(t.toLowerCase())} OR cm.value ILIKE ${likeTerm(t)})))`,
       sorts: { name: "lower(coalesce(c.first_name,'') || ' ' || coalesce(c.last_name,''))", lastName: 'lower(c.last_name)', company: 'lower(co.name)', owner: 'u.name', createdAt: 'c.created_at', updatedAt: 'c.updated_at' },
       defaultSort: '-createdAt',
-    }, query).then((r) => ({ ...r, data: camelAll(r.data as Record<string, unknown>[]) }));
+    };
+    if (query.format === 'csv') {
+      return exportCsv(reply, ctx, 'contact', spec, query, 'c', [['ID', 'id'], ['First name', 'first_name'], ['Last name', 'last_name'],
+        ['Job title', 'job_title'], ['Company', 'company_name'], ['Email', 'email'], ['Phone', 'phone'], ['Owner', 'owner_name'],
+        ['Created', 'created_at'], ['Updated', 'updated_at']], 'contacts');
+    }
+    const r = await runList(spec, query);
+    return { ...r, data: camelAll(r.data as Record<string, unknown>[]) };
   });
 
   app.get<IdParams>('/contacts/:id', async (req) => {
@@ -194,12 +202,12 @@ export async function partyRoutes(app: FastifyInstance) {
   });
 
   // ─────────────── Companies ───────────────
-  app.get('/companies', async (req) => {
+  app.get('/companies', async (req, reply) => {
     const ctx = ctxOf(req);
     requireAny(ctx, 'company', 'view');
     const query = parse(listQuerySchema, req.query);
     const owner = query.ownerId === 'me' ? ctx.userId : qs.id(query.ownerId);
-    const r = await runList({
+    const spec: ListSpec = {
       select: sql`co.id, co.name, co.type_id, co.industry_id, co.size_id, co.owner_id, co.created_at, co.updated_at, u.name AS owner_name,
         ${primaryMethod('company', 'co', 'email')} AS email, ${primaryMethod('company', 'co', 'phone')} AS phone,
         ${primaryMethod('company', 'co', 'website')} AS website,
@@ -216,7 +224,13 @@ export async function partyRoutes(app: FastifyInstance) {
         AND cm.party_id = co.id AND (cm.normalized ILIKE ${likeTerm(t.toLowerCase())} OR cm.value ILIKE ${likeTerm(t)})))`,
       sorts: { name: 'lower(co.name)', owner: 'u.name', createdAt: 'co.created_at', updatedAt: 'co.updated_at' },
       defaultSort: '-createdAt',
-    }, query);
+    };
+    if (query.format === 'csv') {
+      return exportCsv(reply, ctx, 'company', spec, query, 'co', [['ID', 'id'], ['Name', 'name'], ['Email', 'email'], ['Phone', 'phone'],
+        ['Website', 'website'], ['Contacts', 'contacts_count'], ['Open deals', 'open_deals_count'], ['Owner', 'owner_name'],
+        ['Created', 'created_at'], ['Updated', 'updated_at']], 'companies');
+    }
+    const r = await runList(spec, query);
     return { ...r, data: camelAll(r.data as Record<string, unknown>[]) };
   });
 

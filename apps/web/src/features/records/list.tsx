@@ -2,8 +2,8 @@ import { useEffect, useState, type ReactNode } from 'react';
 import { useSearchParams } from 'react-router';
 import { useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { Search, Trash2, UserRound, X } from 'lucide-react';
-import { api, errorMessage } from '../../lib/api.ts';
+import { Download, Search, Trash2, UserRound, X } from 'lucide-react';
+import { api, errorMessage, qsOf } from '../../lib/api.ts';
 import { useDebounced } from '../../lib/hooks.ts';
 import { Button, Input, Select } from '../../components/ui/primitives.tsx';
 import { ConfirmDialog, Dialog } from '../../components/ui/overlays.tsx';
@@ -52,10 +52,22 @@ export function FilterSelect({ label, value, onChange, options }: { label: strin
   );
 }
 
+/** Download the list as CSV with the current filters, search and sort. */
+export function ExportLink({ path, params }: { path: string; params: Record<string, string> }) {
+  const { page: _p, pageSize: _s, ...rest } = params;
+  void _p; void _s;
+  return (
+    <a href={`/api/v1${path}${qsOf({ ...rest, format: 'csv' })}`} download title="Download these records as a CSV file"
+      className="inline-flex h-9 items-center gap-1.5 rounded-[var(--radius-control)] border border-base surface px-3 text-[13px] font-medium hover:bg-[var(--surface-2)]">
+      <Download className="size-4" />Export
+    </a>
+  );
+}
+
 export function Toolbar({ children, right }: { children: ReactNode; right?: ReactNode }) {
   return (
     <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-      <div className="flex flex-1 flex-wrap items-center gap-2">{children}</div>
+      <div className="flex flex-1 flex-wrap items-center gap-2 max-sm:basis-full">{children}</div>
       {right && <div className="flex items-center gap-2">{right}</div>}
     </div>
   );

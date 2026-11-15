@@ -11,11 +11,12 @@ import { assertRequired, loadDefs, mergeCustom, missingRequired } from '../lib/c
 import { badRequest } from '../lib/errors.ts';
 import { emit } from '../lib/events.ts';
 import { ctxOf } from '../lib/http.ts';
-import { likeTerm, qs, runList } from '../lib/list.ts';
+import { likeTerm, qs, runList, type ListSpec } from '../lib/list.ts';
 import { assertOnRecord, requireAny, scopeWhere } from '../lib/permissions.ts';
 import { assertMembers, assertRefs, camel, camelAll, getActive, insertRow, pickColumns, updateRow } from '../lib/records.ts';
 import { getStage, recordStageChange, resolvePipelineStage, stageOfKind, type MoveInput } from '../lib/stages.ts';
 import { parse } from '../lib/validate.ts';
+import { exportCsv } from '../lib/exportList.ts';
 import { createDeal, loadLineItems, replaceLineItems } from './deals.ts';
 
 type IdParams = { Params: { id: string } };
@@ -127,16 +128,23 @@ export async function updateLead(db: Db, ctx: Ctx, id: number, body: LeadUpdateI
 }
 
 export async function leadRoutes(app: FastifyInstance) {
-  app.get('/leads', async (req) => {
+  app.get('/leads', async (req, reply) => {
     const ctx = ctxOf(req);
     requireAny(ctx, 'lead', 'view');
     const query = parse(listQuerySchema, req.query);
-    const r = await runList({
+    const spec: ListSpec = {
       select: LEAD_SELECT, from: LEAD_FROM, where: leadFilters(ctx, query), search: leadSearch,
       sorts: { title: 'lower(l.title)', amount: 'l.amount', stage: 's.sort', owner: 'u.name', source: 'src.label', createdAt: 'l.created_at', updatedAt: 'l.updated_at' },
       defaultSort: '-createdAt',
       aggregates: sql`coalesce(sum(l.amount), 0)::text AS amount_sum`,
-    }, query);
+    };
+    if (query.format === 'csv') {
+      return exportCsv(reply, ctx, 'lead', spec, query, 'l', [['ID', 'id'], ['Title', 'title'], ['First name', 'first_name'],
+        ['Last name', 'last_name'], ['Company', 'company_name'], ['Email', 'email'], ['Phone', 'phone'], ['Stage', 'stage_name'],
+        ['Status', 'status'], ['Source', 'source_name'], ['Amount', 'amount'], ['Currency', 'currency'], ['Owner', 'owner_name'],
+        ['Created', 'created_at'], ['Updated', 'updated_at']], 'leads');
+    }
+    const r = await runList(spec, query);
     return { ...r, data: camelAll(r.data as Record<string, unknown>[]) };
   });
 

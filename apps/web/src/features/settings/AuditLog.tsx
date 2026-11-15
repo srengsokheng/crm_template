@@ -16,10 +16,11 @@ interface Row {
   actorType: string; actorId: number | null; actorName: string | null; title: string | null; gone: boolean;
 }
 
-const TYPE_LABEL: Record<string, string> = { deal: 'Deal', lead: 'Lead', contact: 'Contact', company: 'Company', product: 'Product', import: 'Import', activity: 'Activity' };
+const TYPE_LABEL: Record<string, string> = { export: 'Export', deal: 'Deal', lead: 'Lead', contact: 'Contact', company: 'Company', product: 'Product', import: 'Import', activity: 'Activity' };
 const PATH: Record<string, (id: number) => string> = {
   deal: (id) => `/deals/${id}`, lead: (id) => `/leads/${id}`, contact: (id) => `/contacts/${id}`, company: (id) => `/companies/${id}`, import: (id) => `/imports/${id}`,
 };
+const EXPORT_NOUN: Record<string, string> = { contact: 'contacts', company: 'companies', lead: 'leads', deal: 'deals' };
 const ACTION_LABEL = (a: string) => a.replace(/_/g, ' ').replace(/^./, (c) => c.toUpperCase());
 
 export function AuditLog() {
@@ -35,12 +36,13 @@ export function AuditLog() {
     const imp = (r.changes as { _import?: { file: string } })._import;
     const text = r.entityType === 'import' && r.action === 'imported'
       ? `Import finished: ${r.changes.created_count ?? 0} created, ${r.changes.updated_count ?? 0} updated, ${r.changes.failed_count ?? 0} failed`
-      : r.entityType === 'import' && r.action === 'undone' ? `Import undone: ${r.changes.deleted ?? 0} records moved to the recycle bin` : ev.text;
+      : r.entityType === 'import' && r.action === 'undone' ? `Import undone: ${r.changes.deleted ?? 0} records moved to the recycle bin`
+      : r.entityType === 'export' ? `Exported ${r.changes.count ?? 0} ${EXPORT_NOUN[String(r.changes.entity)] ?? 'records'} to CSV${r.changes.truncated ? ' (limit reached)' : ''}` : ev.text;
     return `${text}${imp && !text.includes(imp.file) ? ` (import of ${imp.file})` : ''}`;
   };
   const who = (r: Row) => (r.actorType === 'automation' ? 'Automation' : r.actorName ?? 'System');
   const record = (r: Row) => {
-    const label = r.title ?? `#${r.entityId}`;
+    const label = r.entityType === 'export' ? (EXPORT_NOUN[String(r.changes.entity)] ?? 'records') : r.title ?? `#${r.entityId}`;
     const to = PATH[r.entityType]?.(r.entityId);
     return (
       <div className="flex min-w-0 items-center gap-2">

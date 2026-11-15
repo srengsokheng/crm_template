@@ -10,7 +10,7 @@ import { Button, EmptyState, PageHeader } from '../../components/ui/primitives.t
 import { DataTable, Pagination, type Column } from '../../components/ui/DataTable.tsx';
 import { useCreate } from '../../app/create.tsx';
 import { SavedViews } from '../records/SavedViews.tsx';
-import { BulkBar, FilterSelect, SearchBox, Toolbar, useListParams } from '../records/list.tsx';
+import { ExportLink, BulkBar, FilterSelect, SearchBox, Toolbar, useListParams } from '../records/list.tsx';
 
 interface Row { id: number; name: string; typeId: number | null; industryId: number | null; website: string | null; phone: string | null; ownerName: string | null; contactsCount: number; openDealsCount: number; createdAt: string }
 
@@ -43,7 +43,7 @@ export function CompaniesPage() {
         {can('company', 'create') && <Button variant="primary" icon={<Plus className="size-4" />} onClick={() => create.open('company')}>New company</Button>}
       </>} />
       <SavedViews entity="company" />
-      <Toolbar>
+      <Toolbar right={can('company', 'export') && <ExportLink path="/companies" params={lp.params} />}>
         <SearchBox value={lp.get('q')} onChange={(v) => lp.set({ q: v })} placeholder="Search name, website, phone" />
         <FilterSelect label="Owner" value={lp.get('ownerId')} onChange={(v) => lp.set({ ownerId: v })} options={[{ value: 'me', label: 'Me' }]} />
         <FilterSelect label="Type" value={lp.get('typeId')} onChange={(v) => lp.set({ typeId: v })} options={types.map((t) => ({ value: String(t.id), label: t.label }))} />

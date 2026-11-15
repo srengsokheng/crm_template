@@ -83,7 +83,13 @@ The research behind every decision is in this folder:
   the page; "Not a duplicate" hides the pair for everyone (needs edit on both; audited as `not_duplicate`;
   table `duplicate_dismissals`, migration 0008).
 
-**Quality:** 96 Vitest tests (API against real PostgreSQL), 22 Playwright tests (desktop, tablet, phone), lint and
+- **CSV export of lists** (Export beside the filters on Contacts, Companies, Leads and Deals; `?format=csv` on the list
+  endpoints, `lib/exportList.ts`): exactly the current filters, search and sort, all pages (max 50,000 rows), plus one
+  column per custom field (option labels, user names, Yes/No). Needs the role's Export permission and only includes
+  records in the export scope; formula-like values are neutralised; every export is in the audit log ("Exported 18
+  contacts to CSV", with the filters used).
+
+**Quality:** 100 Vitest tests (API against real PostgreSQL), 23 Playwright tests (desktop, tablet, phone), lint and
 typecheck clean, `npm audit` = 0, GitHub Actions CI in `.github/workflows/ci.yml`.
 
 ## 3. Not built yet — suggested next work (in priority order)
@@ -93,7 +99,7 @@ typecheck clean, `npm audit` = 0, GitHub Actions CI in `.github/workflows/ci.yml
 3. File custom fields and attachments (needs object storage).
 4. Pipeline-level and field-level permissions.
 5. Multi-currency reporting with exchange rates.
-6. Import follow-ups: deals/products import, "add missing list options" during import, CSV export of lists.
+6. Import follow-ups: deals/products import, "add missing list options" during import.
 7. Merge follow-ups: merge leads; merge more than two at once; fuzzy name matching on the duplicates page.
 8. Email follow-ups: a daily digest of overdue activities; per-workspace sender name; showing
     failed deliveries to admins (today they are only in the `jobs` table as `failed` with `last_error`).
