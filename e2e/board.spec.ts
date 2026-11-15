@@ -29,7 +29,8 @@ test('kanban: drag between stages, required-field prompt, lost reason, undo', as
 
   // Undo the last move
   await page.getByText('Moved to Proposal: Drag me').waitFor();
-  await page.getByRole('button', { name: 'Undo' }).last().click();
+  // Several toasts can be open; use the Undo of this move, not an older one.
+  await page.locator('[data-sonner-toast]').filter({ hasText: 'Moved to Proposal: Drag me' }).getByRole('button', { name: 'Undo' }).click();
   await expect(col('Qualified').getByText('Drag me')).toBeVisible();
 
   // Drag to the Lost drop zone → reason dialog

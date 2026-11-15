@@ -29,6 +29,6 @@ export async function migrate(log = console.log): Promise<void> {
   }
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (import.meta.main) {
   migrate().then(() => pool.end()).catch((e) => { console.error(e); process.exit(1); });
 }
