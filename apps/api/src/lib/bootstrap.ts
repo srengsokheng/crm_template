@@ -10,7 +10,10 @@ export const DEFAULT_ROLES: { name: string; isAdmin: boolean; grants: Grants }[]
   { name: 'Admin', isAdmin: true, grants: {} },
   {
     name: 'Manager', isAdmin: false,
-    grants: { lead: all('all'), deal: all('all'), contact: all('all'), company: all('all'), product: all('all'), activity: all('all') },
+    grants: {
+      lead: all('all', { import: 'all' }), deal: all('all'), contact: all('all', { import: 'all' }), company: all('all', { import: 'all' }),
+      product: all('all'), activity: all('all'),
+    },
   },
   {
     name: 'Sales rep', isAdmin: false,

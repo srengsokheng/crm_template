@@ -411,6 +411,16 @@ Index `(user_id, read_at, created_at desc)`.
 
 ## 10. Views & misc
 
+### `imports` (CSV import, migration 0002)
+`id, workspace_id, entity_type ('contact','company','lead'), file_name, status ('draft','queued','running','done','failed',
+'canceled'), headers jsonb, rows jsonb (raw cells; set to NULL 30 days after finishing), row_numbers jsonb (spreadsheet row
+of each data row), row_count, mapping jsonb ((target|null)[] per column), options jsonb (duplicateMode, matchBy, dateFormat,
+ownerId, createCompanies, pipelineId, runAutomation), processed, created_count, updated_count, skipped_count, failed_count,
+results jsonb ([{i, action, id?, message?}]), error, undone_at, created_by, created_at, started_at, finished_at`.
+Index `(workspace_id, created_at desc)`. Admins see all imports of the workspace, others their own. Drafts never started
+are deleted after 7 days. Records created/updated by an import carry `changes._import = {id, file}` in `audit_events`; the
+import itself is audited as `entity_type = 'import'` (`imported`, `undone`).
+
 ### `saved_views`
 `id, workspace_id, owner_id (null = shared), entity_type, name, filters jsonb, sort text,
 columns text[], is_default bool`.

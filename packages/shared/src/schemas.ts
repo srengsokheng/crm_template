@@ -3,6 +3,7 @@ import {
   ACTIVITY_KINDS, AUTOMATION_ACTIONS, AUTOMATION_TRIGGERS, CONTACT_METHOD_KINDS, DICTIONARY_KINDS,
   FIELD_ENTITY_TYPES, FIELD_TYPES, PERMISSION_ACTIONS, PERMISSION_ENTITIES, PRIORITIES, RECORD_TYPES, SCOPES, STAGE_COLORS, STAGE_KINDS,
 } from './enums.ts';
+import { DATE_FORMATS, DUPLICATE_MODES, IMPORT_ENTITIES, IMPORT_LIMITS, MATCH_KEYS } from './imports.ts';
 
 const trimmed = (max = 200) => z.string().trim().max(max);
 const optText = (max = 200) => trimmed(max).nullish().transform((v) => (v ? v : null));
@@ -245,3 +246,29 @@ export const automationRuleSchema = z.object({
   isEnabled: z.boolean().default(true),
 });
 export const automationRuleUpdateSchema = automationRuleSchema.partial();
+
+// ───────── CSV import ─────────
+export const importUploadSchema = z.object({
+  entityType: z.enum(IMPORT_ENTITIES),
+  fileName: trimmed(200).min(1, 'Required'),
+  content: z.string().min(1, 'The file is empty').max(IMPORT_LIMITS.maxBytes, 'The file is larger than 5 MB'),
+});
+export const importOptionsSchema = z.object({
+  duplicateMode: z.enum(DUPLICATE_MODES).default('skip'),
+  matchBy: z.array(z.enum(MATCH_KEYS)).max(MATCH_KEYS.length).default([]),
+  dateFormat: z.enum(DATE_FORMATS).default('ymd'),
+  /** Owner for rows without an Owner column value (default: the importing user). */
+  ownerId: optId,
+  /** Contacts: create companies named in the Company column that don't exist yet. */
+  createCompanies: z.boolean().default(true),
+  /** Leads: pipeline to import into (default pipeline when empty). */
+  pipelineId: optId,
+  /** Leads: run "created" / "stage entered" automation rules for imported leads. */
+  runAutomation: z.boolean().default(false),
+});
+export type ImportOptions = z.infer<typeof importOptionsSchema>;
+export const importConfigSchema = z.object({
+  mapping: z.array(z.string().max(80).nullable()).max(IMPORT_LIMITS.maxColumns),
+  options: importOptionsSchema.default(importOptionsSchema.parse({})),
+});
+export type ImportConfig = z.infer<typeof importConfigSchema>;

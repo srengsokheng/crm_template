@@ -1,4 +1,5 @@
 import type { FastifyInstance } from 'fastify';
+import type { z } from 'zod';
 import {
   convertLeadSchema, disqualifySchema, leadCreateSchema, leadUpdateSchema, lineItemsSchema, listQuerySchema, moveSchema, personName,
 } from '@crm/shared';
@@ -59,7 +60,7 @@ const LEAD_SELECT = sql`l.id, l.title, l.first_name, l.last_name, l.company_name
      WHERE al.entity_type = 'lead' AND al.entity_id = l.id ORDER BY a.due_at NULLS LAST LIMIT 1) AS next_activity`;
 const LEAD_FROM = sql`leads l JOIN stages s ON s.id = l.stage_id LEFT JOIN users u ON u.id = l.owner_id LEFT JOIN dictionary_items src ON src.id = l.source_id`;
 
-export async function moveLead(db: Db, ctx: Ctx, id: number, input: MoveInput, opts: { checkPermission?: boolean } = {}): Promise<LeadRow> {
+export async function moveLead(db: Db, ctx: Ctx, id: number, input: MoveInput, opts: { checkPermission?: boolean; events?: boolean; extra?: Record<string, unknown> } = {}): Promise<LeadRow> {
   const before = await getActive<LeadRow>(db, 'leads', id, ctx, 'Lead');
   if (opts.checkPermission !== false) assertOnRecord(ctx, 'lead', 'edit', before);
   const to = await getStage(db, ctx, input.stageId);
@@ -75,7 +76,53 @@ export async function moveLead(db: Db, ctx: Ctx, id: number, input: MoveInput, o
     stage_id: to.id, status: to.kind, custom, stage_changed_at: new Date(), stage_changed_by: ctx.roleName === 'system' ? null : ctx.userId,
     disqualify_reason_id: to.kind === 'lost' ? (input.lostReasonId ?? null) : null, updated_by: ctx.userId,
   })) as LeadRow;
-  await recordStageChange(db, ctx, 'lead', id, from, to);
+  await recordStageChange(db, ctx, 'lead', id, from, to, opts.extra ?? {}, { emit: opts.events !== false });
+  return row;
+}
+
+export type LeadCreateInput = z.output<typeof leadCreateSchema>;
+export type LeadUpdateInput = z.output<typeof leadUpdateSchema>;
+/** `extra` is stored with the audit event; `events: false` skips automation triggers (CSV import default). */
+export interface LeadWriteOpts { extra?: Record<string, unknown>; events?: boolean }
+
+export async function createLead(db: Db, ctx: Ctx, body: LeadCreateInput, opts: LeadWriteOpts = {}): Promise<LeadRow> {
+  requireAny(ctx, 'lead', 'create');
+  await assertRefs(ctx, [{ table: 'dictionary_items', ids: [body.sourceId], label: 'Source', kind: 'lead_source' }], db);
+  await assertMembers(ctx, [body.ownerId], db);
+  const stage = await resolvePipelineStage(db, ctx, 'lead', body.pipelineId, body.stageId);
+  if (stage.kind !== 'open') throw badRequest('New leads must start in an open stage', { stageId: 'Choose an open stage' });
+  const defs = await loadDefs(ctx.workspaceId, 'lead', db);
+  const custom = mergeCustom(defs, body.custom);
+  await assertRequired(defs, custom, stage.id, db);
+  const r = (await insertRow(db, 'leads', {
+    ...pickColumns(body, LEAD_COLS), title: autoTitle(body), currency: body.currency ?? ctx.baseCurrency,
+    pipeline_id: stage.pipeline_id, stage_id: stage.id, status: 'open', workspace_id: ctx.workspaceId,
+    owner_id: body.ownerId ?? ctx.userId, custom, created_by: ctx.userId, updated_by: ctx.userId, stage_changed_by: ctx.userId,
+  })) as LeadRow;
+  await replaceMethods(db, ctx.workspaceId, 'lead', r.id, body.methods);
+  await recordStageChange(db, ctx, 'lead', r.id, null, stage, { title: r.title, ...opts.extra }, { emit: opts.events !== false });
+  if (opts.events !== false) await emit(db, ctx.workspaceId, 'lead.created', 'lead', r.id, { stageId: stage.id }, ctx.depth ?? 0);
+  return r;
+}
+
+export async function updateLead(db: Db, ctx: Ctx, id: number, body: LeadUpdateInput, opts: LeadWriteOpts = {}): Promise<LeadRow> {
+  const before = await getActive<LeadRow>(db, 'leads', id, ctx, 'Lead');
+  assertOnRecord(ctx, 'lead', 'edit', before);
+  await assertRefs(ctx, [{ table: 'dictionary_items', ids: [body.sourceId], label: 'Source', kind: 'lead_source' }], db);
+  await assertMembers(ctx, [body.ownerId], db);
+  const values = pickColumns(body, LEAD_COLS);
+  if ('title' in values && !values.title) values.title = autoTitle({ ...camel<Record<string, unknown>>(before), ...body } as never);
+  if (body.custom !== undefined) {
+    const defs = await loadDefs(ctx.workspaceId, 'lead', db);
+    values.custom = mergeCustom(defs, body.custom, before.custom);
+    await assertRequired(defs, values.custom as Record<string, unknown>, before.stage_id, db);
+  }
+  const changes: Record<string, unknown> = diff(before, values);
+  let row = (await updateRow(db, 'leads', id, ctx.workspaceId, { ...values, updated_by: ctx.userId }, { version: body.version })) as LeadRow;
+  await replaceMethods(db, ctx.workspaceId, 'lead', id, body.methods);
+  if (body.methods) changes.methods = [null, body.methods.map((m) => m.value)];
+  if (Object.keys(changes).length) await audit(db, ctx, 'lead', id, 'updated', { ...changes, ...opts.extra });
+  if (body.stageId && body.stageId !== before.stage_id) row = await moveLead(db, ctx, id, { stageId: body.stageId }, { events: opts.events, extra: opts.extra });
   return row;
 }
 
@@ -126,51 +173,13 @@ export async function leadRoutes(app: FastifyInstance) {
     const ctx = ctxOf(req);
     requireAny(ctx, 'lead', 'create');
     const body = parse(leadCreateSchema, req.body);
-    await assertRefs(ctx, [{ table: 'dictionary_items', ids: [body.sourceId], label: 'Source', kind: 'lead_source' }]);
-    await assertMembers(ctx, [body.ownerId]);
-    const row = await tx(async (db) => {
-      const stage = await resolvePipelineStage(db, ctx, 'lead', body.pipelineId, body.stageId);
-      if (stage.kind !== 'open') throw badRequest('New leads must start in an open stage', { stageId: 'Choose an open stage' });
-      const defs = await loadDefs(ctx.workspaceId, 'lead', db);
-      const custom = mergeCustom(defs, body.custom);
-      await assertRequired(defs, custom, stage.id);
-      const r = (await insertRow(db, 'leads', {
-        ...pickColumns(body, LEAD_COLS), title: autoTitle(body), currency: body.currency ?? ctx.baseCurrency,
-        pipeline_id: stage.pipeline_id, stage_id: stage.id, status: 'open', workspace_id: ctx.workspaceId,
-        owner_id: body.ownerId ?? ctx.userId, custom, created_by: ctx.userId, updated_by: ctx.userId, stage_changed_by: ctx.userId,
-      })) as LeadRow;
-      await replaceMethods(db, ctx.workspaceId, 'lead', r.id, body.methods);
-      await recordStageChange(db, ctx, 'lead', r.id, null, stage, { title: r.title });
-      await emit(db, ctx.workspaceId, 'lead.created', 'lead', r.id, { stageId: stage.id }, ctx.depth ?? 0);
-      return r;
-    });
-    return reply.code(201).send(camel(row));
+    return reply.code(201).send(camel(await tx((db) => createLead(db, ctx, body))));
   });
 
   app.patch<IdParams>('/leads/:id', async (req) => {
     const ctx = ctxOf(req);
-    const id = Number(req.params.id);
     const body = parse(leadUpdateSchema, req.body);
-    return tx(async (db) => {
-      const before = await getActive<LeadRow>(db, 'leads', id, ctx, 'Lead');
-      assertOnRecord(ctx, 'lead', 'edit', before);
-      await assertRefs(ctx, [{ table: 'dictionary_items', ids: [body.sourceId], label: 'Source', kind: 'lead_source' }], db);
-      await assertMembers(ctx, [body.ownerId], db);
-      const values = pickColumns(body, LEAD_COLS);
-      if ('title' in values && !values.title) values.title = autoTitle({ ...camel<Record<string, unknown>>(before), ...body } as never);
-      if (body.custom !== undefined) {
-        const defs = await loadDefs(ctx.workspaceId, 'lead', db);
-        values.custom = mergeCustom(defs, body.custom, before.custom);
-        await assertRequired(defs, values.custom as Record<string, unknown>, before.stage_id);
-      }
-      const changes = diff(before, values);
-      let row = await updateRow(db, 'leads', id, ctx.workspaceId, { ...values, updated_by: ctx.userId }, { version: body.version });
-      await replaceMethods(db, ctx.workspaceId, 'lead', id, body.methods);
-      if (body.methods) changes.methods = [null, body.methods.map((m) => m.value)];
-      if (Object.keys(changes).length) await audit(db, ctx, 'lead', id, 'updated', changes);
-      if (body.stageId && body.stageId !== before.stage_id) row = await moveLead(db, ctx, id, { stageId: body.stageId });
-      return camel(row);
-    });
+    return camel(await tx((db) => updateLead(db, ctx, Number(req.params.id), body)));
   });
 
   app.post<IdParams>('/leads/:id/move', async (req) => {
