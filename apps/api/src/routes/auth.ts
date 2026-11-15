@@ -1,5 +1,5 @@
 import type { FastifyInstance, FastifyReply } from 'fastify';
-import { acceptInviteSchema, forgotPasswordSchema, loginSchema, preferencesSchema, resetPasswordSchema, signupSchema } from '@crm/shared';
+import { DEFAULT_WORKING_HOURS, type WorkingHours, acceptInviteSchema, forgotPasswordSchema, loginSchema, preferencesSchema, resetPasswordSchema, signupSchema } from '@crm/shared';
 import { config } from '../config.ts';
 import { pool, q, q1, sql, tx } from '../db/index.ts';
 import { createSession, destroySession, hashPassword, newToken, SESSION_COOKIE, sha256, verifyPassword } from '../lib/auth.ts';
@@ -105,14 +105,15 @@ export async function authRoutes(app: FastifyInstance) {
 
   app.get('/auth/me', async (req) => {
     const ctx = ctxOf(req);
-    const ws = await q1<{ name: string; base_currency: string; settings: Record<string, unknown> }>(
-      sql`SELECT name, base_currency, settings FROM workspaces WHERE id = ${ctx.workspaceId}`);
+    const ws = await q1<{ name: string; base_currency: string; timezone: string; settings: Record<string, unknown> }>(
+      sql`SELECT name, base_currency, timezone, settings FROM workspaces WHERE id = ${ctx.workspaceId}`);
     const m = await q1<{ email_reminders: boolean }>(sql`SELECT email_reminders FROM memberships WHERE workspace_id = ${ctx.workspaceId} AND user_id = ${ctx.userId}`);
     return {
       preferences: { emailReminders: m?.email_reminders ?? true },
       user: { id: ctx.userId, name: ctx.userName, email: ctx.email },
       role: { id: ctx.roleId, name: ctx.roleName, isAdmin: ctx.isAdmin },
-      workspace: { id: ctx.workspaceId, name: ws!.name, baseCurrency: ws!.base_currency, useLeads: ctx.useLeads },
+      workspace: { id: ctx.workspaceId, name: ws!.name, baseCurrency: ws!.base_currency, useLeads: ctx.useLeads, timezone: ws!.timezone,
+        workingHours: (ws!.settings.workingHours as WorkingHours | undefined) ?? DEFAULT_WORKING_HOURS },
       permissions: permissionSummary(ctx),
     };
   });

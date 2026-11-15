@@ -4,6 +4,7 @@ import {
   FIELD_ENTITY_TYPES, FIELD_TYPES, PERMISSION_ACTIONS, PERMISSION_ENTITIES, PRIORITIES, RECORD_TYPES, SCOPES, STAGE_COLORS, STAGE_KINDS,
 } from './enums.ts';
 import { DATE_FORMATS, DUPLICATE_MODES, IMPORT_ENTITIES, IMPORT_LIMITS, MATCH_KEYS } from './imports.ts';
+import { isValidTimeZone } from './businessHours.ts';
 
 const trimmed = (max = 200) => z.string().trim().max(max);
 const optText = (max = 200) => trimmed(max).nullish().transform((v) => (v ? v : null));
@@ -223,10 +224,18 @@ export const roleUpdateSchema = z.object({ name: trimmed(60).min(1).optional(), 
 export const inviteSchema = z.object({ email: z.email('Invalid email address'), name: trimmed(100).min(1, 'Required'), roleId: idSchema });
 export const memberUpdateSchema = z.object({ roleId: idSchema.optional(), status: z.enum(['active', 'disabled']).optional() });
 export const teamSchema = z.object({ name: trimmed(60).min(1, 'Required'), memberIds: z.array(idSchema).max(500).default([]) });
+const hhmm = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, 'Use HH:MM');
+export const workingHoursSchema = z.object({
+  days: z.array(z.number().int().min(1).max(7)).max(7),
+  start: hhmm,
+  end: hhmm,
+}).refine((w) => w.end > w.start, { message: 'The working day must end after it starts', path: ['end'] });
 export const workspaceUpdateSchema = z.object({
   name: trimmed(100).min(1).optional(),
   baseCurrency: z.string().regex(/^[A-Z]{3}$/).optional(),
   useLeads: z.boolean().optional(),
+  timezone: z.string().max(60).refine(isValidTimeZone, 'Unknown time zone').optional(),
+  workingHours: workingHoursSchema.optional(),
 });
 
 export const conditionSchema = z.object({
@@ -244,6 +253,10 @@ export const automationRuleSchema = z.object({
   action: z.enum(AUTOMATION_ACTIONS),
   config: z.record(z.string(), z.unknown()).default({}),
   isEnabled: z.boolean().default(true),
+  /** field_changed: the field that triggers the rule (column name or custom.<key>). */
+  triggerField: z.string().regex(/^[a-z_]{1,40}$|^custom\.[a-z][a-z0-9_]{0,39}$/, 'Invalid field').nullish(),
+  /** Count the delay in working hours only (Settings → Workspace). */
+  businessHours: z.boolean().default(false),
 });
 export const automationRuleUpdateSchema = automationRuleSchema.partial();
 

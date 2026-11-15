@@ -10,7 +10,24 @@ import { parse } from '../lib/validate.ts';
 
 type IdParams = { Params: { id: string } };
 
-async function validateRule(ctx: Ctx, r: { entityType?: string; pipelineId?: number; stageId?: number | null; action?: string; config?: Record<string, unknown>; trigger?: string }) {
+/** Built-in fields that can trigger "When a field changes" rules (audit change keys). */
+export const TRIGGER_FIELDS: Record<'deal' | 'lead', string[]> = {
+  deal: ['amount', 'title', 'owner_id', 'expected_close_date', 'probability', 'company_id', 'source_id', 'deal_type_id', 'visibility', 'description'],
+  lead: ['amount', 'title', 'owner_id', 'source_id', 'company_name', 'first_name', 'last_name', 'visibility', 'description'],
+};
+
+async function validateRule(ctx: Ctx, r: { entityType?: string; pipelineId?: number; stageId?: number | null; action?: string; config?: Record<string, unknown>; trigger?: string; triggerField?: string | null }) {
+  if (r.trigger === 'field_changed') {
+    if (!r.triggerField) throw badRequest('Choose the field that triggers this rule', { triggerField: 'Required' });
+    if (r.triggerField.startsWith('custom.')) {
+      const f = await q1(sql`SELECT 1 FROM field_definitions WHERE workspace_id = ${ctx.workspaceId} AND entity_type = ${r.entityType ?? ''} AND key = ${r.triggerField.slice(7)}`);
+      if (!f) throw badRequest('Unknown custom field', { triggerField: 'Invalid' });
+    } else if (!TRIGGER_FIELDS[r.entityType as 'deal' | 'lead']?.includes(r.triggerField)) throw badRequest('This field cannot trigger rules', { triggerField: 'Invalid' });
+    // A rule that changes the field it listens to would only trigger itself.
+    const target = String(r.config?.field ?? '');
+    const asColumn: Record<string, string> = { expectedCloseDate: 'expected_close_date', sourceId: 'source_id' };
+    if (r.action === 'update_field' && (asColumn[target] ?? target) === r.triggerField) throw badRequest('A rule can’t change the field that triggers it');
+  }
   if (r.pipelineId) {
     const p = await q1<{ entity_type: string }>(sql`SELECT entity_type FROM pipelines WHERE id = ${r.pipelineId} AND workspace_id = ${ctx.workspaceId}`);
     if (!p) throw badRequest('Pipeline not found', { pipelineId: 'Invalid' });
@@ -55,8 +72,9 @@ export async function automationRoutes(app: FastifyInstance) {
     requireAdmin(ctx);
     const body = parse(automationRuleSchema, req.body);
     await validateRule(ctx, body);
-    const row = await q1(sql`INSERT INTO automation_rules (workspace_id, entity_type, pipeline_id, stage_id, trigger, delay_minutes, conditions, action, config, is_enabled, created_by, sort)
-      VALUES (${ctx.workspaceId}, ${body.entityType}, ${body.pipelineId}, ${body.stageId ?? null}, ${body.trigger}, ${body.delayMinutes},
+    const row = await q1(sql`INSERT INTO automation_rules (workspace_id, entity_type, pipeline_id, stage_id, trigger, trigger_field, business_hours, delay_minutes, conditions, action, config, is_enabled, created_by, sort)
+      VALUES (${ctx.workspaceId}, ${body.entityType}, ${body.pipelineId}, ${body.stageId ?? null}, ${body.trigger},
+              ${body.trigger === 'field_changed' ? body.triggerField ?? null : null}, ${body.businessHours}, ${body.delayMinutes},
               ${JSON.stringify(body.conditions)}::jsonb, ${body.action}, ${JSON.stringify(body.config)}::jsonb, ${body.isEnabled}, ${ctx.userId},
               (SELECT coalesce(max(sort),0)+1 FROM automation_rules WHERE workspace_id = ${ctx.workspaceId}))
       RETURNING *`);
@@ -74,6 +92,7 @@ export async function automationRoutes(app: FastifyInstance) {
     await validateRule(ctx, merged);
     const m = merged as Record<string, unknown>;
     const row = await q1(sql`UPDATE automation_rules SET stage_id = ${(m.stageId as number) ?? null}, trigger = ${m.trigger as string}, delay_minutes = ${m.delayMinutes as number},
+      trigger_field = ${m.trigger === 'field_changed' ? (m.triggerField as string) ?? null : null}, business_hours = ${Boolean(m.businessHours)},
       conditions = ${JSON.stringify(m.conditions)}::jsonb, action = ${m.action as string}, config = ${JSON.stringify(m.config)}::jsonb, is_enabled = ${m.isEnabled as boolean}
       WHERE id = ${id} RETURNING *`);
     return camel(row);

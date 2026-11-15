@@ -1,3 +1,4 @@
+import { addBusinessMinutes, DEFAULT_WORKING_HOURS, type WorkingHours } from '@crm/shared';
 import { pool, q, q1, raw, sql, tx, type Db } from '../db/index.ts';
 import { audit } from '../lib/audit.ts';
 import { systemCtx, type Ctx } from '../lib/context.ts';
@@ -15,28 +16,37 @@ const RETENTION_DAYS = 30;
 interface Rule {
   id: number; workspace_id: number; entity_type: 'deal' | 'lead'; pipeline_id: number; stage_id: number | null; trigger: string;
   delay_minutes: number; conditions: { field: string; op: string; value?: unknown }[]; action: string; config: Record<string, unknown>; is_enabled: boolean;
+  trigger_field: string | null; business_hours: boolean;
 }
 
 // ───────────────────────── Outbox → scheduled runs ─────────────────────────
 export async function processOutbox(limit = 100): Promise<number> {
   return tx(async (db) => {
-    const events = await q<{ id: number; workspace_id: number; type: string; entity_type: 'deal' | 'lead'; entity_id: number; payload: { stageId?: number }; depth: number }>(
+    const events = await q<{ id: number; workspace_id: number; type: string; entity_type: 'deal' | 'lead'; entity_id: number; payload: { stageId?: number; fields?: string[] }; depth: number }>(
       sql`SELECT * FROM outbox_events WHERE processed_at IS NULL ORDER BY id LIMIT ${limit} FOR UPDATE SKIP LOCKED`, db);
     for (const ev of events) {
       if (ev.depth < MAX_DEPTH) {
         const table = ev.entity_type === 'deal' ? 'deals' : 'leads';
-        const rec = await q1<{ pipeline_id: number }>(sql`SELECT pipeline_id FROM ${raw(table)} WHERE id = ${ev.entity_id}`, db);
+        const rec = await q1<{ pipeline_id: number; stage_id: number }>(sql`SELECT pipeline_id, stage_id FROM ${raw(table)} WHERE id = ${ev.entity_id} AND deleted_at IS NULL`, db);
         if (rec) {
-          const trigger = ev.type.endsWith('.created') ? 'created' : 'stage_entered';
+          const trigger = ev.type.endsWith('.created') ? 'created' : ev.type.endsWith('.field_changed') ? 'field_changed' : 'stage_entered';
+          const stageId = trigger === 'field_changed' ? rec.stage_id : ev.payload.stageId ?? null;
           const rules = await q<Rule>(sql`SELECT * FROM automation_rules WHERE workspace_id = ${ev.workspace_id} AND is_enabled
             AND entity_type = ${ev.entity_type} AND pipeline_id = ${rec.pipeline_id} AND trigger = ${trigger}
-            AND (stage_id IS NULL OR stage_id = ${ev.payload.stageId ?? null}) ORDER BY sort, id`, db);
+            AND (stage_id IS NULL OR stage_id = ${stageId})
+            ${trigger === 'field_changed' ? sql`AND trigger_field = ANY(${ev.payload.fields ?? []})` : sql``} ORDER BY sort, id`, db);
+          const ws = rules.some((r) => r.business_hours && r.delay_minutes > 0)
+            ? await q1<{ timezone: string; settings: { workingHours?: WorkingHours } }>(sql`SELECT timezone, settings FROM workspaces WHERE id = ${ev.workspace_id}`, db)
+            : null;
           for (const r of rules) {
+            const due = r.business_hours && r.delay_minutes > 0
+              ? addBusinessMinutes(new Date(), r.delay_minutes, ws?.settings.workingHours ?? DEFAULT_WORKING_HOURS, ws?.timezone ?? 'UTC')
+              : new Date(Date.now() + r.delay_minutes * 60_000);
             const run = await q1<{ id: number; scheduled_for: Date }>(sql`INSERT INTO automation_runs (workspace_id, rule_id, entity_type, entity_id, status, scheduled_for, depth)
-              VALUES (${ev.workspace_id}, ${r.id}, ${ev.entity_type}, ${ev.entity_id}, 'scheduled', now() + ${r.delay_minutes} * interval '1 minute', ${ev.depth})
+              VALUES (${ev.workspace_id}, ${r.id}, ${ev.entity_type}, ${ev.entity_id}, 'scheduled', ${due}, ${ev.depth})
               RETURNING id, scheduled_for`, db);
             await q(sql`INSERT INTO jobs (type, payload, run_at) VALUES ('automation.run',
-              ${JSON.stringify({ runId: run!.id, ruleId: r.id, entityType: ev.entity_type, entityId: ev.entity_id, stageId: ev.payload.stageId ?? null, depth: ev.depth })}, ${run!.scheduled_for})`, db);
+              ${JSON.stringify({ runId: run!.id, ruleId: r.id, entityType: ev.entity_type, entityId: ev.entity_id, stageId, depth: ev.depth })}, ${run!.scheduled_for})`, db);
           }
         }
       }

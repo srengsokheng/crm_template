@@ -1,3 +1,4 @@
+import { useMemo } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Send } from 'lucide-react';
 import { api } from '../../lib/api.ts';
@@ -10,7 +11,12 @@ import { AdminOnly } from './SettingsLayout.tsx';
 export function WorkspaceSettings() {
   const { data: me } = useMe();
   const qc = useQueryClient();
-  const f = useForm({ name: me?.workspace.name ?? '', baseCurrency: me?.workspace.baseCurrency ?? 'USD', useLeads: me?.workspace.useLeads ?? true });
+  const f = useForm({
+    name: me?.workspace.name ?? '', baseCurrency: me?.workspace.baseCurrency ?? 'USD', useLeads: me?.workspace.useLeads ?? true,
+    timezone: me?.workspace.timezone ?? 'UTC', workingHours: me?.workspace.workingHours ?? { days: [1, 2, 3, 4, 5], start: '09:00', end: '17:00' },
+  });
+  const wh = f.values.workingHours;
+  const zones = useMemo(() => { try { return (Intl as unknown as { supportedValuesOf(k: string): string[] }).supportedValuesOf('timeZone'); } catch { return ['UTC']; } }, []);
   const save = useAction(() => api.patch('/workspace', f.values), { success: 'Workspace saved', onSuccess: () => qc.invalidateQueries(), onError: (e) => { f.fromError(e); return false; } });
   return (
     <AdminOnly>
@@ -23,6 +29,30 @@ export function WorkspaceSettings() {
             <Checkbox checked={f.values.useLeads} onChange={(v) => f.set('useLeads', v)} label={<span className="font-medium">Use leads</span>} />
             <p className="pl-6 text-xs text-muted">Qualify new inquiries as leads before creating deals. Turn off to work with deals and contacts only.</p>
           </div>
+          <Field label="Time zone" htmlFor="ws-tz" hint="Used for reminders and working hours" error={f.errors.timezone}>
+            <Select id="ws-tz" value={f.values.timezone} onChange={(e) => f.set('timezone', e.target.value)}>
+              {(zones.includes(f.values.timezone) ? zones : [f.values.timezone, ...zones]).map((z) => <option key={z} value={z}>{z.replace(/_/g, ' ')}</option>)}
+            </Select>
+          </Field>
+          <fieldset className="space-y-2">
+            <legend className="text-[13px] font-medium">Working hours</legend>
+            <div className="flex flex-wrap gap-1.5" role="group" aria-label="Working days">
+              {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((d, i) => {
+                const on = wh.days.includes(i + 1);
+                return (
+                  <button key={d} type="button" aria-pressed={on} onClick={() => f.set('workingHours', { ...wh, days: on ? wh.days.filter((x) => x !== i + 1) : [...wh.days, i + 1].sort() })}
+                    className={`h-8 w-11 rounded-md border text-[13px] font-medium ${on ? 'border-brand-500 bg-brand-50 text-brand-700 dark:bg-brand-600/20 dark:text-brand-100' : 'border-base text-muted'}`}>{d}</button>
+                );
+              })}
+            </div>
+            <div className="flex items-center gap-2">
+              <Input type="time" aria-label="Day starts" className="w-32" value={wh.start} onChange={(e) => f.set('workingHours', { ...wh, start: e.target.value })} />
+              <span className="text-muted">to</span>
+              <Input type="time" aria-label="Day ends" className="w-32" value={wh.end} onChange={(e) => f.set('workingHours', { ...wh, end: e.target.value })} />
+            </div>
+            {(f.errors['workingHours.end'] || f.errors.workingHours) && <p className="text-xs text-rose-600" role="alert">{f.errors['workingHours.end'] ?? f.errors.workingHours}</p>}
+            <p className="text-xs text-muted">Automation delays marked “working hours only” skip evenings and days off.</p>
+          </fieldset>
           <Button type="submit" variant="primary" loading={save.isPending}>Save changes</Button>
         </form>
       </Card>

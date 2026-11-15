@@ -89,12 +89,20 @@ The research behind every decision is in this folder:
   records in the export scope; formula-like values are neutralised; every export is in the audit log ("Exported 18
   contacts to CSV", with the filters used).
 
-**Quality:** 100 Vitest tests (API against real PostgreSQL), 23 Playwright tests (desktop, tablet, phone), lint and
+- **Automation upgrades** (migration 0009): a **"When a field changes"** trigger for deals and leads (built-in fields
+  such as amount, owner, close date, probability, description, or any custom field; optionally only while in a given
+  stage). Every audited update of a deal/lead emits `deal|lead.field_changed` with the changed fields, so edits from the
+  UI, API, imports and other rules all count; the existing depth guard stops rule chains, and a rule may not change the
+  field it listens to. **Working-hours delays**: a rule's delay can count working time only, using the workspace time
+  zone and working days/hours set in Settings → Workspace (`addBusinessMinutes` in packages/shared handles weekends,
+  time zones and daylight saving).
+
+**Quality:** 110 Vitest tests (API against real PostgreSQL), 24 Playwright tests (desktop, tablet, phone), lint and
 typecheck clean, `npm audit` = 0, GitHub Actions CI in `.github/workflows/ci.yml`.
 
 ## 3. Not built yet — suggested next work (in priority order)
 
-1. Business-hours aware automation delays; webhook action; "field changed" trigger.
+1. Automation webhook action (POST to an allow-listed URL).
 2. Estimates/quotes and invoices with PDF (see `CRM_FEATURES.md`).
 3. File custom fields and attachments (needs object storage).
 4. Pipeline-level and field-level permissions.

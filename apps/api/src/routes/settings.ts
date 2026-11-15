@@ -26,8 +26,12 @@ export async function settingsRoutes(app: FastifyInstance) {
     const row = await q1(sql`UPDATE workspaces SET
         name = coalesce(${body.name ?? null}, name),
         base_currency = coalesce(${body.baseCurrency ?? null}, base_currency),
-        settings = CASE WHEN ${body.useLeads ?? null}::boolean IS NULL THEN settings ELSE jsonb_set(settings, '{useLeads}', to_jsonb(${body.useLeads ?? null}::boolean)) END
-      WHERE id = ${ctx.workspaceId} RETURNING id, name, base_currency, settings`);
+        timezone = coalesce(${body.timezone ?? null}, timezone),
+        settings = settings
+          || CASE WHEN ${body.useLeads ?? null}::boolean IS NULL THEN '{}'::jsonb ELSE jsonb_build_object('useLeads', ${body.useLeads ?? null}::boolean) END
+          || CASE WHEN ${body.workingHours ? JSON.stringify(body.workingHours) : null}::jsonb IS NULL THEN '{}'::jsonb
+                  ELSE jsonb_build_object('workingHours', ${body.workingHours ? JSON.stringify(body.workingHours) : null}::jsonb) END
+      WHERE id = ${ctx.workspaceId} RETURNING id, name, base_currency, timezone, settings`);
     return camel(row);
   });
 

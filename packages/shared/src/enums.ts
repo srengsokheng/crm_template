@@ -50,7 +50,7 @@ export type FieldType = (typeof FIELD_TYPES)[number];
 export const FIELD_ENTITY_TYPES = ['lead', 'deal', 'contact', 'company', 'product'] as const;
 export type FieldEntityType = (typeof FIELD_ENTITY_TYPES)[number];
 
-export const AUTOMATION_TRIGGERS = ['stage_entered', 'created'] as const;
+export const AUTOMATION_TRIGGERS = ['stage_entered', 'created', 'field_changed'] as const;
 export const AUTOMATION_ACTIONS = ['create_activity', 'notify', 'add_note', 'update_field', 'assign_owner', 'move_stage'] as const;
 export type AutomationAction = (typeof AUTOMATION_ACTIONS)[number];
 
