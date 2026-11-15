@@ -93,7 +93,8 @@ erDiagram
 
 ### `memberships`
 `workspace_id`, `user_id`, `role_id → roles`, `status ('active','invited','disabled')`,
-`invited_by`, `invite_token_hash`, PK `(workspace_id, user_id)`.
+`invited_by`, `invite_token_hash`, `email_reminders bool default true` (migration 0004; per-user opt-out of reminder
+emails), PK `(workspace_id, user_id)`.
 
 ### `roles` / `role_grants`
 - `roles`: `id`, `workspace_id`, `name`, `is_admin bool`, `is_system bool`.

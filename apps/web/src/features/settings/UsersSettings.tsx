@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { Copy, Plus, Trash2, UserPlus } from 'lucide-react';
+import { Copy, MailCheck, MailX, Plus, Trash2, UserPlus } from 'lucide-react';
 import { api, errorMessage } from '../../lib/api.ts';
 import { useMe, useMeta } from '../../lib/hooks.ts';
 import { Avatar, Badge, Button, Card, Checkbox, Field, IconButton, Input, Select } from '../../components/ui/primitives.tsx';
@@ -9,6 +9,24 @@ import { Dialog } from '../../components/ui/overlays.tsx';
 import { AdminOnly } from './SettingsLayout.tsx';
 
 interface Role { id: number; name: string; isAdmin: boolean }
+interface Invite { inviteUrl: string; emailed: boolean; email: string }
+
+/** What happened to an invitation: emailed or not, plus the link to share by hand. */
+function InviteResult({ invite }: { invite: Invite }) {
+  return (
+    <div className="space-y-3">
+      <p className={`flex items-start gap-2 rounded-md px-3 py-2.5 text-sm ${invite.emailed ? 'bg-emerald-50 text-emerald-800 dark:bg-emerald-500/10 dark:text-emerald-200' : 'bg-amber-50 text-amber-900 dark:bg-amber-500/10 dark:text-amber-200'}`}>
+        {invite.emailed ? <MailCheck className="mt-0.5 size-4 shrink-0" /> : <MailX className="mt-0.5 size-4 shrink-0" />}
+        <span>{invite.emailed
+          ? <>We emailed the invitation to <span className="font-medium">{invite.email}</span>. You can also share the link below.</>
+          : <>Email delivery isn’t set up on this server, so nothing was sent to <span className="font-medium">{invite.email}</span>. Share this link with them yourself.</>}</span>
+      </p>
+      <div className="flex gap-2"><Input readOnly value={invite.inviteUrl} aria-label="Invite link" onFocus={(e) => e.target.select()} />
+        <Button icon={<Copy className="size-4" />} onClick={async () => { try { await navigator.clipboard.writeText(invite.inviteUrl); toast.success('Link copied'); } catch { toast.error('Copy failed — select the link and copy it manually'); } }}>Copy</Button></div>
+      <p className="text-xs text-muted">The link works once. Creating a new invitation for the same person replaces it.</p>
+    </div>
+  );
+}
 
 export function UsersSettings() {
   const { data: meta } = useMeta();
@@ -16,6 +34,13 @@ export function UsersSettings() {
   const qc = useQueryClient();
   const roles = useQuery({ queryKey: ['roles'], queryFn: () => api.get<{ data: Role[] }>('/roles') });
   const [inviting, setInviting] = useState(false);
+  const [resent, setResent] = useState<Invite | null>(null);
+  const [resending, setResending] = useState<number | null>(null);
+  const resend = async (u: { id: number; email: string; name: string; roleId: number }) => {
+    setResending(u.id);
+    try { const r = await api.post<Omit<Invite, 'email'>>('/users/invite', { email: u.email, name: u.name, roleId: u.roleId }); setResent({ ...r, email: u.email }); }
+    catch (e) { toast.error(errorMessage(e)); } finally { setResending(null); }
+  };
   const [team, setTeam] = useState<{ id?: number; name: string; memberIds: number[] } | null>(null);
   const call = async (fn: () => Promise<unknown>, ok?: string) => { try { await fn(); qc.invalidateQueries({ queryKey: ['meta'] }); qc.invalidateQueries({ queryKey: ['roles'] }); if (ok) toast.success(ok); return true; } catch (e) { toast.error(errorMessage(e)); return false; } };
   return (
@@ -32,6 +57,8 @@ export function UsersSettings() {
                 <Select aria-label={`Role for ${u.name}`} className="h-8 w-36" value={u.roleId} disabled={u.id === me?.user.id} onChange={(e) => call(() => api.patch(`/users/${u.id}`, { roleId: Number(e.target.value) }), 'Role updated')}>
                   {(roles.data?.data ?? []).map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
                 </Select>
+                {u.status === 'invited' && <Button size="sm" variant="ghost" loading={resending === u.id} onClick={() => resend(u)}>Resend invite</Button>}
+                {u.status === 'invited' && <Button size="sm" variant="ghost" onClick={() => call(() => api.del(`/users/${u.id}/invite`), 'Invitation cancelled')}>Cancel invite</Button>}
                 {u.id !== me?.user.id && u.status !== 'invited' && (
                   <Button size="sm" variant="ghost" onClick={() => call(() => api.patch(`/users/${u.id}`, { status: u.status === 'disabled' ? 'active' : 'disabled' }), u.status === 'disabled' ? 'User enabled' : 'User disabled')}>{u.status === 'disabled' ? 'Enable' : 'Disable'}</Button>
                 )}
@@ -55,6 +82,9 @@ export function UsersSettings() {
         </Card>
       </div>
       <InviteDialog open={inviting} onClose={() => setInviting(false)} roles={roles.data?.data ?? []} />
+      <Dialog open={!!resent} onOpenChange={(v) => !v && setResent(null)} title="New invitation created" footer={<Button variant="primary" onClick={() => setResent(null)}>Done</Button>}>
+        {resent && <InviteResult invite={resent} />}
+      </Dialog>
       {team && (
         <Dialog open onOpenChange={(v) => !v && setTeam(null)} title={team.id ? 'Edit team' : 'New team'}
           footer={<><Button onClick={() => setTeam(null)}>Cancel</Button><Button variant="primary" disabled={!team.name.trim()} onClick={() => call(() => team.id ? api.patch(`/teams/${team.id}`, team) : api.post('/teams', team), 'Team saved').then((ok) => ok && setTeam(null))}>Save</Button></>}>
@@ -73,24 +103,21 @@ export function UsersSettings() {
 function InviteDialog({ open, onClose, roles }: { open: boolean; onClose: () => void; roles: Role[] }) {
   const qc = useQueryClient();
   const [form, setForm] = useState({ email: '', name: '', roleId: 0 });
-  const [link, setLink] = useState<string | null>(null);
+  const [link, setLink] = useState<Invite | null>(null);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
   const roleId = form.roleId || roles.find((r) => r.name === 'Sales rep')?.id || roles[0]?.id;
   const submit = async () => {
     setBusy(true); setErrors({});
-    try { const r = await api.post<{ inviteUrl: string }>('/users/invite', { ...form, roleId }); setLink(r.inviteUrl); qc.invalidateQueries({ queryKey: ['meta'] }); }
+    try { const r = await api.post<Omit<Invite, 'email'>>('/users/invite', { ...form, roleId }); setLink({ ...r, email: form.email }); qc.invalidateQueries({ queryKey: ['meta'] }); }
     catch (e) { setErrors((e as { fields?: Record<string, string> }).fields ?? { email: errorMessage(e) }); } finally { setBusy(false); }
   };
   const close = () => { setLink(null); setForm({ email: '', name: '', roleId: 0 }); onClose(); };
   return (
     <Dialog open={open} onOpenChange={(v) => !v && close()} title="Invite a teammate"
-      description={link ? 'Share this link with them. It works once.' : 'They’ll get a link to set their password.'}
+      description={link ? undefined : 'They’ll get a link to set their password.'}
       footer={link ? <Button variant="primary" onClick={close}>Done</Button> : <><Button onClick={close}>Cancel</Button><Button variant="primary" loading={busy} onClick={submit}>Create invite</Button></>}>
-      {link ? (
-        <div className="flex gap-2"><Input readOnly value={link} aria-label="Invite link" onFocus={(e) => e.target.select()} />
-          <Button icon={<Copy className="size-4" />} onClick={async () => { try { await navigator.clipboard.writeText(link); toast.success('Link copied'); } catch { toast.error('Copy failed — select the link and copy it manually'); } }}>Copy</Button></div>
-      ) : (
+      {link ? <InviteResult invite={link} /> : (
         <div className="space-y-3">
           <Field label="Name" htmlFor="i-name" error={errors.name}><Input id="i-name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></Field>
           <Field label="Email" htmlFor="i-email" error={errors.email}><Input id="i-email" type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} /></Field>

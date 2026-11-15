@@ -1,7 +1,9 @@
-import { useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { Send } from 'lucide-react';
 import { api } from '../../lib/api.ts';
 import { useAction, useMe } from '../../lib/hooks.ts';
-import { Button, Card, Checkbox, Field, Input, Select } from '../../components/ui/primitives.tsx';
+import { Badge, Button, Card, Checkbox, ErrorState, Field, Input, Select, Skeleton } from '../../components/ui/primitives.tsx';
+import { errorMessage } from '../../lib/api.ts';
 import { useForm } from '../records/form.tsx';
 import { AdminOnly } from './SettingsLayout.tsx';
 
@@ -24,6 +26,29 @@ export function WorkspaceSettings() {
           <Button type="submit" variant="primary" loading={save.isPending}>Save changes</Button>
         </form>
       </Card>
+      <EmailDelivery />
     </AdminOnly>
+  );
+}
+
+interface MailStatus { transport: 'console' | 'smtp' | 'memory'; delivers: boolean; from: string; host: string | null }
+
+function EmailDelivery() {
+  const q = useQuery({ queryKey: ['settings-email'], queryFn: () => api.get<MailStatus>('/settings/email') });
+  const test = useAction(() => api.post<MailStatus & { to: string }>('/settings/email/test'), {
+    success: (r) => (r.delivers ? `Test email sent to ${r.to}` : `Test message written to the server log (not sent to ${r.to})`),
+  });
+  return (
+    <Card className="mt-4" title="Email delivery" actions={q.data && <Badge tone={q.data.delivers ? 'green' : 'amber'}>{q.data.delivers ? 'Sending' : 'Not sending'}</Badge>}>
+      {q.isLoading ? <Skeleton className="h-16" /> : q.error || !q.data ? <ErrorState message={errorMessage(q.error)} onRetry={() => q.refetch()} /> : (
+        <div className="max-w-xl space-y-3 text-sm">
+          {q.data.delivers
+            ? <p>Invitations and activity reminders are sent through <span className="font-medium">{q.data.host}</span> from <span className="font-medium">{q.data.from}</span>.</p>
+            : <p>No mail server is configured, so invitations and reminders are only written to the server log. Invitation links are shown on screen for you to share.</p>}
+          <p className="text-xs text-muted">Set by the server administrator with the SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS and EMAIL_FROM environment variables. Passwords are never shown here.</p>
+          <Button icon={<Send className="size-4" />} loading={test.isPending} onClick={() => test.mutate(undefined)}>Send a test email to me</Button>
+        </div>
+      )}
+    </Card>
   );
 }

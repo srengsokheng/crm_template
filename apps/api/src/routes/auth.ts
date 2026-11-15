@@ -1,5 +1,5 @@
 import type { FastifyInstance, FastifyReply } from 'fastify';
-import { acceptInviteSchema, loginSchema, signupSchema } from '@crm/shared';
+import { acceptInviteSchema, loginSchema, preferencesSchema, signupSchema } from '@crm/shared';
 import { config } from '../config.ts';
 import { pool, q, q1, sql, tx } from '../db/index.ts';
 import { createSession, destroySession, hashPassword, SESSION_COOKIE, sha256, verifyPassword } from '../lib/auth.ts';
@@ -61,12 +61,24 @@ export async function authRoutes(app: FastifyInstance) {
     const ctx = ctxOf(req);
     const ws = await q1<{ name: string; base_currency: string; settings: Record<string, unknown> }>(
       sql`SELECT name, base_currency, settings FROM workspaces WHERE id = ${ctx.workspaceId}`);
+    const m = await q1<{ email_reminders: boolean }>(sql`SELECT email_reminders FROM memberships WHERE workspace_id = ${ctx.workspaceId} AND user_id = ${ctx.userId}`);
     return {
+      preferences: { emailReminders: m?.email_reminders ?? true },
       user: { id: ctx.userId, name: ctx.userName, email: ctx.email },
       role: { id: ctx.roleId, name: ctx.roleName, isAdmin: ctx.isAdmin },
       workspace: { id: ctx.workspaceId, name: ws!.name, baseCurrency: ws!.base_currency, useLeads: ctx.useLeads },
       permissions: permissionSummary(ctx),
     };
+  });
+
+  /** Personal settings for the current workspace. */
+  app.patch('/auth/preferences', async (req) => {
+    const ctx = ctxOf(req);
+    const body = parse(preferencesSchema, req.body);
+    if (body.emailReminders !== undefined) {
+      await q(sql`UPDATE memberships SET email_reminders = ${body.emailReminders} WHERE workspace_id = ${ctx.workspaceId} AND user_id = ${ctx.userId}`);
+    }
+    return { emailReminders: body.emailReminders };
   });
 
   app.get<{ Params: { token: string } }>('/auth/invite/:token', async (req) => {
