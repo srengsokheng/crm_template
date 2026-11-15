@@ -1,3 +1,5 @@
+import { fileURLToPath } from 'node:url';
+
 const env = process.env;
 
 export const config = {
@@ -22,5 +24,5 @@ export const config = {
       pass: env.SMTP_PASS || undefined,
     },
   },
-  webDist: env.WEB_DIST ?? new URL('../../web/dist/', import.meta.url).pathname,
+  webDist: env.WEB_DIST ?? fileURLToPath(new URL('../../web/dist/', import.meta.url)),
 };
