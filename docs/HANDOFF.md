@@ -60,7 +60,12 @@ The research behind every decision is in this folder:
   the link; pending invitations can be re-sent or cancelled; each user can turn reminder emails off in the account menu.
   Credentials come only from the environment (`.env.example` lists the variables, all commented out).
 
-**Quality:** 82 Vitest tests (API against real PostgreSQL), 18 Playwright tests (desktop, tablet, phone), lint and
+- **Password reset by email**: "Forgot password?" on sign-in → `/forgot-password` → emailed one-time link
+  (`/reset-password/:token`, 1 hour, only a SHA-256 hash stored, newest link replaces older ones, max 3 per hour per
+  account, 5 requests per 15 min per IP) → new password; all sessions of that user are signed out. The request answers
+  the same whether or not the email has an account (no account discovery).
+
+**Quality:** 85 Vitest tests (API against real PostgreSQL), 19 Playwright tests (desktop, tablet, phone), lint and
 typecheck clean, `npm audit` = 0, GitHub Actions CI in `.github/workflows/ci.yml`.
 
 ## 3. Not built yet — suggested next work (in priority order)
@@ -74,7 +79,7 @@ typecheck clean, `npm audit` = 0, GitHub Actions CI in `.github/workflows/ci.yml
 7. Multi-currency reporting with exchange rates.
 8. Import follow-ups: deals/products import, "add missing list options" during import, CSV export of lists.
 9. Merge follow-ups: merge leads; a "find all duplicates" page that lists candidate pairs; merge more than two at once.
-10. Email follow-ups: password reset by email; a daily digest of overdue activities; per-workspace sender name; showing
+10. Email follow-ups: a daily digest of overdue activities; per-workspace sender name; showing
     failed deliveries to admins (today they are only in the `jobs` table as `failed` with `last_error`).
 
 Import limits and choices: 5 MB / 10,000 rows / 100 columns per file; lead rows only match *open* leads; dictionary

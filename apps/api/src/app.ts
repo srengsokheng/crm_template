@@ -9,7 +9,8 @@ import { loadContext, SESSION_COOKIE } from './lib/auth.ts';
 import { AppError } from './lib/errors.ts';
 import { registerRoutes } from './routes/index.ts';
 
-const PUBLIC_API = new Set(['/api/v1/auth/login', '/api/v1/auth/signup', '/api/v1/auth/accept-invite', '/api/v1/health']);
+const PUBLIC_API = new Set(['/api/v1/auth/login', '/api/v1/auth/signup', '/api/v1/auth/accept-invite', '/api/v1/health',
+  '/api/v1/auth/forgot-password', '/api/v1/auth/reset-password']);
 
 export async function buildApp(opts: { logger?: boolean } = {}): Promise<FastifyInstance> {
   const app = Fastify({
@@ -38,7 +39,7 @@ export async function buildApp(opts: { logger?: boolean } = {}): Promise<Fastify
     }
     const token = req.cookies[SESSION_COOKIE];
     if (token) req.ctx = (await loadContext(token)) ?? undefined;
-    if (!req.ctx && !PUBLIC_API.has(path) && !path.startsWith('/api/v1/auth/invite/')) {
+    if (!req.ctx && !PUBLIC_API.has(path) && !path.startsWith('/api/v1/auth/invite/') && !path.startsWith('/api/v1/auth/reset/')) {
       throw new AppError(401, 'UNAUTHENTICATED', 'Please sign in');
     }
   });

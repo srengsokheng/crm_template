@@ -1,8 +1,9 @@
 import type { FastifyInstance, FastifyReply } from 'fastify';
-import { acceptInviteSchema, loginSchema, preferencesSchema, signupSchema } from '@crm/shared';
+import { acceptInviteSchema, forgotPasswordSchema, loginSchema, preferencesSchema, resetPasswordSchema, signupSchema } from '@crm/shared';
 import { config } from '../config.ts';
 import { pool, q, q1, sql, tx } from '../db/index.ts';
-import { createSession, destroySession, hashPassword, SESSION_COOKIE, sha256, verifyPassword } from '../lib/auth.ts';
+import { createSession, destroySession, hashPassword, newToken, SESSION_COOKIE, sha256, verifyPassword } from '../lib/auth.ts';
+import { queueMail, resetMail } from '../lib/mailer.ts';
 import { createWorkspaceDefaults } from '../lib/bootstrap.ts';
 import { AppError, badRequest } from '../lib/errors.ts';
 import { ctxOf } from '../lib/http.ts';
@@ -47,6 +48,51 @@ export async function authRoutes(app: FastifyInstance) {
     await q(sql`UPDATE users SET last_login_at = now() WHERE id = ${user.id}`);
     const token = await createSession(pool, user.id, m.workspace_id, req.headers['user-agent']);
     setCookie(reply, token);
+    return { ok: true };
+  });
+
+  // ─────────────── Password reset ───────────────
+  // Always the same answer, so the form can't be used to find out which emails have accounts.
+  const resetLimit = { config: { rateLimit: { max: config.isTest ? 1000 : 5, timeWindow: '15 minutes' } } };
+  app.post('/auth/forgot-password', resetLimit, async (req) => {
+    const body = parse(forgotPasswordSchema, req.body);
+    await tx(async (db) => {
+      const user = await q1<{ id: number; name: string; email: string }>(sql`SELECT u.id, u.name, u.email FROM users u
+        WHERE u.email = ${body.email} AND u.is_active AND u.password_hash IS NOT NULL
+          AND EXISTS (SELECT 1 FROM memberships m WHERE m.user_id = u.id AND m.status = 'active')`, db);
+      if (!user) return;
+      // At most 3 open requests per hour per account; older unused links stop working when a new one is sent.
+      const recent = await q1<{ n: number }>(sql`SELECT count(*)::int AS n FROM password_resets
+        WHERE user_id = ${user.id} AND created_at > now() - interval '1 hour'`, db);
+      if ((recent?.n ?? 0) >= 3) return;
+      await q(sql`UPDATE password_resets SET used_at = now() WHERE user_id = ${user.id} AND used_at IS NULL`, db);
+      const token = newToken();
+      await q(sql`INSERT INTO password_resets (user_id, token_hash, expires_at) VALUES (${user.id}, ${sha256(token)}, now() + interval '1 hour')`, db);
+      await queueMail(resetMail({ to: user.email, name: user.name, url: `${config.appUrl}/reset-password/${token}` }), db);
+    });
+    req.log.info('password reset requested');
+    return { ok: true };
+  });
+
+  app.get<{ Params: { token: string } }>('/auth/reset/:token', async (req) => {
+    const r = await q1<{ email: string }>(sql`SELECT u.email FROM password_resets pr JOIN users u ON u.id = pr.user_id
+      WHERE pr.token_hash = ${sha256(req.params.token)} AND pr.used_at IS NULL AND pr.expires_at > now() AND u.is_active`);
+    if (!r) throw new AppError(404, 'NOT_FOUND', 'This reset link is invalid or has expired. Ask for a new one.');
+    return { email: r.email };
+  });
+
+  app.post('/auth/reset-password', limit, async (req) => {
+    const body = parse(resetPasswordSchema, req.body);
+    const passwordHash = await hashPassword(body.password);
+    await tx(async (db) => {
+      const r = await q1<{ id: number; user_id: number }>(sql`SELECT pr.id, pr.user_id FROM password_resets pr JOIN users u ON u.id = pr.user_id
+        WHERE pr.token_hash = ${sha256(body.token)} AND pr.used_at IS NULL AND pr.expires_at > now() AND u.is_active FOR UPDATE OF pr`, db);
+      if (!r) throw new AppError(404, 'NOT_FOUND', 'This reset link is invalid or has expired. Ask for a new one.');
+      await q(sql`UPDATE users SET password_hash = ${passwordHash} WHERE id = ${r.user_id}`, db);
+      await q(sql`UPDATE password_resets SET used_at = now() WHERE user_id = ${r.user_id} AND used_at IS NULL`, db);
+      // Signed out everywhere: whoever knew the old password loses access.
+      await q(sql`DELETE FROM sessions WHERE user_id = ${r.user_id}`, db);
+    });
     return { ok: true };
   });
 

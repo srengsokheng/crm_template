@@ -262,6 +262,7 @@ export async function purge() {
     UNION ALL SELECT 1 FROM companies c WHERE cm.party_type = 'company' AND c.id = cm.party_id
     UNION ALL SELECT 1 FROM leads l WHERE cm.party_type = 'lead' AND l.id = cm.party_id)`);
   await q(sql`DELETE FROM sessions WHERE expires_at < now()`);
+  await q(sql`DELETE FROM password_resets WHERE created_at < now() - interval '7 days'`);
   // CSV imports: drop the raw cells 30 days after finishing; drafts that were never started go after 7 days.
   await q(sql`UPDATE imports SET rows = NULL WHERE rows IS NOT NULL AND finished_at < now() - ${RETENTION_DAYS + ' days'}::interval`);
   await q(sql`DELETE FROM imports WHERE status = 'draft' AND created_at < now() - interval '7 days'`);

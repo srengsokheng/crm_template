@@ -128,6 +128,18 @@ export function reminderMail(o: { to: string; name: string; subject: string; kin
   };
 }
 
+export function resetMail(o: { to: string; name: string; url: string }): Mail {
+  return {
+    to: o.to, subject: 'Reset your Acme CRM password',
+    ...layout({
+      heading: 'Reset your password',
+      lines: [`Hi ${o.name},`, 'Someone (hopefully you) asked to reset the password for this email address. Choose a new password with the button below. The link works once and expires in 1 hour.'],
+      button: { label: 'Choose a new password', url: o.url },
+      footer: 'If you did not ask for this, ignore this email — your password stays the same.',
+    }),
+  };
+}
+
 export function testMail(o: { to: string; workspace: string }): Mail {
   return {
     to: o.to, subject: 'Acme CRM test email',

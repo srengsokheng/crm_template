@@ -286,3 +286,10 @@ export type MergeInput = z.infer<typeof mergeSchema>;
 
 // ───────── Personal preferences ─────────
 export const preferencesSchema = z.object({ emailReminders: z.boolean().optional() });
+
+// ───────── Password reset ─────────
+export const forgotPasswordSchema = z.object({ email: z.email('Invalid email address').max(200) });
+export const resetPasswordSchema = z.object({
+  token: z.string().min(10).max(200),
+  password: z.string().min(8, 'At least 8 characters').max(200),
+});

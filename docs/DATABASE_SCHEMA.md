@@ -87,6 +87,9 @@ erDiagram
 | is_active | bool default true |
 | last_login_at | timestamptz |
 
+### `password_resets` (migration 0005)
+`id, user_id → users, token_hash (sha256, unique), expires_at, used_at, created_at`. Purged after 7 days.
+
 ### `sessions`
 `id text PK (random 32 bytes, hashed)`, `user_id → users`, `workspace_id → workspaces`,
 `expires_at`, `ip`, `user_agent`, `created_at`. Index on `user_id`.
