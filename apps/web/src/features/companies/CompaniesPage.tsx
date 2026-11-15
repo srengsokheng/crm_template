@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
-import { Building2, Plus, Upload } from 'lucide-react';
+import { Building2, CopyCheck, Plus, Upload } from 'lucide-react';
 import { api, errorMessage, qsOf } from '../../lib/api.ts';
 import { relative } from '../../lib/format.ts';
 import { useCan, useDict, useDictLabel } from '../../lib/hooks.ts';
@@ -38,6 +38,7 @@ export function CompaniesPage() {
   return (
     <div>
       <PageHeader title="Companies" subtitle="Organisations you do business with" actions={<>
+        {can('company', 'edit') && <Button variant="ghost" icon={<CopyCheck className="size-4" />} onClick={() => nav('/duplicates/company')}>Find duplicates</Button>}
         {can('company', 'import') && <Button icon={<Upload className="size-4" />} onClick={() => nav('/import/company')}>Import</Button>}
         {can('company', 'create') && <Button variant="primary" icon={<Plus className="size-4" />} onClick={() => create.open('company')}>New company</Button>}
       </>} />

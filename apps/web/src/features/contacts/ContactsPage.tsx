@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
-import { Plus, Upload, Users } from 'lucide-react';
+import { CopyCheck, Plus, Upload, Users } from 'lucide-react';
 import { api, errorMessage, qsOf } from '../../lib/api.ts';
 import { relative, personName } from '../../lib/format.ts';
 import { useCan, useDict } from '../../lib/hooks.ts';
@@ -35,6 +35,7 @@ export function ContactsPage() {
   return (
     <div>
       <PageHeader title="Contacts" subtitle="People you work with" actions={<>
+        {can('contact', 'edit') && <Button variant="ghost" icon={<CopyCheck className="size-4" />} onClick={() => nav('/duplicates/contact')}>Find duplicates</Button>}
         {can('contact', 'import') && <Button icon={<Upload className="size-4" />} onClick={() => nav('/import/contact')}>Import</Button>}
         {can('contact', 'create') && <Button variant="primary" icon={<Plus className="size-4" />} onClick={() => create.open('contact')}>New contact</Button>}
       </>} />

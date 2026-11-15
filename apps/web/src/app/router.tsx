@@ -27,6 +27,7 @@ import { RecycleBin } from '../features/settings/RecycleBin.tsx';
 import { AuditLog } from '../features/settings/AuditLog.tsx';
 import { ImportStart } from '../features/imports/ImportStart.tsx';
 import { ImportDetail } from '../features/imports/ImportDetail.tsx';
+import { DuplicatesPage } from '../features/duplicates/DuplicatesPage.tsx';
 
 export const router = createBrowserRouter([
   { path: '/login', element: <LoginPage /> },
@@ -53,6 +54,7 @@ export const router = createBrowserRouter([
       { path: 'reports', element: <ReportsPage /> },
       { path: 'import/:entity', element: <ImportStart /> },
       { path: 'imports/:id', element: <ImportDetail /> },
+      { path: 'duplicates/:entity', element: <DuplicatesPage /> },
       {
         path: 'settings',
         element: <SettingsLayout />,

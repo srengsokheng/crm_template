@@ -77,7 +77,13 @@ The research behind every decision is in this folder:
   to everyone and only admins create/change them. Max 50 personal views per list. Views only store filters — what a
   person sees is still limited by their role. API: `GET/POST /views`, `PATCH/DELETE /views/:id` (migration 0007).
 
-**Quality:** 92 Vitest tests (API against real PostgreSQL), 21 Playwright tests (desktop, tablet, phone), lint and
+- **Find duplicates** (`/duplicates/contact|company`, "Find duplicates" on the Contacts and Companies lists): every pair
+  of records that share an email, phone, website (normalised) or exactly the same name, strongest matches first (max
+  200 pairs). Only records the caller may view are considered. "Merge…" opens the merge dialog on that pair and stays on
+  the page; "Not a duplicate" hides the pair for everyone (needs edit on both; audited as `not_duplicate`;
+  table `duplicate_dismissals`, migration 0008).
+
+**Quality:** 96 Vitest tests (API against real PostgreSQL), 22 Playwright tests (desktop, tablet, phone), lint and
 typecheck clean, `npm audit` = 0, GitHub Actions CI in `.github/workflows/ci.yml`.
 
 ## 3. Not built yet — suggested next work (in priority order)
@@ -88,7 +94,7 @@ typecheck clean, `npm audit` = 0, GitHub Actions CI in `.github/workflows/ci.yml
 4. Pipeline-level and field-level permissions.
 5. Multi-currency reporting with exchange rates.
 6. Import follow-ups: deals/products import, "add missing list options" during import, CSV export of lists.
-7. Merge follow-ups: merge leads; a "find all duplicates" page that lists candidate pairs; merge more than two at once.
+7. Merge follow-ups: merge leads; merge more than two at once; fuzzy name matching on the duplicates page.
 8. Email follow-ups: a daily digest of overdue activities; per-workspace sender name; showing
     failed deliveries to admins (today they are only in the `jobs` table as `failed` with `last_error`).
 

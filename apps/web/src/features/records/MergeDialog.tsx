@@ -26,18 +26,22 @@ const RELATED_LABEL: Record<string, [string, string]> = {
 };
 
 /** Merge the current record with another one: pick it, choose what to keep, confirm. */
-export function MergeDialog({ entity, open, onOpenChange, current }: {
+export function MergeDialog({ entity, open, onOpenChange, current, initialOther, onMerged }: {
   entity: Entity; open: boolean; onOpenChange: (v: boolean) => void;
   current: { id: number; name: string; emails: string[]; phones: string[]; websites?: string[] };
+  /** Skip the pick step and compare with this record straight away. */
+  initialOther?: PickerItem;
+  /** Called with the kept record's id instead of opening it. */
+  onMerged?: (id: number) => void;
 }) {
-  const [other, setOther] = useState<PickerItem | null>(null);
-  const close = (v: boolean) => { onOpenChange(v); if (!v) setOther(null); };
+  const [other, setOther] = useState<PickerItem | null>(initialOther ?? null);
+  const close = (v: boolean) => { onOpenChange(v); if (!v) setOther(initialOther ?? null); };
   const n = NOUN[entity];
   return (
     <Dialog open={open} onOpenChange={close} size="lg" title={other ? `Merge ${n.many}` : `Merge “${current.name}” with…`}
       description={other ? undefined : `Pick the duplicate ${n.one}. You choose which one to keep and which values win on the next step.`}>
       {other
-        ? <Compare entity={entity} ids={[current.id, other.id]} onBack={() => setOther(null)} onDone={() => close(false)} />
+        ? <Compare entity={entity} ids={[current.id, other.id]} onBack={initialOther ? () => close(false) : () => setOther(null)} onDone={() => close(false)} onMerged={onMerged} backLabel={initialOther ? 'Cancel' : undefined} />
         : <Pick entity={entity} current={current} onPick={setOther} />}
     </Dialog>
   );
@@ -85,7 +89,9 @@ function Pick({ entity, current, onPick }: { entity: Entity; current: { id: numb
 const isEmpty = (v: unknown) => v === null || v === undefined || v === '' || (Array.isArray(v) && !v.length)
   || (typeof v === 'object' && !Array.isArray(v) && Object.values(v as object).every((x) => x === null || x === ''));
 
-function Compare({ entity, ids, onBack, onDone }: { entity: Entity; ids: [number, number]; onBack: () => void; onDone: () => void }) {
+function Compare({ entity, ids, onBack, onDone, onMerged, backLabel }: {
+  entity: Entity; ids: [number, number]; onBack: () => void; onDone: () => void; onMerged?: (id: number) => void; backLabel?: string;
+}) {
   const nav = useNavigate();
   const qc = useQueryClient();
   const dictLabel = useDictLabel();
@@ -151,7 +157,7 @@ function Compare({ entity, ids, onBack, onDone }: { entity: Entity; ids: [number
       for (const k of [n.many, entity, 'deals', 'timeline', 'history', 'duplicates']) qc.invalidateQueries({ queryKey: [k] });
       toast.success(`${n.many[0].toUpperCase()}${n.many.slice(1)} merged`);
       onDone();
-      nav(`${n.path}/${res.id}`);
+      if (onMerged) onMerged(res.id); else nav(`${n.path}/${res.id}`);
     } catch (e) {
       toast.error(errorMessage(e));
       setBusy(false);
@@ -223,7 +229,7 @@ function Compare({ entity, ids, onBack, onDone }: { entity: Entity; ids: [number
       </p>
 
       <div className="flex flex-wrap justify-end gap-2 border-t border-base pt-3">
-        <Button icon={<ArrowLeft className="size-4" />} onClick={onBack} disabled={busy}>Pick another</Button>
+        <Button icon={backLabel ? undefined : <ArrowLeft className="size-4" />} onClick={onBack} disabled={busy}>{backLabel ?? 'Pick another'}</Button>
         <Button variant="primary" loading={busy} disabled={!allowed} onClick={merge}>Merge into “{recs[keep].title}”</Button>
       </div>
     </div>

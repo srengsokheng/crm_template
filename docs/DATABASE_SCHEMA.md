@@ -433,6 +433,10 @@ Index `(workspace_id, created_at desc)`. Admins see all imports of the workspace
 are deleted after 7 days. Records created/updated by an import carry `changes._import = {id, file}` in `audit_events`; the
 import itself is audited as `entity_type = 'import'` (`imported`, `undone`).
 
+### `duplicate_dismissals` (migration 0008)
+`workspace_id, entity_type (contact|company), a_id < b_id, dismissed_by, created_at`, PK on all four keys. Pairs listed
+here are hidden from the find-duplicates page.
+
 ### `saved_views`
 `id, workspace_id, owner_id (NULL = shared with the workspace), entity_type (lead|deal|contact|company, check added in
 migration 0007), name, query jsonb (the list URL parameters), created_at`. Index `(workspace_id, entity_type, owner_id)`.
