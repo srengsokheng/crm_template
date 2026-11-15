@@ -28,6 +28,10 @@ export async function meta(page: Page) { return api(page, 'GET', '/meta'); }
 
 /** Drag with real pointer events (dnd-kit needs intermediate moves). */
 export async function drag(page: Page, from: ReturnType<Page['locator']>, to: ReturnType<Page['locator']>) {
+  // A previous move makes the board refetch; if that lands mid-drag the card re-renders and the drag is lost.
+  // Let the page settle first, then measure.
+  await page.waitForLoadState('networkidle');
+  await from.waitFor();
   const a = (await from.boundingBox())!;
   const b = (await to.boundingBox())!;
   await page.mouse.move(a.x + a.width / 2, a.y + 20);
