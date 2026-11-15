@@ -293,3 +293,21 @@ export const resetPasswordSchema = z.object({
   token: z.string().min(10).max(200),
   password: z.string().min(8, 'At least 8 characters').max(200),
 });
+
+// ───────── Saved list views ─────────
+export const SAVED_VIEW_ENTITIES = ['lead', 'deal', 'contact', 'company'] as const;
+/** The list's URL parameters (page is never stored). */
+const viewQuery = z.record(z.string().regex(/^[a-zA-Z]{1,30}$/), z.string().max(200))
+  .refine((o) => Object.keys(o).length <= 20, 'Too many filters')
+  .transform((o) => { const { page: _p, ...rest } = o; void _p; return rest; });
+export const savedViewSchema = z.object({
+  entityType: z.enum(SAVED_VIEW_ENTITIES),
+  name: z.string().trim().min(1, 'Required').max(60),
+  query: viewQuery,
+  shared: z.boolean().default(false),
+});
+export const savedViewUpdateSchema = z.object({
+  name: z.string().trim().min(1, 'Required').max(60).optional(),
+  query: viewQuery.optional(),
+  shared: z.boolean().optional(),
+});

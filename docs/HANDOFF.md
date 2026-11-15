@@ -70,20 +70,26 @@ The research behind every decision is in this folder:
   record timeline. Filters: record name, type, action, person, date range; CSV export of the filtered rows (max 10,000).
   Phones get a stacked list instead of the table. Index `audit_workspace_created` (migration 0006).
 
-**Quality:** 88 Vitest tests (API against real PostgreSQL), 20 Playwright tests (desktop, tablet, phone), lint and
+- **Saved views** on the contacts, companies, leads and deals lists: a bar of chips above the filters ("All" + views).
+  A view stores the list's URL filters (search, owner, type/stage/source, sort, board/list — never the page). "Save view"
+  appears when the filters don't match a view; the active view's menu renames or deletes it; "Update a view" overwrites
+  one with the current filters. Personal views are private (even from admins); shared views (`owner_id` NULL) are visible
+  to everyone and only admins create/change them. Max 50 personal views per list. Views only store filters — what a
+  person sees is still limited by their role. API: `GET/POST /views`, `PATCH/DELETE /views/:id` (migration 0007).
+
+**Quality:** 92 Vitest tests (API against real PostgreSQL), 21 Playwright tests (desktop, tablet, phone), lint and
 typecheck clean, `npm audit` = 0, GitHub Actions CI in `.github/workflows/ci.yml`.
 
 ## 3. Not built yet — suggested next work (in priority order)
 
-1. **Saved views** on lists (table `saved_views` exists, no API/UI yet).
-2. Business-hours aware automation delays; webhook action; "field changed" trigger.
-3. Estimates/quotes and invoices with PDF (see `CRM_FEATURES.md`).
-4. File custom fields and attachments (needs object storage).
-5. Pipeline-level and field-level permissions.
-6. Multi-currency reporting with exchange rates.
-7. Import follow-ups: deals/products import, "add missing list options" during import, CSV export of lists.
-8. Merge follow-ups: merge leads; a "find all duplicates" page that lists candidate pairs; merge more than two at once.
-9. Email follow-ups: a daily digest of overdue activities; per-workspace sender name; showing
+1. Business-hours aware automation delays; webhook action; "field changed" trigger.
+2. Estimates/quotes and invoices with PDF (see `CRM_FEATURES.md`).
+3. File custom fields and attachments (needs object storage).
+4. Pipeline-level and field-level permissions.
+5. Multi-currency reporting with exchange rates.
+6. Import follow-ups: deals/products import, "add missing list options" during import, CSV export of lists.
+7. Merge follow-ups: merge leads; a "find all duplicates" page that lists candidate pairs; merge more than two at once.
+8. Email follow-ups: a daily digest of overdue activities; per-workspace sender name; showing
     failed deliveries to admins (today they are only in the `jobs` table as `failed` with `last_error`).
 
 Import limits and choices: 5 MB / 10,000 rows / 100 columns per file; lead rows only match *open* leads; dictionary

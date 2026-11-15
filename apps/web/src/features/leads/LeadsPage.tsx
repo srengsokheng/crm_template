@@ -10,6 +10,7 @@ import { Button, EmptyState, ErrorState, PageHeader, Segmented, Skeleton } from 
 import { DataTable, Pagination, type Column } from '../../components/ui/DataTable.tsx';
 import { StageBadge } from '../../components/ui/StageBadge.tsx';
 import { useCreate } from '../../app/create.tsx';
+import { SavedViews } from '../records/SavedViews.tsx';
 import { BulkBar, FilterSelect, SearchBox, Toolbar, useListParams } from '../records/list.tsx';
 import { Board, type BoardCard, type BoardStat } from '../deals/Board.tsx';
 import { useStageMove } from '../deals/useStageMove.tsx';
@@ -62,6 +63,7 @@ export function LeadsPage() {
         {can('lead', 'import') && <Button icon={<Upload className="size-4" />} onClick={() => nav('/import/lead')}>Import</Button>}
         {can('lead', 'create') && <Button variant="primary" icon={<Plus className="size-4" />} onClick={() => create.open('lead')}>New lead</Button>}
       </>} />
+      <SavedViews entity="lead" />
       <Toolbar>
         <SearchBox value={lp.get('q')} onChange={(v) => lp.set({ q: v })} placeholder="Search name, company, email, phone" />
         <FilterSelect label="Owner" value={lp.get('ownerId')} onChange={(v) => lp.set({ ownerId: v })} options={[{ value: 'me', label: 'Me' }]} />

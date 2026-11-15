@@ -9,6 +9,7 @@ import type { ListResponse } from '../../lib/types.ts';
 import { Avatar, Button, EmptyState, PageHeader } from '../../components/ui/primitives.tsx';
 import { DataTable, Pagination, type Column } from '../../components/ui/DataTable.tsx';
 import { useCreate } from '../../app/create.tsx';
+import { SavedViews } from '../records/SavedViews.tsx';
 import { BulkBar, FilterSelect, SearchBox, Toolbar, useListParams } from '../records/list.tsx';
 
 interface Row { id: number; firstName: string | null; lastName: string | null; jobTitle: string | null; companyName: string | null; primaryCompanyId: number | null; email: string | null; phone: string | null; ownerName: string | null; ownerId: number; createdAt: string }
@@ -37,6 +38,7 @@ export function ContactsPage() {
         {can('contact', 'import') && <Button icon={<Upload className="size-4" />} onClick={() => nav('/import/contact')}>Import</Button>}
         {can('contact', 'create') && <Button variant="primary" icon={<Plus className="size-4" />} onClick={() => create.open('contact')}>New contact</Button>}
       </>} />
+      <SavedViews entity="contact" />
       <Toolbar>
         <SearchBox value={lp.get('q')} onChange={(v) => lp.set({ q: v })} placeholder="Search name, email, phone, company" />
         <FilterSelect label="Owner" value={lp.get('ownerId')} onChange={(v) => lp.set({ ownerId: v })} options={[{ value: 'me', label: 'Me' }]} />

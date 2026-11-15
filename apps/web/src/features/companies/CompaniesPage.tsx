@@ -9,6 +9,7 @@ import type { ListResponse } from '../../lib/types.ts';
 import { Button, EmptyState, PageHeader } from '../../components/ui/primitives.tsx';
 import { DataTable, Pagination, type Column } from '../../components/ui/DataTable.tsx';
 import { useCreate } from '../../app/create.tsx';
+import { SavedViews } from '../records/SavedViews.tsx';
 import { BulkBar, FilterSelect, SearchBox, Toolbar, useListParams } from '../records/list.tsx';
 
 interface Row { id: number; name: string; typeId: number | null; industryId: number | null; website: string | null; phone: string | null; ownerName: string | null; contactsCount: number; openDealsCount: number; createdAt: string }
@@ -40,6 +41,7 @@ export function CompaniesPage() {
         {can('company', 'import') && <Button icon={<Upload className="size-4" />} onClick={() => nav('/import/company')}>Import</Button>}
         {can('company', 'create') && <Button variant="primary" icon={<Plus className="size-4" />} onClick={() => create.open('company')}>New company</Button>}
       </>} />
+      <SavedViews entity="company" />
       <Toolbar>
         <SearchBox value={lp.get('q')} onChange={(v) => lp.set({ q: v })} placeholder="Search name, website, phone" />
         <FilterSelect label="Owner" value={lp.get('ownerId')} onChange={(v) => lp.set({ ownerId: v })} options={[{ value: 'me', label: 'Me' }]} />

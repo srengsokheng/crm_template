@@ -434,8 +434,8 @@ are deleted after 7 days. Records created/updated by an import carry `changes._i
 import itself is audited as `entity_type = 'import'` (`imported`, `undone`).
 
 ### `saved_views`
-`id, workspace_id, owner_id (null = shared), entity_type, name, filters jsonb, sort text,
-columns text[], is_default bool`.
+`id, workspace_id, owner_id (NULL = shared with the workspace), entity_type (lead|deal|contact|company, check added in
+migration 0007), name, query jsonb (the list URL parameters), created_at`. Index `(workspace_id, entity_type, owner_id)`.
 
 ### `exchange_rates` (v1.1)
 `workspace_id, currency, rate_to_base numeric(18,8), valid_from date`.

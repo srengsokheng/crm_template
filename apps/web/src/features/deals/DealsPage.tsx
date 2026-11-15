@@ -10,6 +10,7 @@ import { Badge, Button, EmptyState, ErrorState, PageHeader, Segmented, Select, S
 import { DataTable, Pagination, type Column } from '../../components/ui/DataTable.tsx';
 import { StageBadge } from '../../components/ui/StageBadge.tsx';
 import { useCreate } from '../../app/create.tsx';
+import { SavedViews } from '../records/SavedViews.tsx';
 import { BulkBar, FilterSelect, SearchBox, Toolbar, useListParams } from '../records/list.tsx';
 import { Board, type BoardCard, type BoardStat } from './Board.tsx';
 import { useStageMove } from './useStageMove.tsx';
@@ -67,6 +68,7 @@ export function DealsPage() {
         <Segmented value={view} onChange={(v) => lp.set({ view: v === 'board' ? null : v })} options={[{ value: 'board', label: 'Board', icon: <KanbanSquare className="size-4" /> }, { value: 'list', label: 'List', icon: <List className="size-4" /> }]} />
         {can('deal', 'create') && <Button variant="primary" icon={<Plus className="size-4" />} onClick={() => create.open('deal', { pipelineId })}>New deal</Button>}
       </>} />
+      <SavedViews entity="deal" />
       <Toolbar right={view === 'list' && list.data?.aggregates && <span className="text-[13px] text-muted">Total <span className="font-semibold text-[var(--text)] tabular">{money(list.data.aggregates.amountSum, currency)}</span></span>}>
         {pipelines.length > 1 && (
           <Select aria-label="Pipeline" className="w-auto min-w-40" value={pipelineId ?? ''} onChange={(e) => lp.set({ pipelineId: e.target.value })}>
