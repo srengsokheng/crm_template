@@ -6,6 +6,8 @@ import { createActivity } from '../routes/activities.ts';
 import { moveDeal } from '../routes/deals.ts';
 import { moveLead } from '../routes/leads.ts';
 import { runChunk } from '../imports/engine.ts';
+import { config } from '../config.ts';
+import { deliver, queueMail, reminderMail, type Mail } from '../lib/mailer.ts';
 
 export const MAX_DEPTH = 5;
 const RETENTION_DAYS = 30;
@@ -60,6 +62,7 @@ export async function processJobs(limit = 20, now?: Date): Promise<number> {
       if (job.type === 'automation.run') await runAutomation(job.payload as never);
       else if (job.type === 'reminders') await sendReminders(now ?? new Date());
       else if (job.type === 'purge') await purge();
+      else if (job.type === 'email.send') await deliver(job.payload as unknown as Mail);
       else if (job.type === 'import.run') await runChunk(Number((job.payload as { importId: number }).importId));
       await q(sql`UPDATE jobs SET status = 'done' WHERE id = ${job.id}`);
     } catch (e) {
@@ -215,13 +218,39 @@ export async function runAutomation(p: { runId: number; ruleId: number; entityTy
 }
 
 // ───────────────────────── Reminders & purge ─────────────────────────
+/** Due reminders → in-app notification, plus an email to the assignee unless they turned reminder emails off. */
 export async function sendReminders(now = new Date()) {
-  await q(sql`WITH due AS (
+  await tx(async (db) => {
+    const due = await q<{ id: number; workspace_id: number; assignee_id: number | null; subject: string; kind: string; due_at: Date | null }>(sql`
       UPDATE activities SET reminded_at = now() WHERE status = 'open' AND deleted_at IS NULL AND reminded_at IS NULL
-        AND reminder_at IS NOT NULL AND reminder_at <= ${now} RETURNING id, workspace_id, assignee_id, subject, due_at)
-    INSERT INTO notifications (workspace_id, user_id, kind, title, body, entity_type, entity_id)
-    SELECT workspace_id, assignee_id, 'reminder', 'Reminder: ' || subject, to_char(due_at AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI') || ' UTC', 'activity', id
-    FROM due WHERE assignee_id IS NOT NULL`);
+        AND reminder_at IS NOT NULL AND reminder_at <= ${now} RETURNING id, workspace_id, assignee_id, subject, kind, due_at`, db);
+    for (const a of due) {
+      if (!a.assignee_id) continue;
+      await q(sql`INSERT INTO notifications (workspace_id, user_id, kind, title, body, entity_type, entity_id)
+        VALUES (${a.workspace_id}, ${a.assignee_id}, 'reminder', ${'Reminder: ' + a.subject},
+          to_char(${a.due_at}::timestamptz AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI') || ' UTC', 'activity', ${a.id})`, db);
+      const to = await q1<{ email: string; name: string; workspace: string; timezone: string }>(sql`
+        SELECT u.email, u.name, w.name AS workspace, w.timezone FROM memberships m
+        JOIN users u ON u.id = m.user_id AND u.is_active JOIN workspaces w ON w.id = m.workspace_id
+        WHERE m.workspace_id = ${a.workspace_id} AND m.user_id = ${a.assignee_id} AND m.status = 'active' AND m.email_reminders`, db);
+      if (!to) continue;
+      const related = await q<{ title: string | null }>(sql`SELECT CASE al.entity_type
+          WHEN 'deal' THEN (SELECT title FROM deals WHERE id = al.entity_id AND deleted_at IS NULL)
+          WHEN 'lead' THEN (SELECT title FROM leads WHERE id = al.entity_id AND deleted_at IS NULL)
+          WHEN 'contact' THEN (SELECT trim(coalesce(first_name,'') || ' ' || coalesce(last_name,'')) FROM contacts WHERE id = al.entity_id AND deleted_at IS NULL)
+          WHEN 'company' THEN (SELECT name FROM companies WHERE id = al.entity_id AND deleted_at IS NULL) END AS title
+        FROM activity_links al WHERE al.activity_id = ${a.id}`, db);
+      await queueMail(reminderMail({
+        to: to.email, name: to.name, subject: a.subject, kind: a.kind, due: a.due_at ? formatDue(a.due_at, to.timezone) : null,
+        related: related.map((r) => r.title).filter((t): t is string => !!t), workspace: to.workspace, url: `${config.appUrl}/activities`,
+      }), db);
+    }
+  });
+}
+
+function formatDue(d: Date, timeZone: string): string {
+  try { return `${new Intl.DateTimeFormat('en-US', { dateStyle: 'medium', timeStyle: 'short', timeZone }).format(d)} (${timeZone})`; }
+  catch { return `${d.toISOString().slice(0, 16).replace('T', ' ')} UTC`; }
 }
 
 export async function purge() {

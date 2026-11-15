@@ -3,7 +3,8 @@
 A modern, full-stack CRM built from scratch, using Bitrix24 as a functional reference and redesigned for a much simpler experience.
 Leads, deals with pipelines and Kanban, contacts, companies, products and line items, activities and reminders, a unified timeline,
 custom fields (including "required from stage"), role-based permissions with teams, automation rules, dashboard and reports,
-CSV import with column mapping and duplicate handling, and merging of duplicate contacts and companies.
+CSV import with column mapping and duplicate handling, merging of duplicate contacts and companies, and email delivery
+for invitations and reminders.
 
 > **Continuing this project?** Start with [docs/HANDOFF.md](docs/HANDOFF.md) and [CLAUDE.md](CLAUDE.md).
 > A ready-to-paste prompt for a new AI agent is in [docs/AGENT_PROMPT.md](docs/AGENT_PROMPT.md).
@@ -46,6 +47,21 @@ NODE_ENV=production DATABASE_URL=postgres://… APP_URL=https://crm.example.com 
 `npm start` applies migrations, serves the API under `/api/v1` and the built web app on the same port, and runs background jobs
 in-process. To run jobs separately, set `INLINE_WORKER=false` and start `npm run worker -w @crm/api`.
 Session cookies are `Secure` in production, so serve it over HTTPS.
+
+### Email
+
+Invitations and activity reminders are emailed when an SMTP server is configured; otherwise they are printed to the
+server log and invitation links are shown on screen. Set these in the environment (never in the repository):
+
+```bash
+SMTP_HOST=smtp.example.com
+SMTP_PORT=587                  # 587/25 = STARTTLS, 465 = TLS
+SMTP_USER=…
+SMTP_PASS=…
+EMAIL_FROM="Acme CRM <crm@example.com>"
+```
+
+Admins can check the setup in Settings → Workspace → Email delivery ("Send a test email to me").
 
 ## Checks
 

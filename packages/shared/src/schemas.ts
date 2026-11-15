@@ -283,3 +283,6 @@ export const mergeSchema = z.object({
   choose: z.record(z.string().max(80), z.enum(['survivor', 'merged'])).default({}),
 });
 export type MergeInput = z.infer<typeof mergeSchema>;
+
+// ───────── Personal preferences ─────────
+export const preferencesSchema = z.object({ emailReminders: z.boolean().optional() });

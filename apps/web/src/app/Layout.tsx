@@ -2,9 +2,10 @@ import { Suspense, useEffect, useState, type ReactNode } from 'react';
 import { Link, NavLink, Navigate, Outlet, useLocation, useNavigate } from 'react-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
-  BarChart3, Bell, Building2, CheckSquare, Handshake, Home, LogOut, Menu as MenuIcon, Moon, Package, Plus, Search, Settings, Sun, Users, Zap, Monitor, X,
+  BarChart3, Bell, BellOff, BellRing, Building2, CheckSquare, Handshake, Home, LogOut, Menu as MenuIcon, Moon, Package, Plus, Search, Settings, Sun, Users, Zap, Monitor, X,
 } from 'lucide-react';
-import { api, ApiError } from '../lib/api.ts';
+import { toast } from 'sonner';
+import { api, ApiError, errorMessage } from '../lib/api.ts';
 import { cn } from '../lib/cn.ts';
 import { relative } from '../lib/format.ts';
 import { useCan, useMe } from '../lib/hooks.ts';
@@ -156,6 +157,14 @@ function TopBar({ onSearch }: { onSearch: () => void }) {
   const [theme, setTheme] = useState<Theme>(getTheme());
   const logout = async () => { await api.post('/auth/logout', {}); qc.clear(); nav('/login', { replace: true }); };
   const cycleTheme = (t: Theme) => { setTheme(t); applyTheme(t); };
+  const reminders = me?.preferences.emailReminders ?? true;
+  const toggleReminders = async () => {
+    try {
+      await api.patch('/auth/preferences', { emailReminders: !reminders });
+      await qc.invalidateQueries({ queryKey: ['me'] });
+      toast.success(reminders ? 'Reminder emails turned off' : 'Reminder emails turned on');
+    } catch (e) { toast.error(errorMessage(e)); }
+  };
   return (
     <header className="sticky top-0 z-30 flex h-14 items-center gap-2 border-b border-base bg-[var(--bg)]/85 px-4 backdrop-blur md:px-6">
       <div className="flex items-center gap-2 md:hidden">
@@ -181,6 +190,8 @@ function TopBar({ onSearch }: { onSearch: () => void }) {
           { label: 'Light theme', icon: <Sun className="size-4" />, onSelect: () => cycleTheme('light'), hidden: theme === 'light' },
           { label: 'Dark theme', icon: <Moon className="size-4" />, onSelect: () => cycleTheme('dark'), hidden: theme === 'dark' },
           { label: 'System theme', icon: <Monitor className="size-4" />, onSelect: () => cycleTheme('system'), hidden: theme === 'system' },
+          'separator',
+          { label: reminders ? 'Turn off reminder emails' : 'Turn on reminder emails', icon: reminders ? <BellOff className="size-4" /> : <BellRing className="size-4" />, onSelect: toggleReminders },
           'separator',
           { label: 'Sign out', icon: <LogOut className="size-4" />, onSelect: logout },
         ]} />

@@ -53,24 +53,35 @@ The research behind every decision is in this folder:
   The other record is soft-deleted with `merged_into_id`; opening its old link offers the kept record; it is not in the
   recycle bin and can't be restored. Needs *Edit* on the kept record and *Delete* on the merged one. Audited as `merged`.
 
-**Quality:** 74 Vitest tests (API against real PostgreSQL), 16 Playwright tests (desktop, tablet, phone), lint and
+- **Email delivery** (`lib/mailer.ts`): invitations and activity reminders are queued as `email.send` jobs in the same
+  transaction as the change and delivered by the worker (3 attempts). Transports: `console` (default; prints to the log),
+  `smtp` (nodemailer; used automatically when `SMTP_HOST` is set), `memory` (tests). Settings → Workspace shows the
+  delivery status and has "Send a test email to me"; the invite dialog says whether an email went out and always shows
+  the link; pending invitations can be re-sent or cancelled; each user can turn reminder emails off in the account menu.
+  Credentials come only from the environment (`.env.example` lists the variables, all commented out).
+
+**Quality:** 82 Vitest tests (API against real PostgreSQL), 18 Playwright tests (desktop, tablet, phone), lint and
 typecheck clean, `npm audit` = 0, GitHub Actions CI in `.github/workflows/ci.yml`.
 
 ## 3. Not built yet — suggested next work (in priority order)
 
-1. **Email delivery** for invitations and reminders (pluggable transport; today the invite link is shown to the admin).
-2. **Global audit-log page** for admins (data already in `audit_events`, including `import` events).
-3. **Saved views** on lists (table `saved_views` exists, no API/UI yet).
-4. Business-hours aware automation delays; webhook action; "field changed" trigger.
-5. Estimates/quotes and invoices with PDF (see `CRM_FEATURES.md`).
-6. File custom fields and attachments (needs object storage).
-7. Pipeline-level and field-level permissions.
-8. Multi-currency reporting with exchange rates.
-9. Import follow-ups: deals/products import, "add missing list options" during import, CSV export of lists.
-10. Merge follow-ups: merge leads; a "find all duplicates" page that lists candidate pairs; merge more than two at once.
+1. **Global audit-log page** for admins (data already in `audit_events`, including `import` events).
+2. **Saved views** on lists (table `saved_views` exists, no API/UI yet).
+3. Business-hours aware automation delays; webhook action; "field changed" trigger.
+4. Estimates/quotes and invoices with PDF (see `CRM_FEATURES.md`).
+5. File custom fields and attachments (needs object storage).
+6. Pipeline-level and field-level permissions.
+7. Multi-currency reporting with exchange rates.
+8. Import follow-ups: deals/products import, "add missing list options" during import, CSV export of lists.
+9. Merge follow-ups: merge leads; a "find all duplicates" page that lists candidate pairs; merge more than two at once.
+10. Email follow-ups: password reset by email; a daily digest of overdue activities; per-workspace sender name; showing
+    failed deliveries to admins (today they are only in the `jobs` table as `failed` with `last_error`).
 
 Import limits and choices: 5 MB / 10,000 rows / 100 columns per file; lead rows only match *open* leads; dictionary
 values (type, source, industry, size) must already exist; "Undo" does not revert updates; raw cells are kept 30 days.
+
+Email choices: reminder emails use the workspace time zone; a failed delivery is retried twice and then dropped (the
+in-app notification is unaffected); invitation links are never written to the server log.
 
 Merge choices: a merge cannot be undone (the merged record's values that lost are only in the audit event); private
 records can be merged only by people who may see both.
@@ -87,7 +98,7 @@ apps/api/src
   worker.ts         Standalone worker entry
   config.ts
   db/               pool.ts (pg + type parsers), sql.ts (tagged-template builder), migrate.ts, migrations/*.sql, seed.ts
-  lib/              auth, permissions, audit, events (outbox), list (search/sort/paging), customFields, contactMethods,
+  lib/              mailer (email transports + templates), auth, permissions, audit, events (outbox), list (search/sort/paging), customFields, contactMethods,
                     records (insert/update helpers, camelCase), stages (stage changes), bootstrap (workspace defaults)
   imports/engine.ts CSV import: row → input, duplicate matching, preview, chunked runner (job `import.run`)
   routes/           auth, meta, parties (contacts+companies+duplicates), merge, leads, deals, imports, activities (+notes, timeline,
@@ -159,6 +170,8 @@ Gotchas learned the hard way:
 ## 6. Production
 
 `npm ci && npm run build`, then `NODE_ENV=production DATABASE_URL=… APP_URL=https://… npm start`.
+For real email set `SMTP_HOST` (+ `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `EMAIL_FROM`) in the environment; without it messages
+are only printed to the log. Check it in Settings → Workspace → "Send a test email to me".
 One process serves `/api/v1/*` and the built SPA, runs migrations on start and runs jobs inline. Serve over HTTPS
 (cookies are `Secure` in production). Health checks: `GET /api/v1/health`.
 
