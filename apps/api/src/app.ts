@@ -80,7 +80,7 @@ export async function buildApp(opts: { logger?: boolean } = {}): Promise<Fastify
     if (!body) return reply.code(404).send('Web app not built. Run `npm run build`.');
     const ext = extname(file);
     reply.header('content-type', types[ext] ?? 'application/octet-stream');
-    reply.header('cache-control', file.includes('/assets/') ? 'public, max-age=31536000, immutable' : 'no-cache');
+    reply.header('cache-control', path.startsWith('/assets/') && s?.isFile() ? 'public, max-age=31536000, immutable' : 'no-cache');
     return reply.send(body);
   });
 
