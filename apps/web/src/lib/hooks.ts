@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useSyncExternalStore } from 'react';
 import { useMutation, useQuery, useQueryClient, type QueryKey } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { api, ApiError, errorMessage } from './api.ts';
@@ -75,4 +75,13 @@ export function useLocalStorage<T>(key: string, initial: T): [T, (v: T) => void]
   });
   const set = (nv: T) => { setV(nv); try { localStorage.setItem(key, JSON.stringify(nv)); } catch { /* ignore */ } };
   return [v, set];
+}
+
+/** True while the media query matches (e.g. '(min-width: 768px)'); updates on resize. */
+export function useMediaQuery(query: string): boolean {
+  return useSyncExternalStore(
+    (onChange) => { const m = window.matchMedia(query); m.addEventListener('change', onChange); return () => m.removeEventListener('change', onChange); },
+    () => window.matchMedia(query).matches,
+    () => false,
+  );
 }

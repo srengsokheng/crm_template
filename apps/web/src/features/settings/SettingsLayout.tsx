@@ -7,7 +7,7 @@ import { EmptyState, PageHeader } from '../../components/ui/primitives.tsx';
 const LINKS = [
   { to: 'workspace', label: 'Workspace' }, { to: 'pipelines', label: 'Pipelines & stages' }, { to: 'fields', label: 'Custom fields' },
   { to: 'lists', label: 'Lists & options' }, { to: 'users', label: 'Users & teams' }, { to: 'roles', label: 'Roles & permissions' },
-  { to: 'automation', label: 'Automation' }, { to: 'recycle-bin', label: 'Recycle bin', everyone: true },
+  { to: 'automation', label: 'Automation' }, { to: 'audit-log', label: 'Audit log' }, { to: 'recycle-bin', label: 'Recycle bin', everyone: true },
 ];
 
 export function SettingsLayout() {

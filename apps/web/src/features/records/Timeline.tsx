@@ -177,7 +177,7 @@ const FIELD_LABELS: Record<string, string> = {
   deal_type_id: 'Deal type', address: 'Address', annual_revenue: 'Annual revenue', birthday: 'Birthday', currency: 'Currency', source_details: 'Source details',
 };
 
-function describeEvent(d: Record<string, any>, userName: (id: number) => string): { icon: typeof History; text: string; tone?: string } {
+export function describeEvent(d: Record<string, any>, userName: (id: number) => string): { icon: typeof History; text: string; tone?: string } {
   const ch = d.changes ?? {};
   const stage = Array.isArray(ch.stage) ? ch.stage : null;
   const imp = ch._import as { id: number; file: string; undo?: boolean } | undefined;
@@ -192,6 +192,7 @@ function describeEvent(d: Record<string, any>, userName: (id: number) => string)
     case 'reopened': return { icon: ArrowRightLeft, text: `Reopened in ${stage?.[1]}` };
     case 'deleted': return { icon: Trash2, text: imp?.undo ? `Moved to recycle bin (import of ${imp.file} undone)` : 'Moved to recycle bin' };
     case 'restored': return { icon: History, text: 'Restored from recycle bin' };
+    case 'merged_into': return { icon: History, text: `Merged into ${ch.into?.name ?? 'another record'} (#${ch.into?.id})` };
     case 'merged': {
       const chosen = Object.keys(ch).filter((k) => !['merged', 'movedMethods'].includes(k) && !k.startsWith('_')).map((k) => FIELD_LABELS[k] ?? k.replace(/^custom\./, ''));
       return { icon: History, text: `Merged with ${ch.merged?.name ?? 'a duplicate'} (#${ch.merged?.id})${chosen.length ? ` — took ${[...new Set(chosen)].join(', ')}` : ''}` };

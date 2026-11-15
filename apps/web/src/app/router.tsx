@@ -24,6 +24,7 @@ import { UsersSettings } from '../features/settings/UsersSettings.tsx';
 import { RolesSettings } from '../features/settings/RolesSettings.tsx';
 import { AutomationSettings } from '../features/settings/AutomationSettings.tsx';
 import { RecycleBin } from '../features/settings/RecycleBin.tsx';
+import { AuditLog } from '../features/settings/AuditLog.tsx';
 import { ImportStart } from '../features/imports/ImportStart.tsx';
 import { ImportDetail } from '../features/imports/ImportDetail.tsx';
 
@@ -64,6 +65,7 @@ export const router = createBrowserRouter([
           { path: 'users', element: <UsersSettings /> },
           { path: 'roles', element: <RolesSettings /> },
           { path: 'automation', element: <AutomationSettings /> },
+          { path: 'audit-log', element: <AuditLog /> },
           { path: 'recycle-bin', element: <RecycleBin /> },
         ],
       },

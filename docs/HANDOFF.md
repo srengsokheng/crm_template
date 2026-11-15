@@ -65,21 +65,25 @@ The research behind every decision is in this folder:
   account, 5 requests per 15 min per IP) → new password; all sessions of that user are signed out. The request answers
   the same whether or not the email has an account (no account discovery).
 
-**Quality:** 85 Vitest tests (API against real PostgreSQL), 19 Playwright tests (desktop, tablet, phone), lint and
+- **Audit log** (Settings → Audit log, admins only): every audit event of the workspace, newest first — who (or
+  Automation), which record (linked while it exists, "(deleted)" otherwise), and what happened in the same words as the
+  record timeline. Filters: record name, type, action, person, date range; CSV export of the filtered rows (max 10,000).
+  Phones get a stacked list instead of the table. Index `audit_workspace_created` (migration 0006).
+
+**Quality:** 88 Vitest tests (API against real PostgreSQL), 20 Playwright tests (desktop, tablet, phone), lint and
 typecheck clean, `npm audit` = 0, GitHub Actions CI in `.github/workflows/ci.yml`.
 
 ## 3. Not built yet — suggested next work (in priority order)
 
-1. **Global audit-log page** for admins (data already in `audit_events`, including `import` events).
-2. **Saved views** on lists (table `saved_views` exists, no API/UI yet).
-3. Business-hours aware automation delays; webhook action; "field changed" trigger.
-4. Estimates/quotes and invoices with PDF (see `CRM_FEATURES.md`).
-5. File custom fields and attachments (needs object storage).
-6. Pipeline-level and field-level permissions.
-7. Multi-currency reporting with exchange rates.
-8. Import follow-ups: deals/products import, "add missing list options" during import, CSV export of lists.
-9. Merge follow-ups: merge leads; a "find all duplicates" page that lists candidate pairs; merge more than two at once.
-10. Email follow-ups: a daily digest of overdue activities; per-workspace sender name; showing
+1. **Saved views** on lists (table `saved_views` exists, no API/UI yet).
+2. Business-hours aware automation delays; webhook action; "field changed" trigger.
+3. Estimates/quotes and invoices with PDF (see `CRM_FEATURES.md`).
+4. File custom fields and attachments (needs object storage).
+5. Pipeline-level and field-level permissions.
+6. Multi-currency reporting with exchange rates.
+7. Import follow-ups: deals/products import, "add missing list options" during import, CSV export of lists.
+8. Merge follow-ups: merge leads; a "find all duplicates" page that lists candidate pairs; merge more than two at once.
+9. Email follow-ups: a daily digest of overdue activities; per-workspace sender name; showing
     failed deliveries to admins (today they are only in the `jobs` table as `failed` with `last_error`).
 
 Import limits and choices: 5 MB / 10,000 rows / 100 columns per file; lead rows only match *open* leads; dictionary
