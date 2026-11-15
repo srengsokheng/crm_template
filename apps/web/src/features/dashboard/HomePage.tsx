@@ -9,6 +9,7 @@ import { dueLabel, money, relative } from '../../lib/format.ts';
 import { useCan, useLocalStorage, useMe, usePipelines } from '../../lib/hooks.ts';
 import { Button, Card, ErrorState, Segmented, Select, Skeleton } from '../../components/ui/primitives.tsx';
 import { useCreate } from '../../app/create.tsx';
+import { useIsDark } from '../../app/theme.ts';
 import { ACTIVITY_ICON } from '../records/Timeline.tsx';
 
 interface Dashboard {
@@ -22,7 +23,6 @@ interface Dashboard {
 
 // Validated categorical slots 1–2 (see dataviz palette): light / dark variants.
 const SERIES = { won: { light: '#2a78d6', dark: '#3987e5' }, lost: { light: '#eb6834', dark: '#d95926' } };
-const isDark = () => document.documentElement.dataset.theme === 'dark';
 
 function Kpi({ label, value, sub, tone }: { label: string; value: string; sub?: string; tone?: 'warn' }) {
   return (
@@ -52,7 +52,7 @@ export function HomePage() {
     catch (e) { toast.error(errorMessage(e)); }
   };
   const k = q.data?.kpis;
-  const dark = isDark();
+  const dark = useIsDark();
   const maxStage = Math.max(1, ...(q.data?.byStage ?? []).map((s) => Number(s.amount)));
   return (
     <div className="space-y-5">

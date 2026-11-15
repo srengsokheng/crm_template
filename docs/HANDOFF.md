@@ -46,28 +46,37 @@ The research behind every decision is in this folder:
 - Recycle bin: 30-day soft delete, restore keeps the same id; hourly purge job.
 - Responsive layouts (sidebar / tablet rail / phone bottom tabs), dark mode, command palette (Ctrl/⌘-K).
 
-**Quality:** 67 Vitest tests (API against real PostgreSQL), 13 Playwright tests (desktop, tablet, phone), lint and
+- **Merge duplicates** (contacts, companies): "Merge with…" in the record's ⋯ menu → suggested duplicates (same email,
+  phone, website or name) or search → pick which record to keep and, per differing field, which value wins (empty
+  fields are filled from the other record by default) → one transaction moves contact details (de-duplicated), deals,
+  company/contact links, activities, notes, converted-lead links and the other record's history onto the kept record.
+  The other record is soft-deleted with `merged_into_id`; opening its old link offers the kept record; it is not in the
+  recycle bin and can't be restored. Needs *Edit* on the kept record and *Delete* on the merged one. Audited as `merged`.
+
+**Quality:** 74 Vitest tests (API against real PostgreSQL), 16 Playwright tests (desktop, tablet, phone), lint and
 typecheck clean, `npm audit` = 0, GitHub Actions CI in `.github/workflows/ci.yml`.
 
 ## 3. Not built yet — suggested next work (in priority order)
 
-1. **Merge duplicates** (contacts, companies) — re-point deals, activities, notes, contact methods; audit it. The import
-   report already tells users to "merge them first" when a row matches several records.
-2. **Email delivery** for invitations and reminders (pluggable transport; today the invite link is shown to the admin).
-3. **Global audit-log page** for admins (data already in `audit_events`, including `import` events).
-4. **Saved views** on lists (table `saved_views` exists, no API/UI yet).
-5. Business-hours aware automation delays; webhook action; "field changed" trigger.
-6. Estimates/quotes and invoices with PDF (see `CRM_FEATURES.md`).
-7. File custom fields and attachments (needs object storage).
-8. Pipeline-level and field-level permissions.
-9. Multi-currency reporting with exchange rates.
-10. Import follow-ups: deals/products import, "add missing list options" during import, CSV export of lists.
+1. **Email delivery** for invitations and reminders (pluggable transport; today the invite link is shown to the admin).
+2. **Global audit-log page** for admins (data already in `audit_events`, including `import` events).
+3. **Saved views** on lists (table `saved_views` exists, no API/UI yet).
+4. Business-hours aware automation delays; webhook action; "field changed" trigger.
+5. Estimates/quotes and invoices with PDF (see `CRM_FEATURES.md`).
+6. File custom fields and attachments (needs object storage).
+7. Pipeline-level and field-level permissions.
+8. Multi-currency reporting with exchange rates.
+9. Import follow-ups: deals/products import, "add missing list options" during import, CSV export of lists.
+10. Merge follow-ups: merge leads; a "find all duplicates" page that lists candidate pairs; merge more than two at once.
 
 Import limits and choices: 5 MB / 10,000 rows / 100 columns per file; lead rows only match *open* leads; dictionary
 values (type, source, industry, size) must already exist; "Undo" does not revert updates; raw cells are kept 30 days.
 
-Small known gaps: the Activities page opens on "Today" even when only "Upcoming"/"Overdue" have items; dashboard
-chart colours don't switch live when the theme changes (they do after a reload).
+Merge choices: a merge cannot be undone (the merged record's values that lost are only in the audit event); private
+records can be merged only by people who may see both.
+
+Fixed in the merge PR (were "small known gaps"): Activities now opens on the first non-empty tab (Overdue → Today →
+Upcoming); dashboard chart colours follow a theme switch without a reload.
 
 ## 4. Project map
 
@@ -81,7 +90,7 @@ apps/api/src
   lib/              auth, permissions, audit, events (outbox), list (search/sort/paging), customFields, contactMethods,
                     records (insert/update helpers, camelCase), stages (stage changes), bootstrap (workspace defaults)
   imports/engine.ts CSV import: row → input, duplicate matching, preview, chunked runner (job `import.run`)
-  routes/           auth, meta, parties (contacts+companies+duplicates), leads, deals, imports, activities (+notes, timeline,
+  routes/           auth, meta, parties (contacts+companies+duplicates), merge, leads, deals, imports, activities (+notes, timeline,
                     history, notifications), products, search, settings, reports (+dashboard), automation, recycle
   automation/engine.ts  outbox → rules → jobs → actions; reminders; purge
 apps/api/test       Vitest integration tests (helpers.ts signs up fresh workspaces)

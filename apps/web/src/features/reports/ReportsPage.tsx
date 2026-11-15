@@ -23,7 +23,7 @@ const MONEY = new Set(['amount', 'totalAmount', 'wonAmount', 'avgWonDeal', 'weig
 const PCT = new Set(['share', 'winRate', 'conversionRate']);
 const DATE = new Set(['closedAt', 'expectedCloseDate']);
 const HIDDEN = new Set(['id', 'currency', 'kind']);
-const human = (k: string) => k.replace(/([A-Z])/g, ' $1').replace(/^./, (c) => c.toUpperCase());
+const human = (k: string) => k.replace(/([A-Z])/g, (c) => ` ${c.toLowerCase()}`).replace(/^./, (c) => c.toUpperCase());
 
 function presetRange(p: string): { from: string; to: string } {
   const now = new Date();

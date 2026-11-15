@@ -90,7 +90,7 @@ function StageEditor({ s, onSave }: { s: Stage; onSave: (patch: Record<string, u
   const [name, setName] = useState(s.name);
   return (
     <div className="flex flex-1 flex-wrap items-center gap-2">
-      <Select aria-label="Color" value={s.color} onChange={(e) => onSave({ color: e.target.value })} className={cn('h-8 w-24 text-xs')}>
+      <Select aria-label="Color" value={s.color} onChange={(e) => onSave({ color: e.target.value })} className={cn('h-8 w-28 text-xs')}>
         {COLORS.map((c) => <option key={c} value={c}>{c}</option>)}
       </Select>
       <span className={cn('size-3 rounded-full', STAGE_SOLID[s.color])} />

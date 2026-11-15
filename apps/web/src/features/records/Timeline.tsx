@@ -192,6 +192,10 @@ function describeEvent(d: Record<string, any>, userName: (id: number) => string)
     case 'reopened': return { icon: ArrowRightLeft, text: `Reopened in ${stage?.[1]}` };
     case 'deleted': return { icon: Trash2, text: imp?.undo ? `Moved to recycle bin (import of ${imp.file} undone)` : 'Moved to recycle bin' };
     case 'restored': return { icon: History, text: 'Restored from recycle bin' };
+    case 'merged': {
+      const chosen = Object.keys(ch).filter((k) => !['merged', 'movedMethods'].includes(k) && !k.startsWith('_')).map((k) => FIELD_LABELS[k] ?? k.replace(/^custom\./, ''));
+      return { icon: History, text: `Merged with ${ch.merged?.name ?? 'a duplicate'} (#${ch.merged?.id})${chosen.length ? ` — took ${[...new Set(chosen)].join(', ')}` : ''}` };
+    }
     case 'owner_changed': return { icon: Users, text: `Owner changed to ${userName(Number(ch.owner?.[1]))}` };
     case 'updated': {
       const parts = Object.entries(ch).filter(([k]) => !k.startsWith('_')).map(([k, v]) => {
@@ -251,6 +255,7 @@ function FeedItem({ it, recordType, recordId, onChange }: { it: TimelineItem; re
       <span className="flex size-8 shrink-0 items-center justify-center"><Icon className={cn('size-4 text-muted', ev.tone)} /></span>
       <div className="min-w-0 flex-1 pt-1.5 text-[13px]">
         <span className={cn(ev.tone)}>{ev.text}</span>
+        {d.changes?._from && <span className="text-xs text-muted"> · from merged {d.changes._from.name} #{d.changes._from.id}</span>}
         <span className="text-xs text-muted"> · {d.actorType === 'automation' ? 'Automation' : d.actorName ?? 'System'} · {relative(d.createdAt)}</span>{via}
       </div>
     </li>
