@@ -271,7 +271,7 @@ DataTable, KanbanBoard, StageBar, EmptyState, Skeleton, Timeline, FilterChips, C
 | P7 | Count + sum always shown in lists and boards |
 | P8 | No silent business defaults; title auto-generated from data |
 | P9 | "At least one of" validation for leads; required/required-from-stage fields shown upfront |
-| P10 | Duplicate hint with "Use existing" (forms) and Merge (v1.1) |
+| P10 | Duplicate hint with "Use existing" (forms) and **Merge with…** on contact and company pages (built) |
 | P11 | Decimal-safe line math on the server; friendly error messages |
 | P12 | Soft delete; restore keeps the ID |
 | P13 | All validation on the server; UI mirrors it |

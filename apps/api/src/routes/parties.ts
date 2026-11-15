@@ -5,7 +5,7 @@ import {
 } from '@crm/shared';
 import { pool, q, q1, raw, sql, tx, type Db } from '../db/index.ts';
 import type { Ctx } from '../lib/context.ts';
-import { badRequest } from '../lib/errors.ts';
+import { AppError, badRequest } from '../lib/errors.ts';
 import { audit, diff } from '../lib/audit.ts';
 import { findDuplicates, loadMethods, replaceMethods } from '../lib/contactMethods.ts';
 import { loadDefs, mergeCustom, assertRequired } from '../lib/customFields.ts';
@@ -14,6 +14,7 @@ import { likeTerm, qs, runList } from '../lib/list.ts';
 import { assertOnRecord, requireAny, scopeWhere } from '../lib/permissions.ts';
 import { assertMembers, assertRefs, camel, camelAll, getActive, insertRow, pickColumns, updateRow } from '../lib/records.ts';
 import { parse } from '../lib/validate.ts';
+import { mergedOr404 } from './merge.ts';
 
 type IdParams = { Params: { id: string } };
 
@@ -163,7 +164,8 @@ export async function partyRoutes(app: FastifyInstance) {
 
   app.get<IdParams>('/contacts/:id', async (req) => {
     const ctx = ctxOf(req);
-    const row = await getActive<Record<string, unknown> & { owner_id: number; visibility: string }>(pool, 'contacts', Number(req.params.id), ctx, 'Contact');
+    const row = await getActive<Record<string, unknown> & { owner_id: number; visibility: string }>(pool, 'contacts', Number(req.params.id), ctx, 'Contact')
+      .catch((e) => (e instanceof AppError && e.status === 404 ? mergedOr404(ctx, 'contact', Number(req.params.id)) : Promise.reject(e)));
     assertOnRecord(ctx, 'contact', 'view', row);
     const id = Number(req.params.id);
     const [methods, companies, deals, owner] = await Promise.all([
@@ -175,7 +177,7 @@ export async function partyRoutes(app: FastifyInstance) {
             WHERE dc.contact_id = ${id} AND d.deleted_at IS NULL ORDER BY d.created_at DESC LIMIT 50`),
       q1(sql`SELECT id, name FROM users WHERE id = ${row.owner_id}`),
     ]);
-    return { ...camel(row), methods: methods[id] ?? [], companies: camelAll(companies), deals: camelAll(deals), owner: camel(owner) };
+    return { ...camel(row), methods: camelAll((methods[id] ?? []) as unknown as Record<string, unknown>[]), companies: camelAll(companies), deals: camelAll(deals), owner: camel(owner) };
   });
 
   app.post('/contacts', async (req, reply) => {
@@ -221,7 +223,8 @@ export async function partyRoutes(app: FastifyInstance) {
   app.get<IdParams>('/companies/:id', async (req) => {
     const ctx = ctxOf(req);
     const id = Number(req.params.id);
-    const row = await getActive<Record<string, unknown> & { owner_id: number; visibility: string }>(pool, 'companies', id, ctx, 'Company');
+    const row = await getActive<Record<string, unknown> & { owner_id: number; visibility: string }>(pool, 'companies', id, ctx, 'Company')
+      .catch((e) => (e instanceof AppError && e.status === 404 ? mergedOr404(ctx, 'company', id) : Promise.reject(e)));
     assertOnRecord(ctx, 'company', 'view', row);
     const [methods, contacts, deals, owner] = await Promise.all([
       loadMethods('company', [id]),
@@ -231,7 +234,7 @@ export async function partyRoutes(app: FastifyInstance) {
             JOIN stages s ON s.id = d.stage_id WHERE d.company_id = ${id} AND d.deleted_at IS NULL ORDER BY d.created_at DESC LIMIT 50`),
       q1(sql`SELECT id, name FROM users WHERE id = ${row.owner_id}`),
     ]);
-    return { ...camel(row), methods: methods[id] ?? [], contacts: camelAll(contacts), deals: camelAll(deals), owner: camel(owner) };
+    return { ...camel(row), methods: camelAll((methods[id] ?? []) as unknown as Record<string, unknown>[]), contacts: camelAll(contacts), deals: camelAll(deals), owner: camel(owner) };
   });
 
   app.post('/companies', async (req, reply) => {
@@ -253,7 +256,7 @@ export async function partyRoutes(app: FastifyInstance) {
     const query = req.query as Record<string, string | undefined>;
     const split = (v?: string) => (v ? v.split(',').map((s) => s.trim()).filter(Boolean) : []);
     const exclude = query.excludeType && query.excludeId ? { entityType: query.excludeType, id: Number(query.excludeId) } : undefined;
-    const hits = await findDuplicates(ctx.workspaceId, { emails: split(query.email), phones: split(query.phone), name: query.name, companyName: query.companyName }, exclude);
+    const hits = await findDuplicates(ctx.workspaceId, { emails: split(query.email), phones: split(query.phone), websites: split(query.website), name: query.name, companyName: query.companyName }, exclude);
     return { data: hits };
   });
 

@@ -411,6 +411,14 @@ Index `(user_id, read_at, created_at desc)`.
 
 ## 10. Views & misc
 
+### Merging duplicates (migration 0003)
+`contacts.merged_into_id` / `companies.merged_into_id` (nullable FK to the same table). Set, together with `deleted_at`,
+on the record that was merged away; chains are re-pointed (A→B, then B→C makes A→C). Such rows are excluded from the
+recycle bin and cannot be restored. On merge, rows in `contact_methods`, `deal_contacts`, `contact_companies`,
+`deals.company_id`, `contacts.primary_company_id`, `leads.converted_*_id`, `activity_links`, `notes`, `notifications`
+and `audit_events` move to the kept record (moved audit events get `changes._from = {id, name}`). The kept record gets
+an audit event `merged` with `changes.merged = {id, name}` plus the field values that changed.
+
 ### `imports` (CSV import, migration 0002)
 `id, workspace_id, entity_type ('contact','company','lead'), file_name, status ('draft','queued','running','done','failed',
 'canceled'), headers jsonb, rows jsonb (raw cells; set to NULL 30 days after finishing), row_numbers jsonb (spreadsheet row

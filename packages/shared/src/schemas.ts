@@ -272,3 +272,14 @@ export const importConfigSchema = z.object({
   options: importOptionsSchema.default(importOptionsSchema.parse({})),
 });
 export type ImportConfig = z.infer<typeof importConfigSchema>;
+
+// ───────── Merge duplicates ─────────
+export const MERGE_ENTITIES = ['contact', 'company'] as const;
+export const mergeSchema = z.object({
+  survivorId: idSchema,
+  mergedId: idSchema,
+  /** Per field (or `custom.<key>`): take the value from the kept record or the merged one. Unlisted fields keep the
+   *  kept record's value, or the merged record's value when the kept one is empty. */
+  choose: z.record(z.string().max(80), z.enum(['survivor', 'merged'])).default({}),
+});
+export type MergeInput = z.infer<typeof mergeSchema>;

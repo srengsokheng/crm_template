@@ -25,10 +25,15 @@ export function ActivitiesPage() {
   const qc = useQueryClient();
   const { data: meta } = useMeta();
   const lp = useListParams({ sort: '' });
-  const bucket = lp.get('bucket') || 'today';
-  const params = { ...lp.params, bucket, sort: lp.get('sort') || undefined, assigneeId: lp.get('assigneeId') || 'me' };
   const counts = useQuery({ queryKey: ['activity-counts'], queryFn: () => api.get<Record<string, number>>('/activities/counts') });
-  const q = useQuery({ queryKey: ['activities', params], placeholderData: keepPreviousData, queryFn: () => api.get<ListResponse<Activity>>(`/activities${qsOf(params)}`) });
+  // Without a tab in the URL, open the first one that has something to do. Decided once, so finishing the last
+  // overdue item doesn't switch tabs under the user.
+  const [auto, setAuto] = useState<string | null>(null);
+  if (!auto && (counts.data || counts.error)) setAuto(['overdue', 'today', 'upcoming'].find((b) => (counts.data?.[b] ?? 0) > 0) ?? 'today');
+  const bucket = lp.get('bucket') || auto || 'today';
+  const ready = !!lp.get('bucket') || !!auto;
+  const params = { ...lp.params, bucket, sort: lp.get('sort') || undefined, assigneeId: lp.get('assigneeId') || 'me' };
+  const q = useQuery({ queryKey: ['activities', params], placeholderData: keepPreviousData, enabled: ready, queryFn: () => api.get<ListResponse<Activity>>(`/activities${qsOf(params)}`) });
   const refresh = () => { qc.invalidateQueries({ queryKey: ['activities'] }); qc.invalidateQueries({ queryKey: ['activity-counts'] }); qc.invalidateQueries({ queryKey: ['timeline'] }); qc.invalidateQueries({ queryKey: ['dashboard'] }); };
   const setStatus = async (a: Activity, status: 'open' | 'done') => {
     try {
@@ -44,7 +49,7 @@ export function ActivitiesPage() {
         actions={can('activity', 'create') && <Button variant="primary" icon={<Plus className="size-4" />} onClick={() => create.open('activity')}>New activity</Button>} />
       <div className="mb-3 flex gap-1 overflow-x-auto border-b border-base" role="tablist">
         {BUCKETS.map((b) => (
-          <button key={b.value} type="button" role="tab" aria-selected={bucket === b.value} onClick={() => lp.set({ bucket: b.value === 'today' ? null : b.value })}
+          <button key={b.value} type="button" role="tab" aria-selected={bucket === b.value} onClick={() => lp.set({ bucket: b.value })}
             className={cn('-mb-px inline-flex items-center gap-1.5 whitespace-nowrap border-b-2 px-3 py-2 text-[13px] font-medium', bucket === b.value ? 'border-brand-600 text-brand-700 dark:text-brand-200' : 'border-transparent text-muted hover:text-[var(--text)]')}>
             {b.label}
             {b.value !== 'done' && counts.data && counts.data[b.value] > 0 && <span className={cn('rounded-full px-1.5 text-[11px]', b.value === 'overdue' ? 'bg-rose-500 text-white' : 'bg-[var(--surface-2)]')}>{counts.data[b.value]}</span>}
@@ -60,7 +65,7 @@ export function ActivitiesPage() {
         <FilterSelect label="Type" value={lp.get('kind')} onChange={(v) => lp.set({ kind: v })} options={['task', 'call', 'meeting', 'email', 'deadline'].map((k) => ({ value: k, label: k[0].toUpperCase() + k.slice(1) }))} />
       </Toolbar>
       <Card padded={false}>
-        {q.isLoading ? <div className="space-y-2 p-4">{Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-12" />)}</div>
+        {q.isLoading || !ready ? <div className="space-y-2 p-4">{Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-12" />)}</div>
           : q.error ? <ErrorState message={errorMessage(q.error)} onRetry={() => q.refetch()} />
           : !q.data?.data.length ? <EmptyState icon={<ListTodo className="size-5" />} title={bucket === 'overdue' ? 'Nothing overdue' : bucket === 'done' ? 'Nothing completed yet' : 'Nothing here'} description={bucket === 'today' ? 'Plan your next steps from any deal or lead.' : undefined} />
           : (

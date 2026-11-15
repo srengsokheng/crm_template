@@ -166,7 +166,7 @@ export async function leadRoutes(app: FastifyInstance) {
         (SELECT json_build_object('id', id, 'name', trim(coalesce(first_name,'') || ' ' || coalesce(last_name,''))) FROM contacts WHERE id = ${row.converted_contact_id as number | null}) AS contact,
         (SELECT json_build_object('id', id, 'name', name) FROM companies WHERE id = ${row.converted_company_id as number | null}) AS company`),
     ]);
-    return { ...camel(row), methods: methods[id] ?? [], lineItems: items, owner: camel(owner), converted };
+    return { ...camel(row), methods: camelAll((methods[id] ?? []) as unknown as Record<string, unknown>[]), lineItems: items, owner: camel(owner), converted };
   });
 
   app.post('/leads', async (req, reply) => {

@@ -35,11 +35,12 @@ export async function copyMethods(db: Db, workspaceId: number, fromType: string,
 export interface DuplicateHit { entityType: string; id: number; title: string; matchedOn: string; value: string }
 
 /** Exact match on normalised email/phone across leads/contacts/companies, plus close name matches. */
-export async function findDuplicates(workspaceId: number, input: { emails?: string[]; phones?: string[]; name?: string; companyName?: string },
+export async function findDuplicates(workspaceId: number, input: { emails?: string[]; phones?: string[]; websites?: string[]; name?: string; companyName?: string },
   exclude?: { entityType: string; id: number }): Promise<DuplicateHit[]> {
   const values = [
     ...(input.emails ?? []).filter(Boolean).map((v) => normalizeContactValue('email', v)),
     ...(input.phones ?? []).filter(Boolean).map((v) => normalizeContactValue('phone', v)),
+    ...(input.websites ?? []).filter(Boolean).map((v) => normalizeContactValue('website', v)),
   ].filter((v) => v.length >= 5);
   const hits: DuplicateHit[] = [];
   if (values.length) {

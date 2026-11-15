@@ -43,9 +43,11 @@ export async function recycleRoutes(app: FastifyInstance) {
     if (!e) return reply.callNotFound();
     const id = Number(req.params.id);
     await tx(async (db) => {
-      const row = await q1<{ owner_id?: number; visibility?: string }>(sql`SELECT ${raw(e.owner ? 'owner_id, visibility' : 'id')}
+      const row = await q1<{ owner_id?: number; visibility?: string; merged_into_id?: number | null }>(sql`SELECT ${raw(e.owner ? 'owner_id, visibility' : 'id')}
+        ${e.table === 'contacts' || e.table === 'companies' ? sql`, merged_into_id` : sql``}
         FROM ${raw(e.table)} WHERE id = ${id} AND workspace_id = ${ctx.workspaceId} AND deleted_at IS NOT NULL`, db);
       if (!row) throw notFound('Deleted record');
+      if (row.merged_into_id) throw badRequest(`This record was merged into #${row.merged_into_id} and can't be restored`);
       if (e.owner) assertOnRecord(ctx, e.perm, 'delete', row);
       else requireAny(ctx, e.perm, 'delete');
       await q(sql`UPDATE ${raw(e.table)} SET deleted_at = NULL ${e.table === 'products' ? sql`` : sql`, deleted_by = NULL`} WHERE id = ${id}`, db);
@@ -61,6 +63,7 @@ export async function recycleRoutes(app: FastifyInstance) {
       .map(([key, e]) => sql`SELECT ${key}::text AS entity, id, ${raw(e.title)} AS title, deleted_at,
           ${e.table === 'products' ? sql`NULL::bigint` : sql`deleted_by`} AS deleted_by
         FROM ${raw(e.table)} WHERE workspace_id = ${ctx.workspaceId} AND deleted_at IS NOT NULL
+          ${e.table === 'contacts' || e.table === 'companies' ? sql`AND merged_into_id IS NULL` : sql``}
           AND deleted_at > now() - ${RETENTION_DAYS + ' days'}::interval
           ${e.owner && !ctx.isAdmin && scopeOf(ctx, e.perm, 'delete') !== 'all' ? sql`AND owner_id = ANY(${ctx.teamUserIds})` : sql``}`);
     if (!parts.length) return { data: [], retentionDays: RETENTION_DAYS };

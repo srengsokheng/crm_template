@@ -1,6 +1,7 @@
+import { useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { MoreHorizontal, Plus, Trash2 } from 'lucide-react';
+import { Combine, MoreHorizontal, Plus, Trash2 } from 'lucide-react';
 import { api } from '../../lib/api.ts';
 import { money, personName } from '../../lib/format.ts';
 import { useCan, useDictLabel, useUserName } from '../../lib/hooks.ts';
@@ -13,6 +14,7 @@ import { CustomFieldsRows, EditRow, RecordError, RecordShell, RecordSkeleton, us
 import { MethodsView } from '../records/MethodsView.tsx';
 import { RelatedDeals, type RelatedDeal } from '../records/RelatedDeals.tsx';
 import { Timeline } from '../records/Timeline.tsx';
+import { MergeDialog } from '../records/MergeDialog.tsx';
 
 interface Company {
   id: number; version: number; name: string; typeId: number | null; industryId: number | null; sizeId: number | null; sourceId: number | null;
@@ -30,6 +32,7 @@ export function CompanyDetail() {
   const userName = useUserName();
   const q = useQuery({ queryKey: ['company', id], queryFn: () => api.get<Company>(`/companies/${id}`) });
   const del = useDeleteWithUndo('companies', 'Company', () => nav('/companies'));
+  const [merging, setMerging] = useState(false);
   if (q.isLoading) return <RecordSkeleton />;
   if (q.error || !q.data) return <RecordError error={q.error} back="/companies" />;
   const c = q.data;
@@ -47,7 +50,12 @@ export function CompanyDetail() {
       actions={<>
         {can('deal', 'create') && <Button icon={<Plus className="size-4" />} onClick={() => create.open('deal', { company: asPicker })}>New deal</Button>}
         <Menu trigger={<IconButton label="More actions"><MoreHorizontal className="size-4" /></IconButton>}
-          items={[{ label: 'Delete company', icon: <Trash2 className="size-4" />, danger: true, hidden: !can('company', 'delete', c.ownerId, c.visibility), onSelect: () => del(id) }]} />
+          items={[
+            { label: 'Merge with…', icon: <Combine className="size-4" />, hidden: !edit, onSelect: () => setMerging(true) },
+            { label: 'Delete company', icon: <Trash2 className="size-4" />, danger: true, hidden: !can('company', 'delete', c.ownerId, c.visibility), onSelect: () => del(id) },
+          ]} />
+        <MergeDialog entity="company" open={merging} onOpenChange={setMerging}
+          current={{ id, name: c.name, emails: c.methods.filter((m) => m.kind === 'email').map((m) => m.value), phones: c.methods.filter((m) => m.kind === 'phone').map((m) => m.value), websites: c.methods.filter((m) => m.kind === 'website').map((m) => m.value) }} />
       </>}
       left={<>
         <Card title="Details">

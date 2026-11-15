@@ -2,11 +2,11 @@ import { useState, type ReactNode } from 'react';
 import { Link, useNavigate } from 'react-router';
 import { useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { ArrowLeft, Pencil } from 'lucide-react';
+import { ArrowLeft, Combine, Pencil } from 'lucide-react';
 import { api, ApiError, errorMessage } from '../../lib/api.ts';
 import { useFields, useUserName } from '../../lib/hooks.ts';
 import type { FieldDef } from '../../lib/types.ts';
-import { Button, Card, ErrorState, IconButton, Skeleton } from '../../components/ui/primitives.tsx';
+import { Button, Card, EmptyState, ErrorState, IconButton, Skeleton } from '../../components/ui/primitives.tsx';
 import { Dialog } from '../../components/ui/overlays.tsx';
 import { CustomFieldInput, customDisplay, useRequiredAt } from './form.tsx';
 
@@ -46,6 +46,13 @@ export function RecordSkeleton() {
 }
 export function RecordError({ error, back }: { error: unknown; back: string }) {
   const nav = useNavigate();
+  if (error instanceof ApiError && error.code === 'MERGED') {
+    const target = (error.details as { mergedIntoId?: number } | undefined)?.mergedIntoId;
+    return (
+      <Card><EmptyState icon={<Combine className="size-5" />} title="This record was merged" description="Its details, deals and history now live in the record it was merged into."
+        action={<div className="flex justify-center gap-2"><Button onClick={() => nav(back)}>Back to list</Button>{target && <Button variant="primary" onClick={() => nav(`${back}/${target}`, { replace: true })}>Open the merged record</Button>}</div>} /></Card>
+    );
+  }
   const msg = error instanceof ApiError && error.status === 404 ? 'This record was not found. It may have been deleted.' : errorMessage(error);
   return <Card><ErrorState message={msg} /><div className="flex justify-center pb-6"><Button onClick={() => nav(back)}>Back to list</Button></div></Card>;
 }
