@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { ArrowRightCircle, Ban, MoreHorizontal, Trash2 } from 'lucide-react';
+import { ArrowRightCircle, Ban, Combine, MoreHorizontal, Trash2 } from 'lucide-react';
 import { api } from '../../lib/api.ts';
 import { money, personName } from '../../lib/format.ts';
 import { useCan, useDictLabel, usePipelines, useUserName, useFieldLock } from '../../lib/hooks.ts';
@@ -18,6 +18,7 @@ import { Attachments } from '../records/Attachments.tsx';
 import { LineItemsEditor, saveLineItems } from '../products/LineItemsEditor.tsx';
 import { useStageMove } from '../deals/useStageMove.tsx';
 import { ConvertDialog } from './ConvertDialog.tsx';
+import { MergeDialog } from '../records/MergeDialog.tsx';
 
 interface Lead {
   id: number; version: number; title: string; firstName: string | null; lastName: string | null; jobTitle: string | null; companyName: string | null;
@@ -36,6 +37,7 @@ export function LeadDetail() {
   const userName = useUserName();
   const pipeline = usePipelines('lead')[0];
   const [converting, setConverting] = useState(false);
+  const [merging, setMerging] = useState(false);
   const q = useQuery({ queryKey: ['lead', id], queryFn: () => api.get<Lead>(`/leads/${id}`) });
   const del = useDeleteWithUndo('leads', 'Lead', () => nav('/leads'));
   const mover = useStageMove('lead');
@@ -64,7 +66,12 @@ export function LeadDetail() {
         {edit && l.status === 'open' && lost && <Button icon={<Ban className="size-4" />} onClick={() => mover.move(id, l.title, stage, lost)}>Disqualify</Button>}
         {can('lead', 'edit', l.ownerId, l.visibility) && l.status === 'lost' && <Button onClick={reopen}>Reopen</Button>}
         <Menu trigger={<IconButton label="More actions"><MoreHorizontal className="size-4" /></IconButton>}
-          items={[{ label: 'Delete lead', icon: <Trash2 className="size-4" />, danger: true, hidden: !can('lead', 'delete', l.ownerId, l.visibility), onSelect: () => del(id) }]} />
+          items={[
+            { label: 'Merge with…', icon: <Combine className="size-4" />, hidden: !can('lead', 'edit', l.ownerId, l.visibility) || l.status === 'won', onSelect: () => setMerging(true) },
+            { label: 'Delete lead', icon: <Trash2 className="size-4" />, danger: true, hidden: !can('lead', 'delete', l.ownerId, l.visibility), onSelect: () => del(id) },
+          ]} />
+        <MergeDialog entity="lead" open={merging} onOpenChange={setMerging}
+          current={{ id, name: l.title, emails: l.methods.filter((m) => m.kind === 'email').map((m) => m.value), phones: l.methods.filter((m) => m.kind === 'phone').map((m) => m.value) }} />
       </>}
       stageBar={stages.length > 0 && <StageBar stages={stages} currentId={l.stageId} status={l.status} disabled={!edit || l.status !== 'open'} onSelect={(s) => mover.move(id, l.title, stage, s)} />}
       left={<>

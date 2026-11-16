@@ -165,13 +165,20 @@ The research behind every decision is in this folder:
   **Add missing list values** (admins only, option `addMissingOptions`): unknown values in list columns (types, source,
   industry, size, deal type, product category) are created instead of failing the row; the review shows how many.
 
-**Quality:** 141 Vitest tests (API against real PostgreSQL), 31 Playwright tests (desktop, tablet, phone), lint and
+- **Merge follow-ups** (migration 0017): **leads** can be merged (lead page → ⋯ → Merge with…, and a Leads tab on the
+  duplicates page; converted leads can't be merged; products move only when the kept lead has none). **More than two at
+  once**: the merge window has "Add another …" (up to 10 records); `POST /merge/:entity` takes `mergedIds` and a
+  per-field choice by record id (`mergedId` and 'survivor'/'merged' still work). **Similar names** on the duplicates page:
+  `crm_person_key` / `crm_company_key` (lower case, punctuation removed, company legal forms like Ltd/Inc dropped) with
+  trigram indexes; "Same name" compares the keys, "Similar name" uses `%` at similarity ≥ 0.6 and ranks below shared
+  contact details. Field permissions apply to every merged field.
+
+**Quality:** 144 Vitest tests (API against real PostgreSQL), 32 Playwright tests (desktop, tablet, phone), lint and
 typecheck clean, `npm audit` = 0, GitHub Actions CI in `.github/workflows/ci.yml`.
 
 ## 3. Not built yet — suggested next work (in priority order)
 
-1. Merge follow-ups: merge leads; merge more than two at once; fuzzy name matching on the duplicates page.
-2. Email follow-ups: a daily digest of overdue activities; per-workspace sender name; showing
+1. Email follow-ups: a daily digest of overdue activities; per-workspace sender name; showing
     failed deliveries to admins (today they are only in the `jobs` table as `failed` with `last_error`).
 
 Import limits and choices: 5 MB / 10,000 rows / 100 columns per file; lead rows only match *open* leads; list

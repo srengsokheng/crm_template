@@ -8,13 +8,14 @@ import { personName } from '../../lib/format.ts';
 import { Popover } from './overlays.tsx';
 import { Spinner } from './primitives.tsx';
 
-export type PickerEntity = 'contacts' | 'companies' | 'products' | 'deals';
+export type PickerEntity = 'contacts' | 'companies' | 'products' | 'deals' | 'leads';
 export interface PickerItem { id: number; label: string; sub?: string; raw?: Record<string, unknown> }
 
 function toItem(entity: PickerEntity, r: Record<string, any>): PickerItem {
   if (entity === 'contacts') return { id: r.id, label: personName(r.firstName, r.lastName), sub: [r.jobTitle, r.companyName, r.email].filter(Boolean).join(' · '), raw: r };
   if (entity === 'companies') return { id: r.id, label: r.name, sub: [r.email, r.website].filter(Boolean).join(' · '), raw: r };
   if (entity === 'products') return { id: r.id, label: r.name, sub: [r.sku, r.unitPrice && `${r.currency} ${r.unitPrice}`].filter(Boolean).join(' · '), raw: r };
+  if (entity === 'leads') return { id: r.id, label: r.title, sub: [personName(r.firstName, r.lastName), r.companyName, r.stageName].filter((x) => x && x !== 'Unnamed').join(' · '), raw: r };
   return { id: r.id, label: r.title, sub: r.stageName, raw: r };
 }
 

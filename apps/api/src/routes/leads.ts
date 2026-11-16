@@ -8,7 +8,7 @@ import { audit, diff } from '../lib/audit.ts';
 import { copyMethods, findDuplicates, loadMethods, replaceMethods } from '../lib/contactMethods.ts';
 import type { Ctx } from '../lib/context.ts';
 import { assertRequired, loadDefs, mergeCustom, missingRequired } from '../lib/customFields.ts';
-import { badRequest } from '../lib/errors.ts';
+import { badRequest, AppError } from '../lib/errors.ts';
 import { emit } from '../lib/events.ts';
 import { ctxOf } from '../lib/http.ts';
 import { likeTerm, qs, runList, type ListSpec } from '../lib/list.ts';
@@ -16,6 +16,7 @@ import { assertOnRecord, requireAny, scopeWhere } from '../lib/permissions.ts';
 import { assertMembers, assertRefs, camel, camelAll, getActive, insertRow, pickColumns, updateRow } from '../lib/records.ts';
 import { getStage, recordStageChange, resolvePipelineStage, stageOfKind, type MoveInput } from '../lib/stages.ts';
 import { parse } from '../lib/validate.ts';
+import { mergedOr404 } from './merge.ts';
 import { assertCanChange, assertCreateFields, changedCustomKeys, fieldsFromChanges } from '../lib/fieldAccess.ts';
 import { exportCsv } from '../lib/exportList.ts';
 import { inBase } from '../lib/currency.ts';
@@ -175,7 +176,8 @@ export async function leadRoutes(app: FastifyInstance) {
   app.get<IdParams>('/leads/:id', async (req) => {
     const ctx = ctxOf(req);
     const id = Number(req.params.id);
-    const row = await getActive<LeadRow>(pool, 'leads', id, ctx, 'Lead');
+    const row = await getActive<LeadRow>(pool, 'leads', id, ctx, 'Lead')
+      .catch((e) => (e instanceof AppError && e.status === 404 ? mergedOr404(ctx, 'lead', id) : Promise.reject(e)));
     assertOnRecord(ctx, 'lead', 'view', row);
     const [methods, items, owner, converted] = await Promise.all([
       loadMethods('lead', [id]), loadLineItems('lead', id),

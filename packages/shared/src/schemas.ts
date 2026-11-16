@@ -295,14 +295,18 @@ export const importConfigSchema = z.object({
 export type ImportConfig = z.infer<typeof importConfigSchema>;
 
 // ───────── Merge duplicates ─────────
-export const MERGE_ENTITIES = ['contact', 'company'] as const;
+export const MERGE_ENTITIES = ['contact', 'company', 'lead'] as const;
+export const MERGE_MAX = 10;
 export const mergeSchema = z.object({
   survivorId: idSchema,
-  mergedId: idSchema,
-  /** Per field (or `custom.<key>`): take the value from the kept record or the merged one. Unlisted fields keep the
-   *  kept record's value, or the merged record's value when the kept one is empty. */
-  choose: z.record(z.string().max(80), z.enum(['survivor', 'merged'])).default({}),
-});
+  /** One record to merge away … */
+  mergedId: idSchema.optional(),
+  /** … or several at once (up to MERGE_MAX records in total). */
+  mergedIds: z.array(idSchema).min(1).max(MERGE_MAX - 1).optional(),
+  /** Per field (or `custom.<key>`): the id of the record whose value wins, or 'survivor' / 'merged' (= the first merged
+   *  record). Unlisted fields keep the kept record's value, or the first non-empty merged value when the kept one is empty. */
+  choose: z.record(z.string().max(80), z.union([z.enum(['survivor', 'merged']), idSchema])).default({}),
+}).refine((b) => !!(b.mergedId ?? b.mergedIds?.length), { message: 'Choose the records to merge', path: ['mergedIds'] });
 export type MergeInput = z.infer<typeof mergeSchema>;
 
 // ───────── Personal preferences ─────────

@@ -9,16 +9,18 @@ import { useCan } from '../../lib/hooks.ts';
 import { Badge, Button, Card, EmptyState, ErrorState, PageHeader, Segmented, Skeleton } from '../../components/ui/primitives.tsx';
 import { MergeDialog } from '../records/MergeDialog.tsx';
 
-type Entity = 'contact' | 'company';
+type Entity = 'contact' | 'company' | 'lead';
 interface Side { id: number; title: string; createdAt: string; ownerName: string | null }
 interface Pair { a: number; b: number; reasons: { kind: string; value: string }[]; left: Side; right: Side }
 
-const NOUN = { contact: { many: 'contacts', path: '/contacts' }, company: { many: 'companies', path: '/companies' } };
-const REASON: Record<string, string> = { email: 'Same email', phone: 'Same phone', website: 'Same website', name: 'Same name' };
+const NOUN = { contact: { many: 'contacts', path: '/contacts' }, company: { many: 'companies', path: '/companies' }, lead: { many: 'leads', path: '/leads' } };
+const REASON: Record<string, string> = { email: 'Same email', phone: 'Same phone', website: 'Same website', name: 'Same name', similar_name: 'Similar name' };
+/** Reasons whose value is worth showing next to the label. */
+const SHOW_VALUE = new Set(['email', 'phone', 'website']);
 
 export function DuplicatesPage() {
   const { entity } = useParams();
-  if (entity !== 'contact' && entity !== 'company') return <Navigate to="/duplicates/contact" replace />;
+  if (entity !== 'contact' && entity !== 'company' && entity !== 'lead') return <Navigate to="/duplicates/contact" replace />;
   return <Duplicates entity={entity} />;
 }
 
@@ -40,11 +42,11 @@ function Duplicates({ entity }: { entity: Entity }) {
   return (
     <div className="mx-auto max-w-5xl">
       <Link to={n.path} className="mb-2 inline-flex items-center gap-1 text-[13px] text-muted hover:text-[var(--text)]"><ArrowLeft className="size-3.5" />{n.many[0].toUpperCase() + n.many.slice(1)}</Link>
-      <PageHeader title="Find duplicates" subtitle="Records that share an email, phone, website or exactly the same name."
-        actions={<Segmented value={entity} onChange={(v) => nav(`/duplicates/${v}`)} options={[{ value: 'contact', label: 'Contacts' }, { value: 'company', label: 'Companies' }]} />} />
+      <PageHeader title="Find duplicates" subtitle="Records that share an email, phone or website, or have the same or a very similar name. Merge two — or add more in the merge window."
+        actions={<Segmented value={entity} onChange={(v) => nav(`/duplicates/${v}`)} options={[{ value: 'contact', label: 'Contacts' }, { value: 'company', label: 'Companies' }, { value: 'lead', label: 'Leads' }]} />} />
       {q.isLoading ? <div className="space-y-2">{[0, 1, 2].map((i) => <Skeleton key={i} className="h-24" />)}</div>
         : q.error ? <Card><ErrorState message={errorMessage(q.error)} onRetry={() => q.refetch()} /></Card>
-        : !q.data?.data.length ? <Card><EmptyState icon={<CopyCheck className="size-5" />} title={`No duplicate ${n.many} found`} description="Nothing shares an email, phone, website or name. Pairs you marked as not duplicates stay hidden." /></Card>
+        : !q.data?.data.length ? <Card><EmptyState icon={<CopyCheck className="size-5" />} title={`No duplicate ${n.many} found`} description={`Nothing shares an email, phone, website or a similar name${entity === 'lead' ? ' (converted leads are not checked)' : ''}. Pairs you marked as not duplicates stay hidden.`} /></Card>
         : (
           <div className="space-y-2">
             <p className="text-sm text-muted">{q.data.data.length}{q.data.more ? '+' : ''} possible {q.data.data.length === 1 ? 'pair' : 'pairs'}, strongest matches first.</p>
@@ -52,7 +54,7 @@ function Duplicates({ entity }: { entity: Entity }) {
               {q.data.data.map((p) => (
                 <li key={`${p.a}-${p.b}`} className="surface rounded-[var(--radius-card)] border border-base p-3">
                   <div className="flex flex-wrap items-center gap-1.5">
-                    {p.reasons.map((r) => <Badge key={r.kind} tone="amber">{REASON[r.kind] ?? r.kind}{r.kind !== 'name' ? `: ${r.value}` : ''}</Badge>)}
+                    {p.reasons.map((r) => <Badge key={r.kind} tone={r.kind === 'similar_name' ? 'slate' : 'amber'}>{REASON[r.kind] ?? r.kind}{SHOW_VALUE.has(r.kind) ? `: ${r.value}` : ''}</Badge>)}
                   </div>
                   <div className="mt-2 grid gap-2 sm:grid-cols-2">
                     {[p.left, p.right].map((s) => (
