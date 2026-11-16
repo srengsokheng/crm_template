@@ -1,5 +1,6 @@
 /** Sending Inbox replies to the platform (job "inbox.send", retried by the jobs queue). */
-import { q, q1, sql } from '../db/index.ts';
+import { pool, q, q1, sql } from '../db/index.ts';
+import { notifyInbox } from './events.ts';
 import { files } from '../lib/files.ts';
 import { openSecret } from '../lib/secrets.ts';
 import { sendTelegramFile } from './files.ts';
@@ -10,8 +11,8 @@ const CAPTION_MAX = 1024; // Telegram's caption limit; longer text is sent as it
 
 /** Delivers one pending outgoing message. Permanent refusals (bot blocked, removed from the group) fail at once. */
 export async function deliverMessage(messageId: number): Promise<void> {
-  const m = await q1<{ id: number; body: string; status: string; chat_id: string; channel_id: number }>(sql`
-    SELECT m.id, m.body, m.status, c.external_id AS chat_id, c.channel_id
+  const m = await q1<{ id: number; body: string; status: string; chat_id: string; channel_id: number; conversation_id: number }>(sql`
+    SELECT m.id, m.body, m.status, c.external_id AS chat_id, c.channel_id, m.conversation_id
     FROM messages m JOIN conversations c ON c.id = m.conversation_id WHERE m.id = ${messageId}`);
   if (!m || m.status !== 'pending') return;
   const ch = await q1<ChannelRow>(sql`SELECT * FROM channels WHERE id = ${m.channel_id}`);
@@ -31,6 +32,7 @@ export async function deliverMessage(messageId: number): Promise<void> {
       externalId = await sendTelegram(ch, m.chat_id, m.body);
     }
     await q(sql`UPDATE messages SET status = 'sent', external_id = ${externalId}, error = NULL WHERE id = ${messageId}`);
+    await notifyInbox(pool, m.conversation_id);
   } catch (e) {
     if (e instanceof TelegramError && (e.status === 400 || e.status === 403)) return markFailed(messageId, `Telegram refused the message: ${e.message}`);
     throw e; // network or Telegram outage: the jobs queue retries
@@ -38,5 +40,6 @@ export async function deliverMessage(messageId: number): Promise<void> {
 }
 
 export async function markFailed(messageId: number, error: string): Promise<void> {
-  await q(sql`UPDATE messages SET status = 'failed', error = ${error} WHERE id = ${messageId} AND status = 'pending'`);
+  const r = await q1<{ conversation_id: number }>(sql`UPDATE messages SET status = 'failed', error = ${error} WHERE id = ${messageId} AND status = 'pending' RETURNING conversation_id`);
+  if (r) await notifyInbox(pool, r.conversation_id);
 }

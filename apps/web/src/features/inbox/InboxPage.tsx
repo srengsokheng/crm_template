@@ -10,6 +10,7 @@ import { dateTime, relative } from '../../lib/format.ts';
 import { useCan, useDebounced, useMe, useMeta } from '../../lib/hooks.ts';
 import { Avatar, Badge, Button, EmptyState, ErrorState, IconButton, Input, Segmented, Select, Skeleton, Spinner, Textarea } from '../../components/ui/primitives.tsx';
 import { Dialog } from '../../components/ui/overlays.tsx';
+import { usePollInterval } from './live.ts';
 import { EntityPicker, type PickerItem } from '../../components/ui/EntityPicker.tsx';
 
 type ChannelKind = 'webchat' | 'telegram_bot';
@@ -53,10 +54,11 @@ function ConversationList({ activeId }: { activeId: number | null }) {
   const [assignee, setAssignee] = useState<'all' | 'me' | 'unassigned'>('all');
   const [q, setQ] = useState('');
   const term = useDebounced(q.trim(), 300);
+  const listPoll = usePollInterval(5000);
   const { data: me } = useMe();
   const params = new URLSearchParams({ status, assignee, ...(term ? { q: term } : {}) });
   const list = useQuery({
-    queryKey: ['inbox', status, assignee, term], refetchInterval: 5000,
+    queryKey: ['inbox', status, assignee, term], refetchInterval: listPoll,
     queryFn: () => api.get<{ data: ConversationItem[]; hasMore: boolean }>(`/inbox/conversations?${params}`),
   });
   const channels = useQuery({ queryKey: ['channels'], enabled: !!me?.role.isAdmin, queryFn: () => api.get<{ data: unknown[] }>('/channels') });
@@ -130,7 +132,8 @@ function Thread({ id }: { id: number }) {
   const nav = useNavigate();
   const can = useCan();
   const meta = useMeta();
-  const conv = useQuery({ queryKey: ['conversation', id], refetchInterval: 4000, queryFn: () => api.get<ConversationDetail>(`/inbox/conversations/${id}`) });
+  const threadPoll = usePollInterval(4000);
+  const conv = useQuery({ queryKey: ['conversation', id], refetchInterval: threadPoll, queryFn: () => api.get<ConversationDetail>(`/inbox/conversations/${id}`) });
   const d = conv.data;
   const bottom = useRef<HTMLDivElement>(null);
   const lastId = d?.messages.at(-1)?.id;

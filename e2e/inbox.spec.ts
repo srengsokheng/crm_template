@@ -103,3 +103,21 @@ test('send a file from the Inbox: the visitor sees the image in the website chat
   await expect(site.getByText('Here they are')).toBeVisible();
   await expect.poll(() => site.getByRole('img', { name: 'colours.png' }).evaluate((img: HTMLImageElement) => img.naturalWidth)).toBe(1);
 });
+
+test('live updates: new visitor messages appear in the open Inbox within seconds, without reloading', async ({ page, baseURL }) => {
+  await signUp(page);
+  const ch = await api(page, 'POST', '/channels', { kind: 'webchat', name: 'Chat' });
+  const visit = async (body: Record<string, unknown>) => (await page.request.post(`${baseURL}/api/v1/public/webchat/${ch.publicKey}/messages`, { data: body, headers: { 'x-requested-with': 'crm' } })).json();
+  const first = await visit({ body: 'First question', name: 'Live Visitor' });
+  const conv = (await api(page, 'GET', '/inbox/conversations')).data[0];
+  const live = page.waitForResponse((r) => r.url().endsWith('/api/v1/inbox/events'));
+  await page.goto(`/inbox/${conv.id}`);
+  expect((await live).status()).toBe(200);
+  await expect(page.locator('ol').getByText('First question')).toBeVisible();
+  // While the stream is open the page polls only once a minute, so these can only arrive through it.
+  await page.waitForTimeout(500);
+  await visit({ token: first.token, body: 'Second question' });
+  await expect(page.locator('ol').getByText('Second question')).toBeVisible({ timeout: 5_000 });
+  await visit({ body: 'Someone new', name: 'New Visitor' });
+  await expect(page.getByRole('complementary', { name: 'Conversations' }).getByRole('link', { name: /New Visitor/ })).toBeVisible({ timeout: 5_000 });
+});

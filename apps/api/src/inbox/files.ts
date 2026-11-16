@@ -4,7 +4,8 @@
  * files up to 20 MB; larger ones (and anything over FILES_MAX_BYTES) are listed as "too large".
  */
 import { config } from '../config.ts';
-import { q, q1, sql, type Db } from '../db/index.ts';
+import { pool, q, q1, sql, type Db } from '../db/index.ts';
+import { notifyInbox } from './events.ts';
 import { files, newStorageKey } from '../lib/files.ts';
 import { openSecret } from '../lib/secrets.ts';
 import { scanBuffer } from '../lib/virusScan.ts';
@@ -71,11 +72,19 @@ export async function fetchTelegramFile(fileRowId: number): Promise<void> {
   await files().put(key, data);
   const done = await q1(sql`UPDATE message_files SET status = 'stored', storage_key = ${key}, size_bytes = ${data.length}
     WHERE id = ${f.id} AND status = 'pending' RETURNING id`);
-  if (!done) await files().remove(key); // handled concurrently: keep the first copy
+  if (!done) return files().remove(key); // handled concurrently: keep the first copy
+  await notifyFile(f.id);
 }
 
 export async function setStatus(id: number, status: 'too_large' | 'blocked' | 'failed', size?: number): Promise<void> {
-  await q(sql`UPDATE message_files SET status = ${status}, size_bytes = coalesce(${size ?? null}::bigint, size_bytes) WHERE id = ${id} AND status = 'pending'`);
+  const r = await q1(sql`UPDATE message_files SET status = ${status}, size_bytes = coalesce(${size ?? null}::bigint, size_bytes)
+    WHERE id = ${id} AND status = 'pending' RETURNING id`);
+  if (r) await notifyFile(id);
+}
+
+async function notifyFile(fileId: number) {
+  const m = await q1<{ conversation_id: number }>(sql`SELECT m.conversation_id FROM message_files f JOIN messages m ON m.id = f.message_id WHERE f.id = ${fileId}`);
+  if (m) await notifyInbox(pool, m.conversation_id);
 }
 
 /** Sends a stored file through the bot (as a photo when Telegram can show it as one, otherwise as a document). */

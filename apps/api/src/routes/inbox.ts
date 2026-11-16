@@ -14,7 +14,9 @@ import { likeTerm } from '../lib/list.ts';
 import { canOnConversation, canOnRecord, conversationScopeWhere, requireAny, scopeOf, scopeWhere } from '../lib/permissions.ts';
 import { assertMembers, camel, camelAll } from '../lib/records.ts';
 import { parse } from '../lib/validate.ts';
+import type { ServerResponse } from 'node:http';
 import { enqueue } from '../automation/engine.ts';
+import { notifyInbox, stopListening, subscribe } from '../inbox/events.ts';
 import { preview } from '../inbox/store.ts';
 import { createContact } from './parties.ts';
 
@@ -51,11 +53,32 @@ async function afterReply(db: Db, ctx: Ctx, c: ConvRow, messageId: number, previ
     status = 'open', unread = 0, assignee_id = coalesce(assignee_id, ${ctx.userId}) WHERE id = ${c.id}`, db);
   if (!c.assignee_id) await audit(db, ctx, 'conversation', c.id, 'assigned', { assignee_id: [null, ctx.userId], via: 'reply' });
   if (needsSending) await enqueue('inbox.send', { messageId }, new Date(), db);
+  await notifyInbox(db, c.id);
 }
 
 export async function inboxRoutes(app: FastifyInstance) {
   // Raw file uploads (replies with a file) are only accepted by this plugin's routes.
   app.addContentTypeParser('application/octet-stream', { parseAs: 'buffer', bodyLimit: config.files.maxBytes }, (_req, body, done) => done(null, body));
+
+  /**
+   * Server-sent events: "conversation N changed" for conversations the user may see (see inbox/events.ts). Streams
+   * end after 30 minutes; the browser reconnects, which also picks up permission changes.
+   */
+  const streams = new Set<ServerResponse>();
+  app.addHook('preClose', async () => { for (const s of streams) s.end(); streams.clear(); await stopListening(); });
+  app.get('/inbox/events', async (req, reply) => {
+    const ctx = ctxOf(req);
+    requireAny(ctx, 'conversation', 'view');
+    const res = reply.raw;
+    const unsubscribe = await subscribe(ctx, (id) => { res.write(`event: conversation\ndata: {"conversationId":${id}}\n\n`); });
+    reply.hijack();
+    res.writeHead(200, { 'content-type': 'text/event-stream; charset=utf-8', 'cache-control': 'no-cache, no-transform', connection: 'keep-alive', 'x-accel-buffering': 'no' });
+    res.write('retry: 5000\n\n: connected\n\n');
+    streams.add(res);
+    const ping = setInterval(() => res.write(': ping\n\n'), 25_000);
+    const expire = setTimeout(() => res.end(), 30 * 60_000);
+    res.on('close', () => { clearInterval(ping); clearTimeout(expire); unsubscribe(); streams.delete(res); });
+  });
 
   app.get('/inbox/conversations', async (req) => {
     const ctx = ctxOf(req);
@@ -117,6 +140,7 @@ export async function inboxRoutes(app: FastifyInstance) {
     requireAny(ctx, 'conversation', 'view');
     const c = await loadConversation(pool, ctx, Number(req.params.id), 'view');
     await q(sql`UPDATE conversations SET unread = 0 WHERE id = ${c.id}`);
+    await notifyInbox(pool, c.id);
     await q(sql`UPDATE notifications SET read_at = now() WHERE user_id = ${ctx.userId} AND entity_type = 'conversation' AND entity_id = ${c.id} AND read_at IS NULL`);
     return { ok: true };
   });
@@ -197,6 +221,7 @@ export async function inboxRoutes(app: FastifyInstance) {
         WHERE id = ${Number(req.params.messageId)} AND conversation_id = ${c.id} AND direction = 'out' AND status = 'failed' RETURNING id`, db);
       if (!m) throw notFound('Failed message');
       await enqueue('inbox.send', { messageId: m.id }, new Date(), db);
+      await notifyInbox(db, c.id);
       return { ok: true };
     });
   });
@@ -228,6 +253,7 @@ export async function inboxRoutes(app: FastifyInstance) {
         contact_id = ${('contact_id' in next ? next.contact_id : c.contact_id) as number | null}, lead_id = ${('lead_id' in next ? next.lead_id : c.lead_id) as number | null}
         WHERE id = ${c.id}`, db);
       await audit(db, ctx, 'conversation', c.id, 'updated', changes);
+      await notifyInbox(db, c.id);
       if (next.assignee_id && next.assignee_id !== ctx.userId) {
         await q(sql`INSERT INTO notifications (workspace_id, user_id, kind, title, body, entity_type, entity_id)
           VALUES (${ctx.workspaceId}, ${next.assignee_id as number}, 'assigned', ${`${ctx.userName} assigned you a conversation`}, ${c.title}, 'conversation', ${c.id})`, db);
@@ -256,6 +282,7 @@ export async function inboxRoutes(app: FastifyInstance) {
       const contact = await createContact(db, ctx, input, { via: 'inbox' });
       await q(sql`UPDATE conversations SET contact_id = ${contact.id} WHERE id = ${c.id}`, db);
       await audit(db, ctx, 'conversation', c.id, 'updated', { contact_id: [null, contact.id] });
+      await notifyInbox(db, c.id);
       return reply.code(201).send({ id: contact.id });
     });
   });

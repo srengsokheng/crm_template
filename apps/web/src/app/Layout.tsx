@@ -13,14 +13,16 @@ import { Menu, Popover } from '../components/ui/overlays.tsx';
 import { CommandPalette } from './CommandPalette.tsx';
 import { CreateProvider, useCreate } from './create.tsx';
 import { applyTheme, getTheme, type Theme } from './theme.ts';
+import { useInboxEvents, usePollInterval } from '../features/inbox/live.ts';
 
 interface NavItem { to: string; label: string; icon: ReactNode; badge?: number; show?: boolean }
 
 function useNav(): NavItem[] {
   const { data: me } = useMe();
   const can = useCan();
+  const inboxPoll = usePollInterval(30_000);
   const counts = useQuery({ queryKey: ['activity-counts'], queryFn: () => api.get<{ overdue: number; today: number }>('/activities/counts'), refetchInterval: 60_000 });
-  const inbox = useQuery({ queryKey: ['inbox-summary'], queryFn: () => api.get<{ unread: number; canView: boolean }>('/inbox/summary'), refetchInterval: 30_000, enabled: can('conversation', 'view') });
+  const inbox = useQuery({ queryKey: ['inbox-summary'], queryFn: () => api.get<{ unread: number; canView: boolean }>('/inbox/summary'), refetchInterval: inboxPoll, enabled: can('conversation', 'view') });
   return [
     { to: '/', label: 'Home', icon: <Home className="size-[18px]" /> },
     { to: '/inbox', label: 'Inbox', icon: <MessageCircle className="size-[18px]" />, badge: inbox.data?.unread, show: can('conversation', 'view') },
@@ -237,6 +239,8 @@ export function AppLayout() {
 }
 
 function Shell({ onSearch }: { onSearch: () => void }) {
+  const can = useCan();
+  useInboxEvents(can('conversation', 'view'));
   const items = useNav();
   return (
     <div className="flex min-h-dvh">

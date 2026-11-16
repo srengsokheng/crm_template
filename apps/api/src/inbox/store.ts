@@ -1,5 +1,6 @@
 /** Writing incoming messages into the Inbox, shared by all channels. */
 import { q, q1, sql, type Db } from '../db/index.ts';
+import { notifyInbox } from './events.ts';
 
 export interface ChannelRow {
   id: number; workspace_id: number; kind: 'webchat' | 'telegram_bot'; name: string; public_key: string;
@@ -60,6 +61,7 @@ export async function recordInbound(db: Db, m: Inbound): Promise<{ conversationI
       WHERE NOT EXISTS (SELECT 1 FROM notifications WHERE user_id = ${c.assignee_id} AND entity_type = 'conversation'
                         AND entity_id = ${c.id} AND read_at IS NULL)`, db);
   }
+  await notifyInbox(db, c.id);
   return { conversationId: c.id, messageId: msg.id };
 }
 
