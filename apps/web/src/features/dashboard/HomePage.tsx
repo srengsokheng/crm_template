@@ -9,6 +9,7 @@ import { dueLabel, money, relative } from '../../lib/format.ts';
 import { useCan, useLocalStorage, useMe, usePipelines } from '../../lib/hooks.ts';
 import { Button, Card, ErrorState, Segmented, Select, Skeleton } from '../../components/ui/primitives.tsx';
 import { useCreate } from '../../app/create.tsx';
+import { MissingRates } from '../settings/MissingRates.tsx';
 import { useIsDark } from '../../app/theme.ts';
 import { ACTIVITY_ICON } from '../records/Timeline.tsx';
 
@@ -19,6 +20,7 @@ interface Dashboard {
   trend: { month: string; won: string; lost: string }[];
   myDay: { id: number; kind: keyof typeof ACTIVITY_ICON; subject: string; dueAt: string | null; link: { entityType: string; entityId: number } | null }[];
   recent: { id: number; action: string; changes: Record<string, unknown>; createdAt: string; actorName: string | null; title: string; entityId: number }[];
+  baseCurrency?: string; missingRates?: string[];
 }
 
 // Validated categorical slots 1–2 (see dataviz palette): light / dark variants.
@@ -64,6 +66,7 @@ export function HomePage() {
         <Segmented value={scope} onChange={setScope} options={[{ value: 'me', label: 'Me' }, { value: 'team', label: 'My team' }, { value: 'all', label: 'Everyone' }]} />
       </div>
 
+      <MissingRates currencies={q.data?.missingRates} base={q.data?.baseCurrency} />
       {q.error ? <Card><ErrorState message={errorMessage(q.error)} onRetry={() => q.refetch()} /></Card> : (
         <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
           {!k ? Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-24" />) : <>

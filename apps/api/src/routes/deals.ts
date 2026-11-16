@@ -17,6 +17,7 @@ import { assertMembers, assertRefs, camel, camelAll, getActive, insertRow, pickC
 import { getStage, recordStageChange, resolvePipelineStage, stageOfKind, type MoveInput, type StageRow } from '../lib/stages.ts';
 import { parse } from '../lib/validate.ts';
 import { exportCsv } from '../lib/exportList.ts';
+import { dealInBase } from '../lib/currency.ts';
 
 type IdParams = { Params: { id: string } };
 type DealRow = Record<string, unknown> & {
@@ -167,7 +168,7 @@ export async function dealRoutes(app: FastifyInstance) {
       select: DEAL_SELECT, from: DEAL_FROM, where: dealFilters(ctx, query), search: dealSearch,
       sorts: { title: 'lower(d.title)', amount: 'd.amount', stage: 's.sort', owner: 'u.name', company: 'lower(co.name)', expectedCloseDate: 'd.expected_close_date', createdAt: 'd.created_at', updatedAt: 'd.updated_at' },
       defaultSort: '-createdAt',
-      aggregates: sql`coalesce(sum(d.amount), 0)::text AS amount_sum`,
+      aggregates: sql`coalesce(sum(${dealInBase(ctx)}), 0)::text AS amount_sum`,
     };
     if (query.format === 'csv') {
       return exportCsv(reply, ctx, 'deal', spec, query, 'd', [['ID', 'id'], ['Title', 'title'], ['Stage', 'stage_name'], ['Status', 'status'],
@@ -187,7 +188,7 @@ export async function dealRoutes(app: FastifyInstance) {
     const pipelineId = qs.id(query.pipelineId) ?? (await resolvePipelineStage(pool, ctx, 'deal')).pipeline_id;
     const limit = Math.min(qs.id(query.limit) ?? 50, 200);
     const where = [...dealFilters(ctx, { ...query, pipelineId: String(pipelineId) }), query.q ? dealSearch(query.q) : null].filter(Boolean);
-    const stats = await q<{ stage_id: number; count: number; sum: string }>(sql`SELECT d.stage_id, count(*)::int AS count, coalesce(sum(d.amount),0)::text AS sum
+    const stats = await q<{ stage_id: number; count: number; sum: string }>(sql`SELECT d.stage_id, count(*)::int AS count, coalesce(sum(${dealInBase(ctx)}),0)::text AS sum
       FROM ${DEAL_FROM} WHERE ${and(where)} GROUP BY d.stage_id`);
     const rows = await q(sql`SELECT * FROM (
         SELECT ${DEAL_SELECT}, row_number() OVER (PARTITION BY d.stage_id ORDER BY d.stage_changed_at DESC, d.id DESC) AS rn

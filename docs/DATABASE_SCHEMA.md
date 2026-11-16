@@ -441,8 +441,10 @@ here are hidden from the find-duplicates page.
 `id, workspace_id, owner_id (NULL = shared with the workspace), entity_type (lead|deal|contact|company, check added in
 migration 0007), name, query jsonb (the list URL parameters), created_at`. Index `(workspace_id, entity_type, owner_id)`.
 
-### `exchange_rates` (v1.1)
-`workspace_id, currency, rate_to_base numeric(18,8), valid_from date`.
+### `exchange_rates` (migration 0011)
+`id, workspace_id, currency, rate_to_base numeric(18,8) > 0, valid_from date, created_by, created_at`, unique per
+(workspace, currency, valid_from). `crm_to_base(amount, currency, base, ws, at)` returns the amount in the base currency
+using the newest rate on or before `at`, or NULL when there is none.
 
 ---
 

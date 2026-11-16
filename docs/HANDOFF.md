@@ -105,7 +105,14 @@ The research behind every decision is in this folder:
   creating, moving or editing into a blocked pipeline is refused. Admins and automation always have access.
   Every permission check on deals/leads must load `pipeline_id` with the row (see tests in `pipeline-access.test.ts`).
 
-**Quality:** 114 Vitest tests (API against real PostgreSQL), 25 Playwright tests (desktop, tablet, phone), lint and
+- **Multi-currency reporting** (migration 0011: `exchange_rates`, SQL function `crm_to_base`): admins enter rates in
+  Settings → Currencies (1 unit = x base currency, valid from a date; same day replaces). Every money sum — dashboard
+  KPIs, pipeline-by-stage, won/lost trend, list totals, board columns, reports — converts with the newest rate valid on
+  the day (today for open deals, the close date for won/lost). Amounts without a rate are left out (never added in the
+  wrong currency) and the dashboard/reports show which currencies need a rate. Records keep their own currency;
+  `lib/currency.ts` (`inBase`, `dealInBase`, `missingRates`) is the only way new sums should be written.
+
+**Quality:** 117 Vitest tests (API against real PostgreSQL), 26 Playwright tests (desktop, tablet, phone), lint and
 typecheck clean, `npm audit` = 0, GitHub Actions CI in `.github/workflows/ci.yml`.
 
 ## 3. Not built yet — suggested next work (in priority order)
@@ -114,10 +121,9 @@ typecheck clean, `npm audit` = 0, GitHub Actions CI in `.github/workflows/ci.yml
 2. Estimates/quotes and invoices with PDF (see `CRM_FEATURES.md`).
 3. File custom fields and attachments (needs object storage).
 4. Field-level permissions (hide or lock individual fields per role).
-5. Multi-currency reporting with exchange rates.
-6. Import follow-ups: deals/products import, "add missing list options" during import.
-7. Merge follow-ups: merge leads; merge more than two at once; fuzzy name matching on the duplicates page.
-8. Email follow-ups: a daily digest of overdue activities; per-workspace sender name; showing
+5. Import follow-ups: deals/products import, "add missing list options" during import.
+6. Merge follow-ups: merge leads; merge more than two at once; fuzzy name matching on the duplicates page.
+7. Email follow-ups: a daily digest of overdue activities; per-workspace sender name; showing
     failed deliveries to admins (today they are only in the `jobs` table as `failed` with `last_error`).
 
 Import limits and choices: 5 MB / 10,000 rows / 100 columns per file; lead rows only match *open* leads; dictionary

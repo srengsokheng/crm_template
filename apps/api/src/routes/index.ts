@@ -11,6 +11,7 @@ import { mergeRoutes } from './merge.ts';
 import { metaRoutes } from './meta.ts';
 import { partyRoutes } from './parties.ts';
 import { productRoutes } from './products.ts';
+import { rateRoutes } from './rates.ts';
 import { recycleRoutes } from './recycle.ts';
 import { reportRoutes } from './reports.ts';
 import { searchRoutes } from './search.ts';
@@ -34,5 +35,6 @@ export async function registerRoutes(app: FastifyInstance) {
   await app.register(auditRoutes);
   await app.register(viewRoutes);
   await app.register(duplicateRoutes);
+  await app.register(rateRoutes);
   await app.register(recycleRoutes); // generic DELETE /:entity/:id last
 }

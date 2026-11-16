@@ -6,6 +6,7 @@ import { cn } from '../../lib/cn.ts';
 import { date, money } from '../../lib/format.ts';
 import { useCan, useMe, usePipelines } from '../../lib/hooks.ts';
 import { Card, EmptyState, ErrorState, Input, PageHeader, Select, Skeleton } from '../../components/ui/primitives.tsx';
+import { MissingRates } from '../settings/MissingRates.tsx';
 import { useListParams } from '../records/list.tsx';
 
 const REPORTS = [
@@ -48,11 +49,12 @@ export function ReportsPage() {
   const preset = lp.get('period') || 'month';
   const range = preset === 'custom' ? { from: lp.get('from') || presetRange('month').from, to: lp.get('to') || presetRange('month').to } : presetRange(preset);
   const params = { ...range, scope: lp.get('scope') || undefined, pipelineId: lp.get('pipelineId') || undefined, groupBy: key === 'lead-conversion' ? lp.get('groupBy') || undefined : undefined };
-  const q = useQuery({ queryKey: ['report', key, params], placeholderData: keepPreviousData, queryFn: () => api.get<{ rows: Record<string, unknown>[]; totals?: Record<string, unknown> }>(`/reports/${key}${qsOf(params)}`) });
+  const q = useQuery({ queryKey: ['report', key, params], placeholderData: keepPreviousData, queryFn: () => api.get<{ rows: Record<string, unknown>[]; totals?: Record<string, unknown>; baseCurrency?: string; missingRates?: string[] }>(`/reports/${key}${qsOf(params)}`) });
   const cur = me?.workspace.baseCurrency ?? 'USD';
   const cols = q.data?.rows[0] ? Object.keys(q.data.rows[0]).filter((c) => !HIDDEN.has(c)) : [];
   const fmt = (c: string, v: unknown, row: Record<string, unknown>) => {
     if (v === null || v === undefined) return '—';
+    if (c === 'amountInBase') return v === null || v === undefined ? 'no rate' : money(String(v), cur);
     if (MONEY.has(c)) return money(String(v), (row.currency as string) ?? cur);
     if (PCT.has(c)) return `${v}%`;
     if (DATE.has(c)) return date(String(v));
@@ -76,6 +78,7 @@ export function ReportsPage() {
             <h2 className="text-base font-semibold">{report.title}</h2>
             <p className="text-sm text-muted">{report.desc}</p>
           </div>
+          <MissingRates currencies={q.data?.missingRates} base={q.data?.baseCurrency} />
           <div className="flex flex-wrap items-center gap-2">
             {key !== 'overdue-deals' && (
               <Select aria-label="Period" className="w-auto" value={preset} onChange={(e) => lp.set({ period: e.target.value === 'month' ? null : e.target.value })}>
@@ -124,13 +127,13 @@ export function ReportsPage() {
                 <div className="overflow-x-auto">
                   <table className="w-full min-w-[560px] text-sm">
                     <thead className="border-b border-base bg-[var(--surface-2)]/60 text-left text-xs text-muted">
-                      <tr>{cols.map((c) => <th key={c} className={cn('px-3 py-2.5 font-medium', (MONEY.has(c) || PCT.has(c) || typeof q.data!.rows[0][c] === 'number') && 'text-right')}>{human(c)}</th>)}</tr>
+                      <tr>{cols.map((c) => <th key={c} className={cn('px-3 py-2.5 font-medium', (MONEY.has(c) || c === 'amountInBase' || PCT.has(c) || typeof q.data!.rows[0][c] === 'number') && 'text-right')}>{c === 'amountInBase' ? `In ${cur}` : human(c)}</th>)}</tr>
                     </thead>
                     <tbody className="divide-y divide-[var(--border)]">
                       {q.data.rows.map((r, i) => (
                         <tr key={i}>
                           {cols.map((c) => (
-                            <td key={c} className={cn('px-3 py-2', (MONEY.has(c) || PCT.has(c) || typeof r[c] === 'number') && 'text-right tabular')}>
+                            <td key={c} className={cn('px-3 py-2', (MONEY.has(c) || c === 'amountInBase' || PCT.has(c) || typeof r[c] === 'number') && 'text-right tabular')}>
                               {c === 'title' && r.id ? <Link to={`/deals/${r.id}`} className="font-medium text-brand-600 hover:underline">{String(r[c])}</Link> : fmt(c, r[c], r)}
                             </td>
                           ))}

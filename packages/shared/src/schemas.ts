@@ -329,3 +329,12 @@ export const savedViewUpdateSchema = z.object({
   query: viewQuery.optional(),
   shared: z.boolean().optional(),
 });
+
+// ───────── Exchange rates ─────────
+export const exchangeRateSchema = z.object({
+  currency: z.string().trim().toUpperCase().regex(/^[A-Z]{3}$/, 'Use a 3-letter code like EUR'),
+  /** 1 unit of `currency` in the base currency, e.g. "1.0850". */
+  rate: z.union([z.string(), z.number()]).transform((v) => String(v).trim())
+    .refine((v) => /^\d{1,10}(\.\d{1,8})?$/.test(v) && Number(v) > 0, 'Enter a positive rate like 1.0850'),
+  validFrom: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Use YYYY-MM-DD'),
+});

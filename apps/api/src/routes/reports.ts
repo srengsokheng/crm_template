@@ -5,6 +5,7 @@ import { badRequest, forbidden } from '../lib/errors.ts';
 import { ctxOf } from '../lib/http.ts';
 import { qs } from '../lib/list.ts';
 import { scopeOf, scopeWhere } from '../lib/permissions.ts';
+import { dealInBase, missingRates } from '../lib/currency.ts';
 import { camelAll } from '../lib/records.ts';
 
 interface Period { from: string; to: string }
@@ -55,20 +56,20 @@ export async function reportRoutes(app: FastifyInstance) {
     const ws = ctx.workspaceId;
     const [kpi, byStage, trend, myDay, recent, leadKpi] = await Promise.all([
       q1(sql`SELECT
-          coalesce(sum(amount) FILTER (WHERE status = 'open'), 0)::text AS open_amount,
+          coalesce(sum(${dealInBase(ctx)}) FILTER (WHERE status = 'open'), 0)::text AS open_amount,
           count(*) FILTER (WHERE status = 'open')::int AS open_count,
-          coalesce(sum(amount * coalesce(probability, 0) / 100.0) FILTER (WHERE status = 'open'), 0)::numeric(18,2)::text AS weighted_amount,
-          coalesce(sum(amount) FILTER (WHERE status = 'won' AND closed_at::date BETWEEN ${p.from}::date AND ${p.to}::date), 0)::text AS won_amount,
+          coalesce(sum(${dealInBase(ctx)} * coalesce(probability, 0) / 100.0) FILTER (WHERE status = 'open'), 0)::numeric(18,2)::text AS weighted_amount,
+          coalesce(sum(${dealInBase(ctx)}) FILTER (WHERE status = 'won' AND closed_at::date BETWEEN ${p.from}::date AND ${p.to}::date), 0)::text AS won_amount,
           count(*) FILTER (WHERE status = 'won' AND closed_at::date BETWEEN ${p.from}::date AND ${p.to}::date)::int AS won_count,
           count(*) FILTER (WHERE status = 'lost' AND closed_at::date BETWEEN ${p.from}::date AND ${p.to}::date)::int AS lost_count,
           count(*) FILTER (WHERE status = 'open' AND expected_close_date < current_date)::int AS overdue_deals
         FROM deals d WHERE d.workspace_id = ${ws} AND d.deleted_at IS NULL AND ${dealScope}`),
-      pipelineId ? q(sql`SELECT s.id, s.name, s.color, s.kind, count(d.id)::int AS count, coalesce(sum(d.amount), 0)::text AS amount
+      pipelineId ? q(sql`SELECT s.id, s.name, s.color, s.kind, count(d.id)::int AS count, coalesce(sum(${dealInBase(ctx)}), 0)::text AS amount
         FROM stages s LEFT JOIN deals d ON d.stage_id = s.id AND d.deleted_at IS NULL AND ${dealScope}
         WHERE s.pipeline_id = ${pipelineId} AND s.kind = 'open' GROUP BY s.id ORDER BY s.sort`) : Promise.resolve([]),
       q(sql`SELECT to_char(m, 'YYYY-MM') AS month,
-          coalesce(sum(d.amount) FILTER (WHERE d.status = 'won'), 0)::text AS won,
-          coalesce(sum(d.amount) FILTER (WHERE d.status = 'lost'), 0)::text AS lost
+          coalesce(sum(${dealInBase(ctx)}) FILTER (WHERE d.status = 'won'), 0)::text AS won,
+          coalesce(sum(${dealInBase(ctx)}) FILTER (WHERE d.status = 'lost'), 0)::text AS lost
         FROM generate_series(date_trunc('month', current_date) - interval '5 months', date_trunc('month', current_date), interval '1 month') m
         LEFT JOIN deals d ON d.workspace_id = ${ws} AND d.deleted_at IS NULL AND ${dealScope} AND date_trunc('month', d.closed_at) = m
         GROUP BY m ORDER BY m`),
@@ -99,6 +100,7 @@ export async function reportRoutes(app: FastifyInstance) {
         openLeads: (leadKpi as { open_leads?: number } | null)?.open_leads ?? null, newLeads: (leadKpi as { new_leads?: number } | null)?.new_leads ?? null,
       },
       byStage: camelAll(byStage), trend: camelAll(trend), myDay: camelAll(myDay), recent: camelAll(recent),
+      baseCurrency: ctx.baseCurrency, missingRates: await missingRates(ctx),
     };
   });
 
@@ -113,15 +115,15 @@ export async function reportRoutes(app: FastifyInstance) {
     let totals: Record<string, unknown> | undefined;
     switch (req.params.key) {
       case 'won-deals': {
-        rows = await q(sql`SELECT d.id, d.title, d.amount, d.currency, d.closed_at, co.name AS company, u.name AS owner, p.name AS pipeline
+        rows = await q(sql`SELECT d.id, d.title, d.amount, d.currency, ${dealInBase(ctx)}::text AS amount_in_base, d.closed_at, co.name AS company, u.name AS owner, p.name AS pipeline
           FROM deals d LEFT JOIN companies co ON co.id = d.company_id LEFT JOIN users u ON u.id = d.owner_id JOIN pipelines p ON p.id = d.pipeline_id
           WHERE d.workspace_id = ${ws} AND d.deleted_at IS NULL AND d.status = 'won' AND d.closed_at::date BETWEEN ${p.from}::date AND ${p.to}::date
             ${pipeFilter} AND ${ownerScope(ctx, 'deal', 'd', query)} ORDER BY d.closed_at DESC`);
-        totals = { count: rows.length, amount: rows.reduce((a, r) => a + Number(r.amount), 0).toFixed(2) };
+        totals = { count: rows.length, amount: rows.reduce((a, r) => a + Number(r.amount_in_base ?? 0), 0).toFixed(2) };
         break;
       }
       case 'deals-by-stage': {
-        rows = await q(sql`SELECT s.name AS stage, s.kind, p.name AS pipeline, count(d.id)::int AS deals, coalesce(sum(d.amount),0)::text AS amount
+        rows = await q(sql`SELECT s.name AS stage, s.kind, p.name AS pipeline, count(d.id)::int AS deals, coalesce(sum(${dealInBase(ctx)}),0)::text AS amount
           FROM stages s JOIN pipelines p ON p.id = s.pipeline_id AND p.workspace_id = ${ws} AND p.entity_type = 'deal'
           LEFT JOIN deals d ON d.stage_id = s.id AND d.deleted_at IS NULL AND d.created_at::date <= ${p.to}::date
             AND (d.status = 'open' OR d.closed_at::date BETWEEN ${p.from}::date AND ${p.to}::date) AND ${ownerScope(ctx, 'deal', 'd', query)}
@@ -134,13 +136,13 @@ export async function reportRoutes(app: FastifyInstance) {
       case 'deals-by-owner': {
         rows = await q(sql`SELECT u.name AS owner, count(d.id)::int AS deals,
             count(*) FILTER (WHERE d.status = 'open')::int AS open, count(*) FILTER (WHERE d.status = 'won')::int AS won,
-            count(*) FILTER (WHERE d.status = 'lost')::int AS lost, coalesce(sum(d.amount),0)::text AS total_amount,
-            coalesce(sum(d.amount) FILTER (WHERE d.status = 'won'),0)::text AS won_amount,
-            coalesce(avg(d.amount) FILTER (WHERE d.status = 'won'),0)::numeric(18,2)::text AS avg_won_deal
+            count(*) FILTER (WHERE d.status = 'lost')::int AS lost, coalesce(sum(${dealInBase(ctx)}),0)::text AS total_amount,
+            coalesce(sum(${dealInBase(ctx)}) FILTER (WHERE d.status = 'won'),0)::text AS won_amount,
+            coalesce(avg(${dealInBase(ctx)}) FILTER (WHERE d.status = 'won'),0)::numeric(18,2)::text AS avg_won_deal
           FROM deals d JOIN users u ON u.id = d.owner_id
           WHERE d.workspace_id = ${ws} AND d.deleted_at IS NULL AND d.created_at::date <= ${p.to}::date
             AND (d.status = 'open' OR d.closed_at::date BETWEEN ${p.from}::date AND ${p.to}::date) ${pipeFilter} AND ${ownerScope(ctx, 'deal', 'd', query)}
-          GROUP BY u.id ORDER BY sum(d.amount) FILTER (WHERE d.status = 'won') DESC NULLS LAST`);
+          GROUP BY u.id ORDER BY sum(${dealInBase(ctx)}) FILTER (WHERE d.status = 'won') DESC NULLS LAST`);
         rows = rows.map((r) => {
           const decided = Number(r.won) + Number(r.lost);
           return { ...r, win_rate: decided ? Math.round((Number(r.won) / decided) * 100) : null };
@@ -169,7 +171,7 @@ export async function reportRoutes(app: FastifyInstance) {
       }
       case 'expected-sales': {
         rows = await q(sql`SELECT to_char(date_trunc('month', d.expected_close_date), 'YYYY-MM') AS month, count(*)::int AS deals,
-            coalesce(sum(d.amount),0)::text AS amount, coalesce(sum(d.amount * coalesce(d.probability,0) / 100.0),0)::numeric(18,2)::text AS weighted
+            coalesce(sum(${dealInBase(ctx)}),0)::text AS amount, coalesce(sum(${dealInBase(ctx)} * coalesce(d.probability,0) / 100.0),0)::numeric(18,2)::text AS weighted
           FROM deals d WHERE d.workspace_id = ${ws} AND d.deleted_at IS NULL AND d.status = 'open' AND d.expected_close_date IS NOT NULL
             AND d.expected_close_date BETWEEN ${p.from}::date AND ${p.to}::date ${pipeFilter} AND ${ownerScope(ctx, 'deal', 'd', query)}
           GROUP BY 1 ORDER BY 1`);
@@ -201,6 +203,6 @@ export async function reportRoutes(app: FastifyInstance) {
       if (scopeOf(ctx, 'deal', 'export') === 'none' && !ctx.isAdmin) throw forbidden('Your role cannot export data');
       return sendCsv(reply, `${req.params.key}-${p.from}-${p.to}`, rows);
     }
-    return { period: p, rows: camelAll(rows), totals };
+    return { period: p, rows: camelAll(rows), totals, baseCurrency: ctx.baseCurrency, missingRates: await missingRates(ctx) };
   });
 }

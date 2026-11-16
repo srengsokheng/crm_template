@@ -25,6 +25,7 @@ import { RolesSettings } from '../features/settings/RolesSettings.tsx';
 import { AutomationSettings } from '../features/settings/AutomationSettings.tsx';
 import { RecycleBin } from '../features/settings/RecycleBin.tsx';
 import { AuditLog } from '../features/settings/AuditLog.tsx';
+import { CurrenciesSettings } from '../features/settings/CurrenciesSettings.tsx';
 import { ImportStart } from '../features/imports/ImportStart.tsx';
 import { ImportDetail } from '../features/imports/ImportDetail.tsx';
 import { DuplicatesPage } from '../features/duplicates/DuplicatesPage.tsx';
@@ -68,6 +69,7 @@ export const router = createBrowserRouter([
           { path: 'roles', element: <RolesSettings /> },
           { path: 'automation', element: <AutomationSettings /> },
           { path: 'audit-log', element: <AuditLog /> },
+          { path: 'currencies', element: <CurrenciesSettings /> },
           { path: 'recycle-bin', element: <RecycleBin /> },
         ],
       },

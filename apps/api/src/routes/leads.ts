@@ -17,6 +17,7 @@ import { assertMembers, assertRefs, camel, camelAll, getActive, insertRow, pickC
 import { getStage, recordStageChange, resolvePipelineStage, stageOfKind, type MoveInput } from '../lib/stages.ts';
 import { parse } from '../lib/validate.ts';
 import { exportCsv } from '../lib/exportList.ts';
+import { inBase } from '../lib/currency.ts';
 import { createDeal, loadLineItems, replaceLineItems } from './deals.ts';
 
 type IdParams = { Params: { id: string } };
@@ -136,7 +137,7 @@ export async function leadRoutes(app: FastifyInstance) {
       select: LEAD_SELECT, from: LEAD_FROM, where: leadFilters(ctx, query), search: leadSearch,
       sorts: { title: 'lower(l.title)', amount: 'l.amount', stage: 's.sort', owner: 'u.name', source: 'src.label', createdAt: 'l.created_at', updatedAt: 'l.updated_at' },
       defaultSort: '-createdAt',
-      aggregates: sql`coalesce(sum(l.amount), 0)::text AS amount_sum`,
+      aggregates: sql`coalesce(sum(${inBase(ctx, 'l')}), 0)::text AS amount_sum`,
     };
     if (query.format === 'csv') {
       return exportCsv(reply, ctx, 'lead', spec, query, 'l', [['ID', 'id'], ['Title', 'title'], ['First name', 'first_name'],
@@ -155,7 +156,7 @@ export async function leadRoutes(app: FastifyInstance) {
     const pipelineId = qs.id(query.pipelineId) ?? (await resolvePipelineStage(pool, ctx, 'lead')).pipeline_id;
     const limit = Math.min(qs.id(query.limit) ?? 50, 200);
     const where = and([...leadFilters(ctx, { ...query, pipelineId: String(pipelineId) }), query.q ? leadSearch(query.q) : null]);
-    const stats = await q(sql`SELECT l.stage_id, count(*)::int AS count, coalesce(sum(l.amount),0)::text AS sum FROM ${LEAD_FROM} WHERE ${where} GROUP BY l.stage_id`);
+    const stats = await q(sql`SELECT l.stage_id, count(*)::int AS count, coalesce(sum(${inBase(ctx, 'l')}),0)::text AS sum FROM ${LEAD_FROM} WHERE ${where} GROUP BY l.stage_id`);
     const rows = await q(sql`SELECT * FROM (SELECT ${LEAD_SELECT}, row_number() OVER (PARTITION BY l.stage_id ORDER BY l.stage_changed_at DESC, l.id DESC) AS rn
       FROM ${LEAD_FROM} WHERE ${where}) x WHERE rn <= ${limit}`);
     return { pipelineId, stats: camelAll(stats), leads: camelAll(rows) };
