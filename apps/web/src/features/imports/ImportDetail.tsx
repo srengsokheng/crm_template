@@ -15,9 +15,9 @@ import { ConfirmDialog } from '../../components/ui/overlays.tsx';
 import { UserSelect } from '../records/form.tsx';
 import { ENTITY, RESULT_BADGE, Stat, STATUS_BADGE, Steps, type ImportView, type PreviewResult } from './importUi.tsx';
 
-const LIST_KEYS: Record<ImportEntity, string[]> = { contact: ['contacts', 'companies'], company: ['companies'], lead: ['leads'], deal: ['deals', 'deals-board', 'companies'], product: ['products'] };
+const LIST_KEYS: Record<ImportEntity, string[]> = { contact: ['contacts', 'companies'], company: ['companies'], lead: ['leads'], deal: ['deals', 'deals-board', 'companies'], product: ['products'], deal_line: ['deals', 'deals-board', 'deal'] };
 /** Products have no page of their own (they're edited in place in the list). */
-const recordPath = (entity: ImportEntity, id: number) => (entity === 'product' ? '/products' : `/${ENTITY[entity].many}/${id}`);
+const recordPath = (entity: ImportEntity, id: number) => (entity === 'deal_line' ? undefined : entity === 'product' ? '/products' : `/${ENTITY[entity].many}/${id}`);
 /** Columns whose values come from an admin-managed list. */
 const LIST_COLUMNS = ['type', 'industry', 'size', 'source', 'dealType', 'category'];
 
@@ -73,7 +73,8 @@ function Setup({ imp, onStarted }: { imp: ImportView; onStarted: () => void }) {
   const [preview, setPreview] = useState<PreviewResult | null>(null);
   const set = (patch: Partial<ImportOptions>) => setOptions({ ...options, ...patch });
   /** Admins may let the import add missing list values (lists are admin settings). */
-  const canAddOptions = !!me?.role.isAdmin && mapping.some((m) => m && LIST_COLUMNS.includes(m));
+  const selectKeys = new Set(fields.filter((f) => f.type === 'select' || f.type === 'multiselect').map((f) => customTargetKey(f.key)));
+  const canAddOptions = !!me?.role.isAdmin && mapping.some((m) => m && (LIST_COLUMNS.includes(m) || selectKeys.has(m)));
 
   const targets = IMPORT_TARGETS[entity];
   const single = useMemo(() => new Set([...targets.filter((t) => !t.multiple).map((t) => t.key), ...fields.map((f) => customTargetKey(f.key))]), [targets, fields]);
@@ -180,7 +181,7 @@ function Setup({ imp, onStarted }: { imp: ImportView; onStarted: () => void }) {
         </ul>
       </Card>
 
-      <Card title="Duplicates">
+      {entity !== 'deal_line' && <Card title="Duplicates">
         <div className="space-y-4">
           <fieldset className="space-y-2">
             <legend className="mb-1 text-[13px] font-medium">When a row matches an existing {e.one}</legend>
@@ -210,12 +211,12 @@ function Setup({ imp, onStarted }: { imp: ImportView; onStarted: () => void }) {
             </fieldset>
           )}
         </div>
-      </Card>
+      </Card>}
 
-      {(entity !== 'product' || canAddOptions) && <Card title="Other settings">
+      {((entity !== 'product' && entity !== 'deal_line') || canAddOptions) && <Card title="Other settings">
         <div className="grid gap-4 sm:grid-cols-2">
           {/* Products have no owner and no date columns. */}
-          {entity !== 'product' && <>
+          {entity !== 'product' && entity !== 'deal_line' && <>
           <Field label="Owner for rows without one" htmlFor="imp-owner" hint={mapping.includes('owner') ? 'Used when the Owner cell is empty.' : 'New records are assigned to this person.'}>
             <UserSelect id="imp-owner" value={options.ownerId ?? null} onChange={(v) => set({ ownerId: v })} allowEmpty emptyLabel="Me" />
           </Field>
@@ -242,7 +243,7 @@ function Setup({ imp, onStarted }: { imp: ImportView; onStarted: () => void }) {
             <div className="sm:col-span-2"><Checkbox label={`Run automation rules for imported ${ENTITY[entity].many} (e.g. tasks or notes on “${entity} created”)`} checked={options.runAutomation} onChange={(v) => set({ runAutomation: v })} /></div>
           )}
           {canAddOptions && (
-            <div className="sm:col-span-2"><Checkbox label="Add values that aren’t in the lists yet (e.g. a new industry or category) instead of skipping those rows" checked={options.addMissingOptions} onChange={(v) => set({ addMissingOptions: v })} /></div>
+            <div className="sm:col-span-2"><Checkbox label="Add values that aren’t in the lists yet (e.g. a new industry, category or option of a custom field) instead of skipping those rows" checked={options.addMissingOptions} onChange={(v) => set({ addMissingOptions: v })} /></div>
           )}
         </div>
       </Card>}

@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import {
-  CsvError, IMPORT_ENTITIES, IMPORT_LIMITS, importConfigSchema, importUploadSchema, mappingErrors, MATCH_KEYS_BY_ENTITY,
+  CsvError, importPermissionEntity, IMPORT_ENTITIES, IMPORT_LIMITS, importConfigSchema, importUploadSchema, mappingErrors, MATCH_KEYS_BY_ENTITY,
   parseCsv, suggestMapping, toCsv, type ImportConfig, type ImportEntity, type ImportOptions,
 } from '@crm/shared';
 import { pool, q, q1, raw, sql, tx, type Db } from '../db/index.ts';
@@ -11,6 +11,7 @@ import { hiddenCustomKeys } from '../lib/fieldAccess.ts';
 import { AppError, badRequest, notFound } from '../lib/errors.ts';
 import { ctxOf } from '../lib/http.ts';
 import { canOnRecord, requireAny, scopeOf } from '../lib/permissions.ts';
+import { recalcDealAmount } from './deals.ts';
 import { assertMembers } from '../lib/records.ts';
 import { parse } from '../lib/validate.ts';
 import { preview, TABLE, type ImportRow, type RowResult } from '../imports/engine.ts';
@@ -59,13 +60,15 @@ async function validateConfig(ctx: Ctx, imp: ImportRow, cfg: ImportConfig): Prom
   const errs = mappingErrors(entity, cfg.mapping, defs.map((d) => d.key));
   if (errs.length) throw new AppError(400, 'VALIDATION_FAILED', errs[0], { mapping: errs.join(' · ') }, errs);
   const options = { ...cfg.options };
+  // "Products on deals" always adds lines: there are no duplicates to recognise.
+  if (entity === 'deal_line') { options.duplicateMode = 'create'; options.matchBy = []; }
   const allowed = MATCH_KEYS_BY_ENTITY[entity];
   options.matchBy = options.matchBy.filter((k) => allowed.includes(k));
   if (options.duplicateMode !== 'create' && !options.matchBy.length) {
     throw badRequest('Choose how to recognise existing records', { 'options.matchBy': 'Pick at least one' });
   }
   if (options.ownerId) await assertMembers(ctx, [options.ownerId]);
-  if (options.duplicateMode === 'update') requireAny(ctx, entity, 'edit');
+  if (options.duplicateMode === 'update' && entity !== 'deal_line') requireAny(ctx, entity, 'edit');
   return options;
 }
 
@@ -88,8 +91,9 @@ export async function importRoutes(app: FastifyInstance) {
   app.post('/imports', { bodyLimit: IMPORT_LIMITS.maxBytes * 2 }, async (req, reply) => {
     const ctx = ctxOf(req);
     const body = parse(importUploadSchema, req.body);
-    requireAny(ctx, body.entityType, 'import');
-    requireAny(ctx, body.entityType, 'create');
+    requireAny(ctx, importPermissionEntity(body.entityType), 'import');
+    // Product lines are added to existing deals: that needs edit rights, not create.
+    requireAny(ctx, importPermissionEntity(body.entityType), body.entityType === 'deal_line' ? 'edit' : 'create');
     if (body.entityType === 'lead' && !ctx.useLeads) throw badRequest('Leads are turned off in this workspace');
     let parsed: ReturnType<typeof parseCsv>;
     try { parsed = parseCsv(body.content); } catch (e) {
@@ -104,7 +108,7 @@ export async function importRoutes(app: FastifyInstance) {
     if (parsed.headers.length > IMPORT_LIMITS.maxColumns) throw badRequest(`The file has more than ${IMPORT_LIMITS.maxColumns} columns`, { content: 'Too many columns' });
     const defs = (await loadDefs(ctx.workspaceId, body.entityType)).filter((d) => !hiddenCustomKeys(ctx, body.entityType).includes(d.key));
     const mapping = suggestMapping(body.entityType, parsed.headers, defs.map((d) => ({ key: d.key, label: d.label })));
-    const options = importConfigSchema.shape.options.parse({ matchBy: [MATCH_KEYS_BY_ENTITY[body.entityType][0]] });
+    const options = importConfigSchema.shape.options.parse({ matchBy: MATCH_KEYS_BY_ENTITY[body.entityType].slice(0, 1), ...(body.entityType === 'deal_line' ? { duplicateMode: 'create' } : {}) });
     const imp = await q1<ImportRow>(sql`INSERT INTO imports (workspace_id, entity_type, file_name, headers, rows, row_numbers, row_count, mapping, options, created_by)
       VALUES (${ctx.workspaceId}, ${body.entityType}, ${body.fileName}, ${JSON.stringify(parsed.headers)}::jsonb, ${JSON.stringify(parsed.rows)}::jsonb,
         ${JSON.stringify(parsed.rowNumbers)}::jsonb, ${parsed.rows.length}, ${JSON.stringify(mapping)}::jsonb, ${JSON.stringify(options)}::jsonb, ${ctx.userId})
@@ -137,7 +141,7 @@ export async function importRoutes(app: FastifyInstance) {
     const imp = await tx(async (db) => {
       const cur = await loadImport(ctx, Number(req.params.id), db, true);
       if (cur.status !== 'draft') throw badRequest('This import has already been started');
-      requireAny(ctx, cur.entity_type, 'import');
+      requireAny(ctx, importPermissionEntity(cur.entity_type), 'import');
       const options = await validateConfig(ctx, cur, cfg);
       const row = await q1<ImportRow>(sql`UPDATE imports SET mapping = ${JSON.stringify(cfg.mapping)}::jsonb, options = ${JSON.stringify(options)}::jsonb,
         status = 'queued' WHERE id = ${cur.id} RETURNING *`, db);
@@ -165,6 +169,20 @@ export async function importRoutes(app: FastifyInstance) {
       if (!['done', 'canceled', 'failed'].includes(imp.status)) throw badRequest('Wait for the import to finish first');
       if (imp.undone_at) throw badRequest('This import was already undone');
       const ids = (imp.results as RowResult[]).filter((r) => r.action === 'created' && r.id).map((r) => r.id!);
+      if (imp.entity_type === 'deal_line') {
+        // Undo product lines: remove the lines this import added (on deals the user may still edit) and recalculate amounts.
+        const lines = ids.length ? await q<{ id: number; parent_id: number; owner_id: number; visibility: string; pipeline_id: number }>(sql`SELECT li.id, li.parent_id, d.owner_id, d.visibility, d.pipeline_id
+          FROM line_items li JOIN deals d ON d.id = li.parent_id AND d.deleted_at IS NULL WHERE li.id = ANY(${ids}) AND li.parent_type = 'deal' AND d.workspace_id = ${ctx.workspaceId}`, db) : [];
+        const ok = lines.filter((l) => canOnRecord(ctx, 'deal', 'edit', l));
+        if (ok.length) await q(sql`DELETE FROM line_items WHERE id = ANY(${ok.map((l) => Number(l.id))})`, db);
+        for (const dealId of new Set(ok.map((l) => Number(l.parent_id)))) {
+          await recalcDealAmount(db, ctx, dealId);
+          await audit(db, ctx, 'deal', dealId, 'updated', { lineItems: ['import undone', null], _import: { id: imp.id, file: imp.file_name, undo: true } });
+        }
+        await q(sql`UPDATE imports SET undone_at = now() WHERE id = ${imp.id}`, db);
+        await audit(db, ctx, 'import', imp.id, 'undone', { deleted: ok.length, notAllowed: lines.length - ok.length });
+        return { deleted: ok.length, notAllowed: lines.length - ok.length, alreadyGone: ids.length - lines.length };
+      }
       const table = raw(TABLE[imp.entity_type]);
       const rows = ids.length
         ? await q<{ id: number; owner_id: number; visibility: string; pipeline_id?: number }>(imp.entity_type === 'product'
@@ -172,7 +190,7 @@ export async function importRoutes(app: FastifyInstance) {
           : sql`SELECT id, owner_id, visibility${imp.entity_type === 'lead' || imp.entity_type === 'deal' ? sql`, pipeline_id` : sql``} FROM ${table}
             WHERE id = ANY(${ids}) AND workspace_id = ${ctx.workspaceId} AND deleted_at IS NULL`, db)
         : [];
-      const allowed = rows.filter((r) => imp.entity_type === 'product' ? scopeOf(ctx, 'product', 'delete') !== 'none' : canOnRecord(ctx, imp.entity_type, 'delete', r)).map((r) => Number(r.id));
+      const allowed = rows.filter((r) => imp.entity_type === 'product' ? scopeOf(ctx, 'product', 'delete') !== 'none' : canOnRecord(ctx, importPermissionEntity(imp.entity_type), 'delete', r)).map((r) => Number(r.id));
       if (allowed.length) {
         await q(sql`UPDATE ${table} SET deleted_at = now(), deleted_by = ${ctx.userId} WHERE id = ANY(${allowed})`, db);
         for (const id of allowed) await audit(db, ctx, imp.entity_type, id, 'deleted', { _import: { id: imp.id, file: imp.file_name, undo: true } });

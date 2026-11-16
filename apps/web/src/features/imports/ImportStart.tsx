@@ -2,7 +2,7 @@ import { useRef, useState, type DragEvent } from 'react';
 import { Link, Navigate, useNavigate, useParams } from 'react-router';
 import { useQuery } from '@tanstack/react-query';
 import { ArrowLeft, Download, FileSpreadsheet, History, UploadCloud } from 'lucide-react';
-import { IMPORT_LIMITS , type ImportEntity } from '@crm/shared';
+import { IMPORT_LIMITS , type ImportEntity, importPermissionEntity } from '@crm/shared';
 import { api, ApiError, errorMessage } from '../../lib/api.ts';
 import { cn } from '../../lib/cn.ts';
 import { relative } from '../../lib/format.ts';
@@ -50,7 +50,7 @@ function ImportStartFor({ entity }: { entity: ImportEntity }) {
   };
   const onDrop = (ev: DragEvent) => { ev.preventDefault(); setDrag(false); void send(ev.dataTransfer.files[0]); };
 
-  if (!can(entity, 'import')) {
+  if (!can(importPermissionEntity(entity), 'import')) {
     return (
       <div>
         <PageHeader title={`Import ${e.many}`} />
@@ -63,6 +63,12 @@ function ImportStartFor({ entity }: { entity: ImportEntity }) {
     <div className="mx-auto max-w-4xl space-y-4">
       <Link to={e.list} className="inline-flex items-center gap-1 text-[13px] text-muted hover:text-[var(--text)]"><ArrowLeft className="size-3.5" />{e.Many}</Link>
       <PageHeader title={`Import ${e.many}`} subtitle="Add or update many records at once from a spreadsheet." />
+      {entity === 'deal_line' && (
+        <p className="mb-4 max-w-2xl text-sm text-muted">
+          Each row adds one product line to a deal that already exists — matched by <strong>Deal name</strong> (or <strong>Deal ID</strong> when names repeat).
+          Products are matched by SKU or name; a product that isn’t in your list needs a unit price. The deal amount is recalculated unless it was set by hand.
+        </p>
+      )}
       <Steps current={0} />
       <Card>
         <label

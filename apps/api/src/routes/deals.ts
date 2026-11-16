@@ -111,7 +111,7 @@ export async function moveDeal(db: Db, ctx: Ctx, id: number, input: MoveInput, o
   return row;
 }
 
-async function recalcDealAmount(db: Db, ctx: Ctx, dealId: number): Promise<void> {
+export async function recalcDealAmount(db: Db, ctx: Ctx, dealId: number): Promise<void> {
   const items = await q<{ unit_price: string; quantity: string; discount_type: 'percent' | 'amount' | null; discount_value: string; tax_rate: string | null; tax_included: boolean }>(
     sql`SELECT unit_price, quantity, discount_type, discount_value, tax_rate, tax_included FROM line_items WHERE parent_type = 'deal' AND parent_id = ${dealId}`, db);
   const totals = calcTotals(items.map((i) => ({ unitPrice: i.unit_price, quantity: i.quantity, discountType: i.discount_type, discountValue: i.discount_value, taxRate: i.tax_rate, taxIncluded: i.tax_included })));

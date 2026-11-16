@@ -10,6 +10,7 @@ export const ENTITY: Record<ImportEntity, { one: string; many: string; list: str
   lead: { one: 'lead', many: 'leads', list: '/leads?view=list', Many: 'Leads' },
   deal: { one: 'deal', many: 'deals', list: '/deals?view=list', Many: 'Deals' },
   product: { one: 'product', many: 'products', list: '/products', Many: 'Products' },
+  deal_line: { one: 'product line', many: 'products on deals', list: '/deals?view=list', Many: 'Products on deals' },
 };
 export const isImportEntity = (v: string | undefined): v is ImportEntity => !!v && (IMPORT_ENTITIES as readonly string[]).includes(v);
 

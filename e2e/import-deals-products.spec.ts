@@ -25,6 +25,7 @@ test('import products with a new category (admin adds missing list values), then
   await api(page, 'POST', '/contacts', { firstName: 'Ada', lastName: 'Lovelace', methods: [{ kind: 'email', value: 'ada@example.com' }] });
   await page.goto('/deals');
   await page.getByRole('button', { name: 'Import' }).click();
+  await page.getByRole('menuitem', { name: 'Deals', exact: true }).click(); // Import is a menu on Deals (deals / products on deals)
   await expect(page.getByRole('heading', { name: 'Import deals' })).toBeVisible();
   const deals = 'Deal name,Value,Stage,Account,Contact\nRobots for Acme,12500,Proposal,Acme Robotics,ada@example.com\n';
   await page.getByLabel('CSV file').setInputFiles({ name: 'pipeline.csv', mimeType: 'text/csv', buffer: Buffer.from(deals) });

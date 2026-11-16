@@ -15,6 +15,7 @@ import {
   contactCreateSchema, contactUpdateSchema, companyCreateSchema, companyUpdateSchema, dealCreateSchema, dealUpdateSchema,
   IMPORT_LIMITS, IMPORT_TARGETS, leadCreateSchema, leadUpdateSchema, productCreateSchema, productUpdateSchema, normalizeContactValue, normalizeNumberCell, parseBoolCell,
   parseDateCell, personName, splitFullName, splitListCell,
+  calcLine, importPermissionEntity, lineItemSchema,
   type ContactMethodInput, type ImportEntity, type ImportOptions, type MatchKey,
 } from '@crm/shared';
 import { pool, q, q1, raw, sql, tx, type Db } from '../db/index.ts';
@@ -24,11 +25,12 @@ import { loadMethods } from '../lib/contactMethods.ts';
 import type { Ctx } from '../lib/context.ts';
 import { assertRequired, loadDefs, mergeCustom, type FieldDef } from '../lib/customFields.ts';
 import { AppError } from '../lib/errors.ts';
-import { canOnRecord, scopeOf, scopeWhere } from '../lib/permissions.ts';
+import { assertOnRecord, canOnRecord, scopeOf, scopeWhere } from '../lib/permissions.ts';
 import { parse } from '../lib/validate.ts';
 import { createCompany, createContact, updateCompany, updateContact } from '../routes/parties.ts';
 import { createLead, updateLead } from '../routes/leads.ts';
-import { createDeal, updateDeal } from '../routes/deals.ts';
+import { createDeal, recalcDealAmount, updateDeal } from '../routes/deals.ts';
+import { assertCanChange, fieldRule } from '../lib/fieldAccess.ts';
 import { createProduct, updateProduct } from '../routes/products.ts';
 
 export interface ImportRow {
@@ -42,8 +44,8 @@ export interface ImportRow {
 export type RowAction = 'created' | 'updated' | 'skipped' | 'failed';
 export interface RowResult { i: number; action: RowAction; id?: number; message?: string }
 
-export const TABLE: Record<ImportEntity, string> = { contact: 'contacts', company: 'companies', lead: 'leads', deal: 'deals', product: 'products' };
-const NOUN: Record<ImportEntity, string> = { contact: 'contact', company: 'company', lead: 'lead', deal: 'deal', product: 'product' };
+export const TABLE: Record<ImportEntity, string> = { contact: 'contacts', company: 'companies', lead: 'leads', deal: 'deals', product: 'products', deal_line: 'line_items' };
+const NOUN: Record<ImportEntity, string> = { contact: 'contact', company: 'company', lead: 'lead', deal: 'deal', product: 'product', deal_line: 'product line' };
 /** Records with an owner and visibility (products have neither: their access is the role's product scope). */
 const OWNED = (e: ImportEntity) => e !== 'product';
 
@@ -65,6 +67,8 @@ interface Lookups {
   categories: Map<string, number>;
   /** Admin chose "add missing list options": unknown list values are created instead of failing the row. */
   addOptions: boolean;
+  /** "Products on deals": deals the user can see and the product catalogue. */
+  lines?: LineLookups;
 }
 
 async function loadLookups(db: Db, ctx: Ctx, entity: ImportEntity, options: ImportOptions): Promise<Lookups> {
@@ -107,7 +111,8 @@ async function loadLookups(db: Db, ctx: Ctx, entity: ImportEntity, options: Impo
       categories.set(c.name.toLowerCase(), Number(c.id));
     }
   }
-  return { defs, dict, users, stages, pipelineId, defaultStageId, categories, addOptions: options.addMissingOptions && ctx.isAdmin };
+  return { defs, dict, users, stages, pipelineId, defaultStageId, categories, addOptions: options.addMissingOptions && ctx.isAdmin,
+    lines: entity === 'deal_line' ? await loadLineLookups(db, ctx) : undefined };
 }
 
 // ───────────────────────── Row → input ─────────────────────────
@@ -123,8 +128,9 @@ export interface BuiltRow {
   title: string;
   /** Deals: contacts to link (email or full name), resolved when the row is written. */
   contactRefs?: string[];
-  /** List values to create before the row is written ("add missing list options"). */
-  newOptions?: { field: string; kind: string; label: string }[];
+  /** List values to create before the row is written ("add missing list options"). Custom select options: kind
+   *  "custom:<key>" with the option id that the row already uses. */
+  newOptions?: { field: string; kind: string; label: string; id?: string }[];
 }
 
 const DICT_KIND: Record<string, Partial<Record<ImportEntity, string>>> = {
@@ -147,7 +153,18 @@ function methodLabel(header: string): string {
   return 'work';
 }
 
-function customValue(def: FieldDef, raw: string, lk: Lookups, options: ImportOptions): unknown {
+/** A new option for a custom select field (admin "add missing values"): stable id from the label, unique in the field.
+ *  It is added to the in-memory definition so later rows (and the preview's validation) use the same option. */
+function addCustomOption(def: FieldDef, label: string, newOptions: NonNullable<BuiltRow['newOptions']>): string {
+  const base = label.toLowerCase().normalize('NFKD').replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 40) || 'option';
+  let id = base;
+  for (let n = 2; def.options.some((o) => o.id === id); n++) id = `${base}_${n}`;
+  def.options = [...def.options, { id, label: label.trim().slice(0, 100) }];
+  newOptions.push({ field: '', kind: `custom:${def.key}`, label: label.trim().slice(0, 100), id });
+  return id;
+}
+
+function customValue(def: FieldDef, raw: string, lk: Lookups, options: ImportOptions, newOptions: NonNullable<BuiltRow['newOptions']> = []): unknown {
   const bad = (m: string): never => fail(`${def.label}: ${m}`);
   switch (def.type) {
     case 'number': { const n = normalizeNumberCell(raw); return n === null ? bad('must be a number') : Number(n); }
@@ -159,8 +176,8 @@ function customValue(def: FieldDef, raw: string, lk: Lookups, options: ImportOpt
       return d ? `${d}T00:00:00.000Z` : bad(`"${raw}" is not a date (${dateHint(options)})`);
     }
     case 'boolean': { const b = parseBoolCell(raw); return b === null ? bad('use yes or no') : b; }
-    case 'select': return optionId(def, raw) ?? bad(`"${raw}" is not one of the options (${def.options.map((o) => o.label).slice(0, 8).join(', ')})`);
-    case 'multiselect': return splitListCell(raw).map((v) => optionId(def, v) ?? bad(`"${v}" is not one of the options`));
+    case 'select': return optionId(def, raw) ?? (lk.addOptions ? addCustomOption(def, raw, newOptions) : bad(`"${raw}" is not one of the options (${def.options.map((o) => o.label).slice(0, 8).join(', ')})`));
+    case 'multiselect': return splitListCell(raw).map((v) => optionId(def, v) ?? (lk.addOptions ? addCustomOption(def, v, newOptions) : bad(`"${v}" is not one of the options`)));
     case 'user': return lk.users.get(raw.toLowerCase()) ?? bad(`no workspace member called "${raw}"`);
     default: return raw;
   }
@@ -169,6 +186,7 @@ const optionId = (def: FieldDef, v: string) => def.options.find((o) => o.label.t
 const dateHint = (o: ImportOptions) => ({ ymd: 'expected YYYY-MM-DD', dmy: 'expected DD/MM/YYYY', mdy: 'expected MM/DD/YYYY' })[o.dateFormat];
 
 export function buildRow(entity: ImportEntity, headers: string[], cells: string[], mapping: (string | null)[], lk: Lookups, options: ImportOptions): BuiltRow {
+  if (entity === 'deal_line') return buildLineRow(cells, mapping, lk.lines!);
   const input: Record<string, unknown> = {};
   const custom: Record<string, unknown> = {};
   const address: Record<string, string> = {};
@@ -184,7 +202,7 @@ export function buildRow(entity: ImportEntity, headers: string[], cells: string[
     if (!key || !v) return;
     if (key.startsWith('custom.')) {
       const def = lk.defs.find((d) => d.key === key.slice(7));
-      if (def) custom[def.key] = customValue(def, v, lk, options);
+      if (def) custom[def.key] = customValue(def, v, lk, options, newOptions);
       return;
     }
     switch (key) {
@@ -351,7 +369,7 @@ export function decide(entity: ImportEntity, matches: (number | string)[], optio
   if (options.duplicateMode === 'skip') return { action: 'skip', id, message: `Already exists as ${refOf(entity, id, rowNumbers)}` };
   if (typeof id === 'number') {
     const o = owners.get(id);
-    const allowed = OWNED(entity) ? !o || canOnRecord(ctx, entity, 'edit', o) : scopeOf(ctx, entity, 'edit') !== 'none';
+    const allowed = OWNED(entity) ? !o || canOnRecord(ctx, importPermissionEntity(entity), 'edit', o) : scopeOf(ctx, importPermissionEntity(entity), 'edit') !== 'none';
     if (!allowed) return { action: 'error', message: `Matches ${refOf(entity, id, rowNumbers)}, which you are not allowed to edit` };
   }
   return { action: 'update', id };
@@ -388,8 +406,8 @@ export function rowMessage(entity: ImportEntity, e: unknown, input?: Record<stri
   return 'Could not save this row (unexpected error)';
 }
 
-const CREATE_SCHEMA = { contact: contactCreateSchema, company: companyCreateSchema, lead: leadCreateSchema, deal: dealCreateSchema, product: productCreateSchema };
-const UPDATE_SCHEMA = { contact: contactUpdateSchema, company: companyUpdateSchema, lead: leadUpdateSchema, deal: dealUpdateSchema, product: productUpdateSchema };
+const CREATE_SCHEMA = { contact: contactCreateSchema, company: companyCreateSchema, lead: leadCreateSchema, deal: dealCreateSchema, product: productCreateSchema, deal_line: lineItemSchema };
+const UPDATE_SCHEMA = { contact: contactUpdateSchema, company: companyUpdateSchema, lead: leadUpdateSchema, deal: dealUpdateSchema, product: productUpdateSchema, deal_line: lineItemSchema };
 
 // ───────────────────────── Preview (no writes) ─────────────────────────
 
@@ -541,7 +559,11 @@ async function executeRow(db: Db, ctx: Ctx, imp: ImportRow, b: BuiltRow, d: Deci
   const extra = { _import: { id: imp.id, file: imp.file_name } };
   const events = options.runAutomation;
   const input = { ...b.input };
-  for (const o of b.newOptions ?? []) input[o.field] = await ensureOption(db, ctx, o.kind, o.label, extra);
+  if (entity === 'deal_line') return executeLine(db, ctx, b, extra);
+  for (const o of b.newOptions ?? []) {
+    if (o.kind.startsWith('custom:')) await ensureCustomOption(db, ctx, entity, o.kind.slice(7), o.id!, o.label, extra);
+    else input[o.field] = await ensureOption(db, ctx, o.kind, o.label, extra);
+  }
   const contactIds = entity === 'deal' && b.contactRefs?.length ? (await loadContactIndex(db, ctx, [b])).resolve : null;
   if (d.action === 'create') {
     if (OWNED(entity)) input.ownerId ??= options.ownerId ?? undefined;
@@ -607,7 +629,7 @@ export async function runChunk(importId: number): Promise<boolean> {
     };
     const ctx = await ctxForUser(imp.workspace_id, imp.created_by, db);
     if (!ctx) { await finish('failed', 'The person who started this import no longer has access to the workspace'); return false; }
-    if (scopeOf(ctx, imp.entity_type, 'import') === 'none') { await finish('failed', 'Import permission was removed before the import finished'); return false; }
+    if (scopeOf(ctx, importPermissionEntity(imp.entity_type), 'import') === 'none') { await finish('failed', 'Import permission was removed before the import finished'); return false; }
     if (imp.status === 'queued') await q(sql`UPDATE imports SET status = 'running', started_at = now() WHERE id = ${importId}`, db);
 
     const from = imp.processed;
@@ -664,4 +686,101 @@ export async function runChunk(importId: number): Promise<boolean> {
     await q(sql`INSERT INTO jobs (type, payload) VALUES ('import.run', ${JSON.stringify({ importId })})`, db);
     return true;
   });
+}
+
+// ───────────────────────── Custom select options ("add missing values") ─────────────────────────
+
+async function ensureCustomOption(db: Db, ctx: Ctx, entity: ImportEntity, key: string, id: string, label: string, extra: Record<string, unknown>) {
+  const r = await q1<{ id: number }>(sql`UPDATE field_definitions SET options = options || jsonb_build_array(jsonb_build_object('id', ${id}::text, 'label', ${label}::text))
+    WHERE workspace_id = ${ctx.workspaceId} AND entity_type = ${entity} AND key = ${key}
+      AND NOT EXISTS (SELECT 1 FROM jsonb_array_elements(options) o WHERE o->>'id' = ${id} OR lower(o->>'label') = lower(${label}))
+    RETURNING id`, db);
+  if (r) await audit(db, ctx, 'field', Number(r.id), 'option_added', { key, option: { id, label }, ...extra });
+}
+
+// ───────────────────────── "Products on deals": one product line per row ─────────────────────────
+
+interface LineDeal { id: number; title: string; canEdit: boolean }
+interface LineLookups {
+  dealsByTitle: Map<string, LineDeal[]>;
+  dealsById: Map<number, LineDeal>;
+  /** The role's field permissions lock the deal amount (products drive it). */
+  amountLocked: boolean;
+  products: Map<string, { id: number; name: string; unit_price: string; unit: string; tax_rate: string | null; tax_included: boolean }>;
+}
+
+async function loadLineLookups(db: Db, ctx: Ctx): Promise<LineLookups> {
+  const rows = await q<{ id: number; title: string; owner_id: number; visibility: string; pipeline_id: number }>(sql`SELECT d.id, d.title, d.owner_id, d.visibility, d.pipeline_id FROM deals d
+    WHERE d.workspace_id = ${ctx.workspaceId} AND d.deleted_at IS NULL AND ${scopeWhere(ctx, 'deal', 'view', 'd')}`, db);
+  const deals: LineDeal[] = rows.map((d) => ({ id: Number(d.id), title: d.title, canEdit: canOnRecord(ctx, 'deal', 'edit', d) }));
+  const dealsByTitle = new Map<string, LineDeal[]>();
+  for (const d of deals) {
+    const k = d.title.toLowerCase().trim().replace(/\s+/g, ' ');
+    dealsByTitle.set(k, [...(dealsByTitle.get(k) ?? []), d]);
+  }
+  const products = new Map<string, LineLookups['products'] extends Map<string, infer P> ? P : never>();
+  for (const p of await q<{ id: number; name: string; sku: string | null; unit_price: string; unit: string; tax_rate: string | null; tax_included: boolean }>(sql`
+      SELECT id, name, sku, unit_price, unit, tax_rate, tax_included FROM products WHERE workspace_id = ${ctx.workspaceId} AND deleted_at IS NULL ORDER BY is_active DESC, id`, db)) {
+    if (p.sku && !products.has(`sku:${p.sku.toLowerCase().trim()}`)) products.set(`sku:${p.sku.toLowerCase().trim()}`, p);
+    if (!products.has(`name:${p.name.toLowerCase().trim()}`)) products.set(`name:${p.name.toLowerCase().trim()}`, p);
+  }
+  return { dealsByTitle, dealsById: new Map(deals.map((d) => [d.id, d])), products, amountLocked: !!fieldRule(ctx, 'deal', 'amount') };
+}
+
+const pct = (label: string, v: string) => {
+  const n = normalizeNumberCell(v.replace('%', ''));
+  return n !== null && Number(n) >= 0 && Number(n) <= 100 ? Number(n) : fail(`${label}: "${v}" must be a number from 0 to 100`);
+};
+
+function buildLineRow(cells: string[], mapping: (string | null)[], ll: LineLookups): BuiltRow {
+  const cell: Record<string, string> = {};
+  mapping.forEach((key, col) => { const v = (cells[col] ?? '').trim(); if (key && v && !(key in cell)) cell[key] = v; });
+  // Deal: by ID when given, otherwise by name (must be unique among the deals you can see).
+  if (ll.amountLocked) fail('Your role can’t change deal amounts or products');
+  let deal: LineDeal | undefined;
+  if (cell.dealId) {
+    deal = ll.dealsById.get(Number(cell.dealId.replace(/^#/, ''))) ?? fail(`Deal ID: no deal #${cell.dealId} that you can see`);
+  } else if (cell.deal) {
+    const hits = ll.dealsByTitle.get(cell.deal.toLowerCase().replace(/\s+/g, ' ')) ?? [];
+    if (hits.length > 1) fail(`Deal: ${hits.length} deals are called "${cell.deal}" — add a Deal ID column`);
+    deal = hits[0] ?? fail(`Deal: no deal called "${cell.deal}" that you can see (deals are not created by this import)`);
+  } else fail('Deal: empty');
+  if (!deal!.canEdit) fail(`Deal: you can’t edit "${deal!.title}"`);
+  if (!cell.product) fail('Product: empty');
+  const p = ll.products.get(`sku:${cell.product.toLowerCase()}`) ?? ll.products.get(`name:${cell.product.toLowerCase()}`);
+  const unitPrice = cell.unitPrice ? (normalizeNumberCell(cell.unitPrice) ?? fail(`Unit price: "${cell.unitPrice}" is not an amount`))
+    : p ? p.unit_price : fail(`Unit price: "${cell.product}" is not in the product list, so a price is needed`);
+  const quantity = cell.quantity ? Number(normalizeNumberCell(cell.quantity) ?? fail(`Quantity: "${cell.quantity}" is not a number`)) : 1;
+  if (!(quantity > 0)) fail('Quantity: must be more than 0');
+  const discount = cell.discount ? pct('Discount %', cell.discount) : 0;
+  const taxIncluded = cell.taxIncluded ? (parseBoolCell(cell.taxIncluded) ?? fail('Price includes tax: use yes or no')) : (p?.tax_included ?? false);
+  const name = p?.name ?? cell.product;
+  return {
+    input: {
+      dealId: deal!.id, productId: p ? Number(p.id) : null, name, unitPrice, quantity, unit: cell.unit || p?.unit || 'pcs',
+      discountType: discount ? 'percent' : null, discountValue: discount || null,
+      taxRate: cell.taxRate ? pct('Tax %', cell.taxRate) : (p?.tax_rate === null || p?.tax_rate === undefined ? null : Number(p.tax_rate)),
+      taxIncluded,
+    },
+    keys: {}, title: `${name} → ${deal!.title}`,
+  };
+}
+
+async function executeLine(db: Db, ctx: Ctx, b: BuiltRow, extra: Record<string, unknown>): Promise<RowResult & { i: number }> {
+  const dealId = Number(b.input.dealId);
+  const deal = await q1<{ id: number; owner_id: number; visibility: string; pipeline_id: number }>(sql`SELECT id, owner_id, visibility, pipeline_id FROM deals
+    WHERE id = ${dealId} AND workspace_id = ${ctx.workspaceId} AND deleted_at IS NULL FOR UPDATE`, db);
+  if (!deal) fail('Deal: no longer exists');
+  assertOnRecord(ctx, 'deal', 'edit', deal!);
+  assertCanChange(ctx, 'deal', ['amount']); // products drive the amount (field permissions)
+  const item = parse(lineItemSchema, b.input);
+  const r = calcLine(item);
+  const before = await q1<{ n: number }>(sql`SELECT count(*)::int AS n FROM line_items WHERE parent_type = 'deal' AND parent_id = ${dealId}`, db);
+  const row = await q1<{ id: number }>(sql`INSERT INTO line_items (workspace_id, parent_type, parent_id, product_id, name, unit_price, quantity, unit, discount_type, discount_value, tax_rate, tax_included, line_total, sort)
+    VALUES (${ctx.workspaceId}, 'deal', ${dealId}, ${item.productId ?? null}, ${item.name}, ${item.unitPrice}, ${item.quantity}, ${item.unit}, ${item.discountType ?? null}, ${item.discountValue ?? 0},
+      ${item.taxRate ?? null}, ${item.taxIncluded ?? false}, ${r.lineTotal}, (SELECT coalesce(max(sort), -1) + 1 FROM line_items WHERE parent_type = 'deal' AND parent_id = ${dealId}))
+    RETURNING id`, db);
+  await recalcDealAmount(db, ctx, dealId);
+  await audit(db, ctx, 'deal', dealId, 'updated', { lineItems: [before?.n ?? 0, (before?.n ?? 0) + 1], ...extra });
+  return { i: -1, action: 'created', id: Number(row!.id) };
 }

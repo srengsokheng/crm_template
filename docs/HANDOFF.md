@@ -209,7 +209,15 @@ The research behind every decision is in this folder:
   server would refuse; the record is created with those fields empty or at their default (e.g. owner = yourself).
   Required fields (deal name, company name) always stay.
 
-**Quality:** 160 Vitest tests (API against real PostgreSQL), 37 Playwright tests (desktop, tablet, phone), lint and
+- **Import: products on deals, new custom options** (migration 0021): Deals → Import → "Products on existing deals"
+  (import type `deal_line`): each row adds one product line to an existing deal, found by Deal name (unique among the
+  deals you can see) or Deal ID; products by SKU or name (catalogue price/unit/tax as defaults; unknown products are
+  free-text lines and need a unit price); quantity, unit price, discount %, tax %. Uses the role's deal import permission
+  plus edit rights on each deal; a locked deal amount (field permissions) refuses the rows. Deal amounts in "auto" mode
+  are recalculated; Undo removes the added lines. "Add values that aren't in the lists yet" (admins) now also adds
+  options to custom select / multi-select fields (stable id from the label; audited as `option_added`).
+
+**Quality:** 163 Vitest tests (API against real PostgreSQL), 39 Playwright tests (desktop, tablet, phone), lint and
 typecheck clean, `npm audit` = 0, GitHub Actions CI in `.github/workflows/ci.yml`.
 
 ## 3. Not built yet — suggested next work (in priority order)
@@ -217,8 +225,7 @@ typecheck clean, `npm audit` = 0, GitHub Actions CI in `.github/workflows/ci.yml
 The earlier list is done (see section 2). Known follow-ups, collected from the pull requests' "not verified" notes:
 
 1. PDFs: embed a Unicode font (e.g. Noto Sans Khmer) so non-Latin names print instead of "?".
-2. Import: products on deals (line items) from a file; adding options to custom select fields during import.
-3. Merge: combine both leads' product lists; an undo for merges.
+2. Merge: combine both leads' product lists; an undo for merges.
 
 Import limits and choices: 5 MB / 10,000 rows / 100 columns per file; lead rows only match *open* leads; list
 values (type, source, industry, size, deal type, category) must already exist unless an admin ticks "Add values that aren't in
