@@ -59,7 +59,7 @@ describe('CSV import — contacts', () => {
 
     const cfg = { mapping: up.body.mapping, options: up.body.options };
     const pv = (await c.post(`/imports/${up.body.id}/preview`, cfg)).body;
-    expect(pv.summary).toEqual({ create: 2, update: 0, skip: 0, error: 2, newCompanies: 1 });
+    expect(pv.summary).toEqual({ create: 2, update: 0, skip: 0, error: 2, newCompanies: 1, newOptions: 0 });
     expect(pv.problems.map((p: any) => [p.row, p.message])).toEqual([
       [4, 'Email: Invalid email address ("not-an-email")'],
       [6, 'Contact type: "Alien" is not in the list. Add it in Settings → Lists, or don\'t import this column'],
@@ -264,7 +264,7 @@ describe('CSV import — permissions, isolation and limits', () => {
     expect((await upload(c, 'contact', '')).status).toBe(400);
     expect((await upload(c, 'contact', 'Name,Email\n')).body.error.message).toBe('The file has a header row but no data rows');
     expect((await upload(c, 'contact', 'Name\n"Unclosed\n')).body.error.message).toBe('This file can\'t be read as CSV: A quoted value that starts on line 2 is never closed');
-    expect((await upload(c, 'deal', 'Title\nX\n')).status).toBe(400);
+    expect((await upload(c, 'activity', 'Title\nX\n')).status).toBe(400); // not an importable record type
     const big = 'Name\n' + Array.from({ length: 10_001 }, (_, i) => `P${i}`).join('\n');
     expect((await upload(c, 'contact', big)).body.error.message).toMatch(/the limit is 10,000/);
 

@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router';
 import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Handshake, KanbanSquare, List, Plus } from 'lucide-react';
+import { Handshake, KanbanSquare, List, Plus, Upload } from 'lucide-react';
 import { api, errorMessage, qsOf } from '../../lib/api.ts';
 import { date, money, relative } from '../../lib/format.ts';
 import { useCan, useMe, usePipelines } from '../../lib/hooks.ts';
@@ -66,6 +66,7 @@ export function DealsPage() {
     <div>
       <PageHeader title="Deals" actions={<>
         <Segmented value={view} onChange={(v) => lp.set({ view: v === 'board' ? null : v })} options={[{ value: 'board', label: 'Board', icon: <KanbanSquare className="size-4" /> }, { value: 'list', label: 'List', icon: <List className="size-4" /> }]} />
+        {can('deal', 'import') && <Button icon={<Upload className="size-4" />} onClick={() => nav('/import/deal')}>Import</Button>}
         {can('deal', 'create') && <Button variant="primary" icon={<Plus className="size-4" />} onClick={() => create.open('deal', { pipelineId })}>New deal</Button>}
       </>} />
       <SavedViews entity="deal" />

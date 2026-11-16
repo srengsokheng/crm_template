@@ -17,9 +17,9 @@ export function fieldRule(ctx: Ctx, entity: FieldEntity, field: string): FieldRu
 }
 
 /** Keys (without "custom.") of this entity's custom fields that are hidden for the user. */
-export function hiddenCustomKeys(ctx: Ctx, entity: FieldEntity): string[] {
+export function hiddenCustomKeys(ctx: Ctx, entity: string): string[] {
   if (ctx.isAdmin) return [];
-  return Object.entries(ctx.fieldRules?.[entity] ?? {}).filter(([k, r]) => r === 'hidden' && k.startsWith('custom.')).map(([k]) => k.slice(7));
+  return Object.entries(ctx.fieldRules?.[entity as FieldEntity] ?? {}).filter(([k, r]) => r === 'hidden' && k.startsWith('custom.')).map(([k]) => k.slice(7));
 }
 
 /** Throws 403 if any of the given fields ("amount", "custom.margin") is read-only or hidden for the user. */

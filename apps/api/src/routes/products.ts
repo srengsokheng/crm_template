@@ -1,7 +1,9 @@
 import type { FastifyInstance } from 'fastify';
 import { listQuerySchema, productCreateSchema, productUpdateSchema } from '@crm/shared';
 import { z } from 'zod';
-import { pool, q, q1, sql } from '../db/index.ts';
+import { q, q1, sql, tx, type Db } from '../db/index.ts';
+import { audit, diff } from '../lib/audit.ts';
+import type { Ctx } from '../lib/context.ts';
 import { notFound } from '../lib/errors.ts';
 import { ctxOf } from '../lib/http.ts';
 import { likeTerm, qs, runList } from '../lib/list.ts';
@@ -14,6 +16,31 @@ const COLS: Record<string, string> = {
   name: 'name', sku: 'sku', categoryId: 'category_id', description: 'description', unitPrice: 'unit_price', currency: 'currency',
   unit: 'unit', taxRate: 'tax_rate', taxIncluded: 'tax_included', isActive: 'is_active',
 };
+
+export type ProductCreateInput = z.output<typeof productCreateSchema>;
+export type ProductUpdateInput = z.output<typeof productUpdateSchema>;
+
+export async function createProduct(db: Db, ctx: Ctx, body: ProductCreateInput, extra: Record<string, unknown> = {}): Promise<{ id: number }> {
+  requireAny(ctx, 'product', 'create');
+  await assertRefs(ctx, [{ table: 'product_categories', ids: [body.categoryId], label: 'Category' }], db);
+  const row = await insertRow(db, 'products', {
+    ...pickColumns(body, COLS), currency: body.currency ?? ctx.baseCurrency, workspace_id: ctx.workspaceId, created_by: ctx.userId,
+  });
+  await audit(db, ctx, 'product', row.id as number, 'created', { name: body.name, ...extra });
+  return row as { id: number };
+}
+
+export async function updateProduct(db: Db, ctx: Ctx, id: number, body: ProductUpdateInput, extra: Record<string, unknown> = {}) {
+  requireAny(ctx, 'product', 'edit');
+  await assertRefs(ctx, [{ table: 'product_categories', ids: [body.categoryId], label: 'Category' }], db);
+  const before = await q1<Record<string, unknown>>(sql`SELECT * FROM products WHERE id = ${id} AND workspace_id = ${ctx.workspaceId} AND deleted_at IS NULL`, db);
+  if (!before) throw notFound('Product');
+  const values = pickColumns(body, COLS);
+  const changes = diff(before, values);
+  const row = await updateRow(db, 'products', id, ctx.workspaceId, values);
+  if (Object.keys(changes).length) await audit(db, ctx, 'product', id, 'updated', { ...changes, ...extra });
+  return row;
+}
 
 export async function productRoutes(app: FastifyInstance) {
   app.get('/products', async (req) => {
@@ -50,24 +77,15 @@ export async function productRoutes(app: FastifyInstance) {
 
   app.post('/products', async (req, reply) => {
     const ctx = ctxOf(req);
-    requireAny(ctx, 'product', 'create');
     const body = parse(productCreateSchema, req.body);
-    await assertRefs(ctx, [{ table: 'product_categories', ids: [body.categoryId], label: 'Category' }]);
-    const row = await insertRow(pool, 'products', {
-      ...pickColumns(body, COLS), currency: body.currency ?? ctx.baseCurrency, workspace_id: ctx.workspaceId, created_by: ctx.userId,
-    });
-    return reply.code(201).send(camel(row));
+    const created = await tx((db) => createProduct(db, ctx, body));
+    return reply.code(201).send(camel(await q1(sql`SELECT * FROM products WHERE id = ${created.id}`)));
   });
 
   app.patch<IdParams>('/products/:id', async (req) => {
     const ctx = ctxOf(req);
-    requireAny(ctx, 'product', 'edit');
     const body = parse(productUpdateSchema, req.body);
-    await assertRefs(ctx, [{ table: 'product_categories', ids: [body.categoryId], label: 'Category' }]);
-    const exists = await q1(sql`SELECT 1 FROM products WHERE id = ${Number(req.params.id)} AND workspace_id = ${ctx.workspaceId} AND deleted_at IS NULL`);
-    if (!exists) throw notFound('Product');
-    const row = await updateRow(pool, 'products', Number(req.params.id), ctx.workspaceId, pickColumns(body, COLS));
-    return camel(row);
+    return camel(await tx((db) => updateProduct(db, ctx, Number(req.params.id), body)));
   });
 
   // Categories (admin)

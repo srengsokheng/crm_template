@@ -10,7 +10,7 @@ import { loadDefs } from '../lib/customFields.ts';
 import { hiddenCustomKeys } from '../lib/fieldAccess.ts';
 import { AppError, badRequest, notFound } from '../lib/errors.ts';
 import { ctxOf } from '../lib/http.ts';
-import { canOnRecord, requireAny } from '../lib/permissions.ts';
+import { canOnRecord, requireAny, scopeOf } from '../lib/permissions.ts';
 import { assertMembers } from '../lib/records.ts';
 import { parse } from '../lib/validate.ts';
 import { preview, TABLE, type ImportRow, type RowResult } from '../imports/engine.ts';
@@ -167,10 +167,12 @@ export async function importRoutes(app: FastifyInstance) {
       const ids = (imp.results as RowResult[]).filter((r) => r.action === 'created' && r.id).map((r) => r.id!);
       const table = raw(TABLE[imp.entity_type]);
       const rows = ids.length
-        ? await q<{ id: number; owner_id: number; visibility: string; pipeline_id?: number }>(sql`SELECT id, owner_id, visibility${imp.entity_type === 'lead' ? sql`, pipeline_id` : sql``} FROM ${table}
+        ? await q<{ id: number; owner_id: number; visibility: string; pipeline_id?: number }>(imp.entity_type === 'product'
+          ? sql`SELECT id FROM products WHERE id = ANY(${ids}) AND workspace_id = ${ctx.workspaceId} AND deleted_at IS NULL`
+          : sql`SELECT id, owner_id, visibility${imp.entity_type === 'lead' || imp.entity_type === 'deal' ? sql`, pipeline_id` : sql``} FROM ${table}
             WHERE id = ANY(${ids}) AND workspace_id = ${ctx.workspaceId} AND deleted_at IS NULL`, db)
         : [];
-      const allowed = rows.filter((r) => canOnRecord(ctx, imp.entity_type, 'delete', r)).map((r) => Number(r.id));
+      const allowed = rows.filter((r) => imp.entity_type === 'product' ? scopeOf(ctx, 'product', 'delete') !== 'none' : canOnRecord(ctx, imp.entity_type, 'delete', r)).map((r) => Number(r.id));
       if (allowed.length) {
         await q(sql`UPDATE ${table} SET deleted_at = now(), deleted_by = ${ctx.userId} WHERE id = ANY(${allowed})`, db);
         for (const id of allowed) await audit(db, ctx, imp.entity_type, id, 'deleted', { _import: { id: imp.id, file: imp.file_name, undo: true } });

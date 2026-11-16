@@ -9,14 +9,17 @@ import {
 import { api, ApiError, errorMessage } from '../../lib/api.ts';
 import { cn } from '../../lib/cn.ts';
 import { relative } from '../../lib/format.ts';
-import { useFields, usePipelines } from '../../lib/hooks.ts';
+import { useFields, useMe, usePipelines } from '../../lib/hooks.ts';
 import { Badge, Button, Card, Checkbox, ErrorState, Field, PageHeader, Select, Skeleton } from '../../components/ui/primitives.tsx';
 import { ConfirmDialog } from '../../components/ui/overlays.tsx';
 import { UserSelect } from '../records/form.tsx';
 import { ENTITY, RESULT_BADGE, Stat, STATUS_BADGE, Steps, type ImportView, type PreviewResult } from './importUi.tsx';
 
-const LIST_KEYS: Record<ImportEntity, string[]> = { contact: ['contacts', 'companies'], company: ['companies'], lead: ['leads'] };
-const recordPath = (entity: ImportEntity, id: number) => `/${ENTITY[entity].many}/${id}`;
+const LIST_KEYS: Record<ImportEntity, string[]> = { contact: ['contacts', 'companies'], company: ['companies'], lead: ['leads'], deal: ['deals', 'deals-board', 'companies'], product: ['products'] };
+/** Products have no page of their own (they're edited in place in the list). */
+const recordPath = (entity: ImportEntity, id: number) => (entity === 'product' ? '/products' : `/${ENTITY[entity].many}/${id}`);
+/** Columns whose values come from an admin-managed list. */
+const LIST_COLUMNS = ['type', 'industry', 'size', 'source', 'dealType', 'category'];
 
 export function ImportDetail() {
   const { id } = useParams();
@@ -60,7 +63,8 @@ function Setup({ imp, onStarted }: { imp: ImportView; onStarted: () => void }) {
   const entity = imp.entityType;
   const e = ENTITY[entity];
   const fields = useFields(entity);
-  const pipelines = usePipelines('lead');
+  const pipelines = usePipelines(entity === 'deal' ? 'deal' : 'lead');
+  const { data: me } = useMe();
   const [mapping, setMapping] = useState<(string | null)[]>(imp.mapping);
   const [options, setOptions] = useState<ImportOptions>(imp.options);
   const [step, setStep] = useState<'map' | 'review'>('map');
@@ -68,6 +72,8 @@ function Setup({ imp, onStarted }: { imp: ImportView; onStarted: () => void }) {
   const [problems, setProblems] = useState<string[]>([]);
   const [preview, setPreview] = useState<PreviewResult | null>(null);
   const set = (patch: Partial<ImportOptions>) => setOptions({ ...options, ...patch });
+  /** Admins may let the import add missing list values (lists are admin settings). */
+  const canAddOptions = !!me?.role.isAdmin && mapping.some((m) => m && LIST_COLUMNS.includes(m));
 
   const targets = IMPORT_TARGETS[entity];
   const single = useMemo(() => new Set([...targets.filter((t) => !t.multiple).map((t) => t.key), ...fields.map((f) => customTargetKey(f.key))]), [targets, fields]);
@@ -77,7 +83,7 @@ function Setup({ imp, onStarted }: { imp: ImportView; onStarted: () => void }) {
   };
   const mapped = mapping.filter(Boolean).length;
   const examples = (col: number) => imp.sample.map((r) => r[col]).filter(Boolean).slice(0, 3);
-  const groups = ['Name', 'Contact details', 'Details', 'Address'] as const;
+  const groups = ['Name', 'Pricing', 'Contact details', 'Details', 'Address'] as const;
 
   const cfg = () => ({ mapping, options });
   const fail = (err: unknown) => {
@@ -115,6 +121,7 @@ function Setup({ imp, onStarted }: { imp: ImportView; onStarted: () => void }) {
           <Stat label="Rows with problems" value={preview.summary.error} tone="red" />
         </div>
         {preview.summary.newCompanies > 0 && <p className="text-sm text-muted">{preview.summary.newCompanies} new {preview.summary.newCompanies === 1 ? 'company' : 'companies'} will be created for the Company column.</p>}
+        {preview.summary.newOptions > 0 && <p className="text-sm text-muted">{preview.summary.newOptions} new list {preview.summary.newOptions === 1 ? 'value' : 'values'} will be added (Settings → Lists{entity === 'product' ? ', product categories' : ''}).</p>}
         {preview.summary.error > 0 && (
           <Card title={`Rows with problems (${preview.summary.error.toLocaleString('en-US')})`} padded={false}>
             <p className="border-b border-base px-4 py-2.5 text-[13px] text-muted">These rows will not be imported. After the import you can download them with the reason, fix them and import that file.</p>
@@ -179,8 +186,10 @@ function Setup({ imp, onStarted }: { imp: ImportView; onStarted: () => void }) {
             <legend className="mb-1 text-[13px] font-medium">When a row matches an existing {e.one}</legend>
             {([
               ['skip', 'Skip the row', `Keep the existing ${e.one} as it is.`],
-              ['update', `Update the existing ${e.one}`, 'Fill in the mapped values; new emails and phones are added, existing ones kept. Empty cells change nothing.'],
-              ['create', `Create a new ${e.one} anyway`, 'Duplicates can be merged later.'],
+              ['update', `Update the existing ${e.one}`, entity === 'deal' || entity === 'product'
+                ? `Fill in the mapped values${entity === 'deal' ? '; contacts in the file are added to the deal' : ''}. Empty cells change nothing.`
+                : 'Fill in the mapped values; new emails and phones are added, existing ones kept. Empty cells change nothing.'],
+              ['create', `Create a new ${e.one} anyway`, entity === 'contact' || entity === 'company' ? 'Duplicates can be merged later.' : `You may end up with two ${e.many} with the same name.`],
             ] as [DuplicateMode, string, string][]).map(([v, label, hint]) => (
               <label key={v} className="flex cursor-pointer items-start gap-2.5 text-sm">
                 <input type="radio" name="duplicateMode" className="mt-0.5 size-4 accent-[var(--color-brand-600)]" checked={options.duplicateMode === v} onChange={() => set({ duplicateMode: v })} />
@@ -203,8 +212,10 @@ function Setup({ imp, onStarted }: { imp: ImportView; onStarted: () => void }) {
         </div>
       </Card>
 
-      <Card title="Other settings">
+      {(entity !== 'product' || canAddOptions) && <Card title="Other settings">
         <div className="grid gap-4 sm:grid-cols-2">
+          {/* Products have no owner and no date columns. */}
+          {entity !== 'product' && <>
           <Field label="Owner for rows without one" htmlFor="imp-owner" hint={mapping.includes('owner') ? 'Used when the Owner cell is empty.' : 'New records are assigned to this person.'}>
             <UserSelect id="imp-owner" value={options.ownerId ?? null} onChange={(v) => set({ ownerId: v })} allowEmpty emptyLabel="Me" />
           </Field>
@@ -215,7 +226,8 @@ function Setup({ imp, onStarted }: { imp: ImportView; onStarted: () => void }) {
               <option value="mdy">12/31/2026 (month first)</option>
             </Select>
           </Field>
-          {entity === 'lead' && pipelines.length > 1 && (
+          </>}
+          {(entity === 'lead' || entity === 'deal') && pipelines.length > 1 && (
             <Field label="Pipeline" htmlFor="imp-pipeline">
               <Select id="imp-pipeline" value={options.pipelineId ?? ''} onChange={(ev) => set({ pipelineId: ev.target.value ? Number(ev.target.value) : null })}>
                 <option value="">Default pipeline</option>
@@ -223,14 +235,17 @@ function Setup({ imp, onStarted }: { imp: ImportView; onStarted: () => void }) {
               </Select>
             </Field>
           )}
-          {entity === 'contact' && mapping.includes('company') && (
+          {(entity === 'contact' || entity === 'deal') && mapping.includes('company') && (
             <div className="sm:col-span-2"><Checkbox label="Create companies that don’t exist yet (otherwise those rows are not imported)" checked={options.createCompanies} onChange={(v) => set({ createCompanies: v })} /></div>
           )}
-          {entity === 'lead' && (
-            <div className="sm:col-span-2"><Checkbox label="Run automation rules for imported leads (e.g. tasks or notes on “lead created”)" checked={options.runAutomation} onChange={(v) => set({ runAutomation: v })} /></div>
+          {(entity === 'lead' || entity === 'deal') && (
+            <div className="sm:col-span-2"><Checkbox label={`Run automation rules for imported ${ENTITY[entity].many} (e.g. tasks or notes on “${entity} created”)`} checked={options.runAutomation} onChange={(v) => set({ runAutomation: v })} /></div>
+          )}
+          {canAddOptions && (
+            <div className="sm:col-span-2"><Checkbox label="Add values that aren’t in the lists yet (e.g. a new industry or category) instead of skipping those rows" checked={options.addMissingOptions} onChange={(v) => set({ addMissingOptions: v })} /></div>
           )}
         </div>
-      </Card>
+      </Card>}
 
       <div className="flex flex-wrap items-center justify-end gap-2">
         <Link to={`/import/${entity}`} className="inline-flex h-9 items-center rounded-[var(--radius-control)] px-3.5 text-sm font-medium hover:bg-[var(--surface-2)]">Choose another file</Link>

@@ -15,7 +15,7 @@ const ENTITIES = [['lead', 'Leads'], ['deal', 'Deals'], ['contact', 'Contacts'],
 const ACTIONS = [['view', 'View'], ['create', 'Create'], ['edit', 'Edit'], ['delete', 'Delete'], ['export', 'Export'], ['import', 'Import']] as const;
 /** Actions that are a yes/no switch rather than a record scope. */
 const SWITCH_ACTIONS = new Set(['create', 'import']);
-const IMPORTABLE = new Set(['lead', 'contact', 'company']);
+const IMPORTABLE = new Set(['lead', 'deal', 'contact', 'company', 'product']);
 const SCOPE_LABEL: Record<Scope, string> = { none: 'None', own: 'Own', team: 'Team', all: 'All' };
 
 export function RolesSettings() {

@@ -279,10 +279,13 @@ export const importOptionsSchema = z.object({
   ownerId: optId,
   /** Contacts: create companies named in the Company column that don't exist yet. */
   createCompanies: z.boolean().default(true),
-  /** Leads: pipeline to import into (default pipeline when empty). */
+  /** Leads and deals: pipeline to import into (default pipeline when empty). */
   pipelineId: optId,
-  /** Leads: run "created" / "stage entered" automation rules for imported leads. */
+  /** Leads and deals: run "created" / "stage entered" automation rules for imported records. */
   runAutomation: z.boolean().default(false),
+  /** Admins: values in list columns (type, source, industry, size, deal type, product category) that don't exist yet
+   *  are added to the list instead of failing the row. Ignored for non-admins. */
+  addMissingOptions: z.boolean().default(false),
 });
 export type ImportOptions = z.infer<typeof importOptionsSchema>;
 export const importConfigSchema = z.object({

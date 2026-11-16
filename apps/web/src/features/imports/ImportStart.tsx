@@ -2,7 +2,7 @@ import { useRef, useState, type DragEvent } from 'react';
 import { Link, Navigate, useNavigate, useParams } from 'react-router';
 import { useQuery } from '@tanstack/react-query';
 import { ArrowLeft, Download, FileSpreadsheet, History, UploadCloud } from 'lucide-react';
-import { IMPORT_LIMITS } from '@crm/shared';
+import { IMPORT_LIMITS , type ImportEntity } from '@crm/shared';
 import { api, ApiError, errorMessage } from '../../lib/api.ts';
 import { cn } from '../../lib/cn.ts';
 import { relative } from '../../lib/format.ts';
@@ -16,7 +16,7 @@ export function ImportStart() {
   return <ImportStartFor entity={entity} />;
 }
 
-function ImportStartFor({ entity }: { entity: 'contact' | 'company' | 'lead' }) {
+function ImportStartFor({ entity }: { entity: ImportEntity }) {
   const nav = useNavigate();
   const can = useCan();
   const fields = useFields(entity);

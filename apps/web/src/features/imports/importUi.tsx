@@ -1,5 +1,5 @@
 import { Check } from 'lucide-react';
-import { IMPORT_TARGETS, toCsv, type ImportEntity, type ImportOptions } from '@crm/shared';
+import { IMPORT_ENTITIES, IMPORT_TARGETS, toCsv, type ImportEntity, type ImportOptions } from '@crm/shared';
 import { cn } from '../../lib/cn.ts';
 import type { FieldDef } from '../../lib/types.ts';
 import { Badge } from '../../components/ui/primitives.tsx';
@@ -8,8 +8,10 @@ export const ENTITY: Record<ImportEntity, { one: string; many: string; list: str
   contact: { one: 'contact', many: 'contacts', list: '/contacts', Many: 'Contacts' },
   company: { one: 'company', many: 'companies', list: '/companies', Many: 'Companies' },
   lead: { one: 'lead', many: 'leads', list: '/leads?view=list', Many: 'Leads' },
+  deal: { one: 'deal', many: 'deals', list: '/deals?view=list', Many: 'Deals' },
+  product: { one: 'product', many: 'products', list: '/products', Many: 'Products' },
 };
-export const isImportEntity = (v: string | undefined): v is ImportEntity => v === 'contact' || v === 'company' || v === 'lead';
+export const isImportEntity = (v: string | undefined): v is ImportEntity => !!v && (IMPORT_ENTITIES as readonly string[]).includes(v);
 
 export type ImportStatus = 'draft' | 'queued' | 'running' | 'done' | 'failed' | 'canceled';
 export interface ImportView {
@@ -22,7 +24,7 @@ export interface ImportView {
 }
 export interface PreviewRow { i: number; row: number; action: 'create' | 'update' | 'skip' | 'error'; title: string; recordId?: number; message?: string }
 export interface PreviewResult {
-  summary: { create: number; update: number; skip: number; error: number; newCompanies: number };
+  summary: { create: number; update: number; skip: number; error: number; newCompanies: number; newOptions: number };
   rows: PreviewRow[]; problems: PreviewRow[];
 }
 

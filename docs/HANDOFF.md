@@ -154,18 +154,29 @@ The research behind every decision is in this folder:
   preview and import mapping. Admins and automation are never restricted. Automation message templates only offer
   {{title}}, {{amount}} and {{owner}}, so they can't reveal hidden fields.
 
-**Quality:** 137 Vitest tests (API against real PostgreSQL), 30 Playwright tests (desktop, tablet, phone), lint and
+- **Import deals and products** (migration 0016): Deals → Import and Products → Import use the same wizard.
+  Deals: name, amount, currency, stage (any stage of the chosen pipeline, incl. won/lost), expected close, probability,
+  company (found by name, created when "Create missing companies" is on), contacts (linked by email or unique full name,
+  never created), deal type, source, description, owner; matched by title (only deals the user may see); updating adds
+  the file's contacts to the deal. Products: name, SKU, price, currency, unit, tax %, tax included, category, active,
+  description; matched by SKU, then name; no owner (access = the role's product scope). Deals and products are written
+  through the same functions as the API (`createDeal`/`updateDeal`, `createProduct`/`updateProduct` — products now get
+  audit entries too), so validation, required fields, pipeline restrictions and field permissions apply.
+  **Add missing list values** (admins only, option `addMissingOptions`): unknown values in list columns (types, source,
+  industry, size, deal type, product category) are created instead of failing the row; the review shows how many.
+
+**Quality:** 141 Vitest tests (API against real PostgreSQL), 31 Playwright tests (desktop, tablet, phone), lint and
 typecheck clean, `npm audit` = 0, GitHub Actions CI in `.github/workflows/ci.yml`.
 
 ## 3. Not built yet — suggested next work (in priority order)
 
-1. Import follow-ups: deals/products import, "add missing list options" during import.
-2. Merge follow-ups: merge leads; merge more than two at once; fuzzy name matching on the duplicates page.
-3. Email follow-ups: a daily digest of overdue activities; per-workspace sender name; showing
+1. Merge follow-ups: merge leads; merge more than two at once; fuzzy name matching on the duplicates page.
+2. Email follow-ups: a daily digest of overdue activities; per-workspace sender name; showing
     failed deliveries to admins (today they are only in the `jobs` table as `failed` with `last_error`).
 
-Import limits and choices: 5 MB / 10,000 rows / 100 columns per file; lead rows only match *open* leads; dictionary
-values (type, source, industry, size) must already exist; "Undo" does not revert updates; raw cells are kept 30 days.
+Import limits and choices: 5 MB / 10,000 rows / 100 columns per file; lead rows only match *open* leads; list
+values (type, source, industry, size, deal type, category) must already exist unless an admin ticks "Add values that aren't in
+the lists yet"; deal contacts must already exist; "Undo" does not revert updates; raw cells are kept 30 days.
 
 Email choices: reminder emails use the workspace time zone; a failed delivery is retried twice and then dropped (the
 in-app notification is unaffected); invitation links are never written to the server log.
