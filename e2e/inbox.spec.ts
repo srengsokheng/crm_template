@@ -121,3 +121,28 @@ test('live updates: new visitor messages appear in the open Inbox within seconds
   await visit({ body: 'Someone new', name: 'New Visitor' });
   await expect(page.getByRole('complementary', { name: 'Conversations' }).getByRole('link', { name: /New Visitor/ })).toBeVisible({ timeout: 5_000 });
 });
+
+test('saved replies: create one, insert it with the customer name filled in, send it', async ({ page, baseURL }) => {
+  await signUp(page);
+  const ch = await api(page, 'POST', '/channels', { kind: 'webchat', name: 'Chat' });
+  await page.request.post(`${baseURL}/api/v1/public/webchat/${ch.publicKey}/messages`, { data: { body: 'When are you open?', name: 'Grace Hopper' }, headers: { 'x-requested-with': 'crm' } });
+  const conv = (await api(page, 'GET', '/inbox/conversations')).data[0];
+  await page.goto(`/inbox/${conv.id}`);
+
+  await page.getByRole('button', { name: 'Saved replies' }).click();
+  await expect(page.getByText(/No saved replies yet/)).toBeVisible();
+  await page.getByRole('button', { name: 'New saved reply' }).click();
+  await page.getByLabel('Title').fill('Opening hours');
+  await page.getByLabel('Text').fill('Hi {{first_name}}, we are open 9–5. — {{agent}}');
+  await page.getByText('Share with the whole team').click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Save' }).click();
+  await expect(page.getByText('Saved reply saved')).toBeVisible();
+
+  await page.getByRole('button', { name: 'Saved replies' }).click();
+  await page.getByLabel('Search saved replies').fill('hours');
+  await expect(page.getByText('Team')).toBeVisible();
+  await page.getByRole('button', { name: /^Opening hours Team/ }).click(); // not the Edit/Delete buttons
+  await expect(page.getByLabel('Reply')).toHaveValue('Hi Grace, we are open 9–5. — Ada Admin');
+  await page.getByRole('button', { name: 'Send' }).click();
+  await expect(page.locator('ol').getByText('Hi Grace, we are open 9–5. — Ada Admin')).toBeVisible();
+});

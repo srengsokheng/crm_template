@@ -11,6 +11,7 @@ import { importRoutes } from './imports.ts';
 import { inboxRoutes } from './inbox.ts';
 import { channelRoutes } from './channels.ts';
 import { publicChannelRoutes } from './publicChannels.ts';
+import { savedReplyRoutes } from './savedReplies.ts';
 import { leadRoutes } from './leads.ts';
 import { mergeRoutes } from './merge.ts';
 import { metaRoutes } from './meta.ts';
@@ -46,5 +47,6 @@ export async function registerRoutes(app: FastifyInstance) {
   await app.register(inboxRoutes);
   await app.register(channelRoutes);
   await app.register(publicChannelRoutes);
+  await app.register(savedReplyRoutes);
   await app.register(recycleRoutes); // generic DELETE /:entity/:id last
 }

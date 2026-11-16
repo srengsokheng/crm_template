@@ -278,7 +278,13 @@ The research behind every decision is in this folder:
   browser reconnects. Streams end after 30 minutes and reconnect, which also picks up role changes. Behind a reverse
   proxy, keep `/api/v1/inbox/events` unbuffered (the response sends `X-Accel-Buffering: no` for nginx).
 
-**Quality:** 189 Vitest tests (API against real PostgreSQL), 45 Playwright tests (desktop, tablet, phone), lint and
+- **Saved replies** (migration 0025, `routes/savedReplies.ts`, `features/inbox/SavedReplies.tsx`): a button in the
+  reply box lists saved replies (search, insert, new/edit/delete). `{{first_name}}`, `{{name}}` (the customer) and
+  `{{agent}}` (you) are filled in on insert (`fillPlaceholders` in `@crm/shared`). Personal replies are only seen by
+  their owner (not even admins); shared "Team" replies are seen by everyone with Inbox view, and only admins share or
+  change them. Creating needs Inbox edit.
+
+**Quality:** 191 Vitest tests (API against real PostgreSQL), 46 Playwright tests (desktop, tablet, phone), lint and
 typecheck clean, `npm audit` = 0, GitHub Actions CI in `.github/workflows/ci.yml`.
 
 ## 3. Not built yet — suggested next work (in priority order)
@@ -295,8 +301,8 @@ The earlier list is done (see section 2). Known follow-ups, collected from the p
    (Cloud API), and a **Telegram personal account** (MTProto user login, e.g. GramJS; the account owner logs in with
    their phone code — needs `api_id`/`api_hash` from my.telegram.org). Unofficial WhatsApp-Web libraries break
    WhatsApp's terms and get numbers banned; Meta has no API for personal Messenger/Instagram inboxes.
-4. Inbox: canned replies, file uploads from website visitors (needs abuse limits and scanning), live updates for the
-   visitor's widget (it polls every 4 s while open).
+4. Inbox: file uploads from website visitors (needs abuse limits and scanning), live updates for the visitor's
+   widget (it polls every 4 s while open).
 
 Import limits and choices: 5 MB / 10,000 rows / 100 columns per file; lead rows only match *open* leads; list
 values (type, source, industry, size, deal type, category) must already exist unless an admin ticks "Add values that aren't in

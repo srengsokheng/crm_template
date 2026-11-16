@@ -68,10 +68,12 @@ export async function enqueue(type: string, payload: Record<string, unknown> = {
 
 /** `now` overrides the clock (tests); by default the database clock is used. */
 export async function processJobs(limit = 20, now?: Date): Promise<number> {
-  const jobs = await tx((db) => q<{ id: number; type: string; payload: Record<string, unknown>; attempts: number }>(sql`
+  const claimed = await tx((db) => q<{ id: number; type: string; payload: Record<string, unknown>; attempts: number; run_at: Date }>(sql`
     UPDATE jobs SET status = 'running', locked_at = now(), attempts = attempts + 1
     WHERE id IN (SELECT id FROM jobs WHERE status = 'pending' AND run_at <= coalesce(${now ?? null}::timestamptz, now()) ORDER BY run_at, id LIMIT ${limit} FOR UPDATE SKIP LOCKED)
-    RETURNING id, type, payload, attempts`, db));
+    RETURNING id, type, payload, attempts, run_at`, db));
+  // UPDATE … RETURNING comes back in no particular order: run jobs in queue order (e.g. Inbox replies in the order sent).
+  const jobs = claimed.sort((a, b) => +new Date(a.run_at) - +new Date(b.run_at) || a.id - b.id);
   for (const job of jobs) {
     try {
       if (job.type === 'automation.run') await runAutomation(job.payload as never);

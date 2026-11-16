@@ -11,6 +11,7 @@ import { useCan, useDebounced, useMe, useMeta } from '../../lib/hooks.ts';
 import { Avatar, Badge, Button, EmptyState, ErrorState, IconButton, Input, Segmented, Select, Skeleton, Spinner, Textarea } from '../../components/ui/primitives.tsx';
 import { Dialog } from '../../components/ui/overlays.tsx';
 import { usePollInterval } from './live.ts';
+import { SavedRepliesMenu } from './SavedReplies.tsx';
 import { EntityPicker, type PickerItem } from '../../components/ui/EntityPicker.tsx';
 
 type ChannelKind = 'webchat' | 'telegram_bot';
@@ -205,7 +206,7 @@ function Thread({ id }: { id: number }) {
         )}
         <div ref={bottom} />
       </div>
-      <Composer conversationId={id} canReply={d.canReply} reason={!d.canEdit ? 'You can read this conversation but your role can’t reply.' : d.channelStatus !== 'active' ? 'This channel is disabled or disconnected, so replies can’t be sent.' : ''} onSent={refresh} />
+      <Composer conversationId={id} canReply={d.canReply} reason={!d.canEdit ? 'You can read this conversation but your role can’t reply.' : d.channelStatus !== 'active' ? 'This channel is disabled or disconnected, so replies can’t be sent.' : ''} onSent={refresh} customerName={d.profile.name || d.title} />
       <LinkDialog open={linkOpen} onOpenChange={setLinkOpen} conversationId={id} onLinked={refresh} />
     </>
   );
@@ -261,7 +262,7 @@ async function uploadReply(conversationId: number, file: File, caption: string) 
   }
 }
 
-function Composer({ conversationId, canReply, reason, onSent }: { conversationId: number; canReply: boolean; reason: string; onSent: () => void }) {
+function Composer({ conversationId, canReply, reason, onSent, customerName }: { conversationId: number; canReply: boolean; reason: string; onSent: () => void; customerName: string }) {
   const [body, setBody] = useState('');
   const [file, setFile] = useState<File | null>(null);
   const [sending, setSending] = useState(false);
@@ -291,6 +292,7 @@ function Composer({ conversationId, canReply, reason, onSent }: { conversationId
       )}
       <input ref={picker} type="file" className="hidden" aria-label="File to send" onChange={(e) => { setFile(e.target.files?.[0] ?? null); e.target.value = ''; }} />
       <IconButton label="Attach a file" onClick={() => picker.current?.click()}><Paperclip className="size-4" /></IconButton>
+      <SavedRepliesMenu name={customerName} onInsert={(t) => setBody((b) => (b.trim() ? `${b.trimEnd()}\n${t}` : t))} />
       <Textarea aria-label="Reply" rows={2} maxLength={4000} placeholder={file ? 'Add a caption (optional)' : 'Write a reply… (Enter to send, Shift+Enter for a new line)'} value={body}
         onChange={(e) => setBody(e.target.value)} onKeyDown={onKey} className="min-h-[2.75rem] min-w-0 flex-1 resize-none" />
       <Button type="submit" variant="primary" disabled={(!body.trim() && !file) || sending} icon={sending ? <Spinner className="size-4 text-white" /> : <Send className="size-4" />}>Send</Button>

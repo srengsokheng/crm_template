@@ -56,6 +56,22 @@ export const conversationUpdateSchema = z.object({
 });
 
 export const messageCreateSchema = z.object({ body: text(4000).min(1, 'Write a message') });
+/** Saved replies. Placeholders filled in when inserted: {{first_name}}, {{name}}, {{agent}}. */
+export const savedReplySchema = z.object({
+  title: text(80).min(1, 'Required'),
+  body: text(4000).min(1, 'Required'),
+  shared: z.boolean().default(false),
+});
+// No defaults here: a field left out of an update must stay as it is.
+export const savedReplyUpdateSchema = z.object({ title: text(80).min(1).optional(), body: text(4000).min(1).optional(), shared: z.boolean().optional() });
+
+/** Fills a saved reply's placeholders. Unknown placeholders are left as they are. */
+export function fillPlaceholders(body: string, v: { name?: string | null; agent?: string | null }): string {
+  const name = (v.name ?? '').trim();
+  const values: Record<string, string> = { name, first_name: name.split(/\s+/)[0] ?? '', agent: (v.agent ?? '').trim() };
+  return body.replace(/\{\{\s*(\w+)\s*\}\}/g, (m, k: string) => (k in values ? values[k] : m));
+}
+
 /** Text sent with a file (optional). */
 export const messageCaptionSchema = z.object({ caption: text(4000) });
 
