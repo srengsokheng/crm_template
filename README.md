@@ -72,6 +72,16 @@ To keep files in S3-compatible storage instead (AWS S3, MinIO, Cloudflare R2, Ba
 `S3_*` variables listed in `.env.example`. To scan uploads for viruses, run a ClamAV daemon and set `CLAMAV_HOST`
 (and `CLAMAV_PORT`); uploads are then refused while the scanner is unreachable.
 
+### Inbox (website chat, Telegram)
+
+Admins connect channels in Settings → Channels; messages arrive in the Inbox.
+
+- **Website chat**: paste the `<script src="https://YOUR-CRM/widget.js" data-key="…">` line shown there into your
+  site. Optionally restrict it to your own domains ("Allowed websites").
+- **Telegram bot**: create a bot with @BotFather and paste its token. Tokens are stored encrypted with `SECRETS_KEY`
+  (required in production; see `.env.example`). With an `https` `APP_URL`, Telegram pushes messages to the CRM;
+  otherwise (local development) the worker polls Telegram every few seconds.
+
 ## Checks
 
 ```bash

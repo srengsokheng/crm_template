@@ -8,6 +8,9 @@ import { automationRoutes } from './automation.ts';
 import { dealRoutes } from './deals.ts';
 import { duplicateRoutes } from './duplicates.ts';
 import { importRoutes } from './imports.ts';
+import { inboxRoutes } from './inbox.ts';
+import { channelRoutes } from './channels.ts';
+import { publicChannelRoutes } from './publicChannels.ts';
 import { leadRoutes } from './leads.ts';
 import { mergeRoutes } from './merge.ts';
 import { metaRoutes } from './meta.ts';
@@ -40,5 +43,8 @@ export async function registerRoutes(app: FastifyInstance) {
   await app.register(rateRoutes);
   await app.register(attachmentRoutes);
   await app.register(documentRoutes);
+  await app.register(inboxRoutes);
+  await app.register(channelRoutes);
+  await app.register(publicChannelRoutes);
   await app.register(recycleRoutes); // generic DELETE /:entity/:id last
 }

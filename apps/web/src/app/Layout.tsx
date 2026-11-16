@@ -2,7 +2,7 @@ import { Suspense, useEffect, useState, type ReactNode } from 'react';
 import { Link, NavLink, Navigate, Outlet, useLocation, useNavigate } from 'react-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
-  BarChart3, Bell, BellOff, BellRing, Building2, CheckSquare, Handshake, Home, LogOut, Menu as MenuIcon, Moon, Package, Plus, Search, Settings, Sun, Users, Zap, Monitor, X, Mail, FileText } from 'lucide-react';
+  BarChart3, Bell, BellOff, BellRing, Building2, CheckSquare, Handshake, Home, LogOut, Menu as MenuIcon, Moon, Package, Plus, Search, Settings, Sun, Users, Zap, Monitor, X, Mail, FileText, MessageCircle } from 'lucide-react';
 import { toast } from 'sonner';
 import { api, ApiError, errorMessage } from '../lib/api.ts';
 import { cn } from '../lib/cn.ts';
@@ -20,8 +20,10 @@ function useNav(): NavItem[] {
   const { data: me } = useMe();
   const can = useCan();
   const counts = useQuery({ queryKey: ['activity-counts'], queryFn: () => api.get<{ overdue: number; today: number }>('/activities/counts'), refetchInterval: 60_000 });
+  const inbox = useQuery({ queryKey: ['inbox-summary'], queryFn: () => api.get<{ unread: number; canView: boolean }>('/inbox/summary'), refetchInterval: 30_000, enabled: can('conversation', 'view') });
   return [
     { to: '/', label: 'Home', icon: <Home className="size-[18px]" /> },
+    { to: '/inbox', label: 'Inbox', icon: <MessageCircle className="size-[18px]" />, badge: inbox.data?.unread, show: can('conversation', 'view') },
     { to: '/activities', label: 'Activities', icon: <CheckSquare className="size-[18px]" />, badge: counts.data?.overdue },
     { to: '/leads', label: 'Leads', icon: <Zap className="size-[18px]" />, show: !!me?.workspace.useLeads && can('lead', 'view') },
     { to: '/deals', label: 'Deals', icon: <Handshake className="size-[18px]" />, show: can('deal', 'view') },
@@ -90,7 +92,9 @@ function MobileNav({ items }: { items: NavItem[] }) {
             {!!i.badge && <span className="absolute right-[30%] top-1.5 size-2 rounded-full bg-rose-500" />}
           </NavLink>
         ))}
-        <button type="button" onClick={() => setMore(true)} className="flex flex-col items-center gap-0.5 py-2 text-[11px] font-medium text-muted"><MenuIcon className="size-[18px]" />More</button>
+        <button type="button" onClick={() => setMore(true)} className="relative flex flex-col items-center gap-0.5 py-2 text-[11px] font-medium text-muted"><MenuIcon className="size-[18px]" />More
+          {rest.some((i) => 'badge' in i && i.badge) && <span className="absolute right-[30%] top-1.5 size-2 rounded-full bg-rose-500" aria-label="New messages" />}
+        </button>
       </nav>
       {more && (
         <div className="fixed inset-0 z-50 md:hidden" role="dialog" aria-label="More navigation">
@@ -99,7 +103,9 @@ function MobileNav({ items }: { items: NavItem[] }) {
             <div className="mb-2 flex items-center justify-between"><span className="text-sm font-semibold">More</span><IconButton label="Close" onClick={() => setMore(false)}><X className="size-4" /></IconButton></div>
             <div className="grid grid-cols-3 gap-2">
               {rest.map((i) => (
-                <Link key={i.to} to={i.to} className="flex flex-col items-center gap-1 rounded-lg border border-base p-3 text-xs font-medium">{i.icon}{i.label}</Link>
+                <Link key={i.to} to={i.to} className="relative flex flex-col items-center gap-1 rounded-lg border border-base p-3 text-xs font-medium">{i.icon}{i.label}
+                  {'badge' in i && !!i.badge && <span className="absolute right-2 top-2 rounded-full bg-rose-500 px-1.5 text-[10px] font-semibold text-white">{i.badge}</span>}
+                </Link>
               ))}
             </div>
           </div>
@@ -119,6 +125,7 @@ function Notifications() {
   const markRead = async () => { await api.post('/notifications/read', {}); qc.invalidateQueries({ queryKey: ['notifications'] }); };
   const go = (n: { entityType: string | null; entityId: number | null }) => {
     if (n.entityType === 'activity') nav('/activities');
+    else if (n.entityType === 'conversation' && n.entityId) nav(`/inbox/${n.entityId}`);
     else if (n.entityType && n.entityId) nav(`/${n.entityType === 'company' ? 'companies' : n.entityType + 's'}/${n.entityId}`);
   };
   return (

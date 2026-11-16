@@ -1,7 +1,7 @@
 export const RECORD_TYPES = ['lead', 'deal', 'contact', 'company'] as const;
 export type RecordType = (typeof RECORD_TYPES)[number];
 
-export const PERMISSION_ENTITIES = ['lead', 'deal', 'contact', 'company', 'product', 'activity'] as const;
+export const PERMISSION_ENTITIES = ['lead', 'deal', 'contact', 'company', 'product', 'activity', 'conversation'] as const;
 export type PermissionEntity = (typeof PERMISSION_ENTITIES)[number];
 
 export const PERMISSION_ACTIONS = ['view', 'create', 'edit', 'delete', 'export', 'import'] as const;

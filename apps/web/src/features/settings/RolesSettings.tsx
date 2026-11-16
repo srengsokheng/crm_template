@@ -11,7 +11,9 @@ import { AdminOnly } from './SettingsLayout.tsx';
 import { FieldAccessEditor } from './FieldAccessEditor.tsx';
 
 interface Role { id: number; name: string; isAdmin: boolean; isSystem: boolean; memberCount: number; grants: Record<string, Record<string, Scope>>; fieldRules: FieldRules }
-const ENTITIES = [['lead', 'Leads'], ['deal', 'Deals'], ['contact', 'Contacts'], ['company', 'Companies'], ['product', 'Products'], ['activity', 'Activities']] as const;
+const ENTITIES = [['lead', 'Leads'], ['deal', 'Deals'], ['contact', 'Contacts'], ['company', 'Companies'], ['product', 'Products'], ['activity', 'Activities'], ['conversation', 'Inbox']] as const;
+/** The inbox has only View (read) and Edit (reply, assign, close, link); its other columns don't apply. */
+const ONLY_VIEW_EDIT = new Set(['conversation']);
 const ACTIONS = [['view', 'View'], ['create', 'Create'], ['edit', 'Edit'], ['delete', 'Delete'], ['export', 'Export'], ['import', 'Import']] as const;
 /** Actions that are a yes/no switch rather than a record scope. */
 const SWITCH_ACTIONS = new Set(['create', 'import']);
@@ -58,7 +60,7 @@ export function RolesSettings() {
                           <td className="py-2 pr-3 font-medium">{l}</td>
                           {ACTIONS.map(([a]) => (
                             <td key={a} className="px-1 py-1.5">
-                              {a === 'import' && !IMPORTABLE.has(e) ? <span className="block px-2 text-xs text-muted" title="Not available for this record type">—</span> : (
+                              {(a === 'import' && !IMPORTABLE.has(e)) || (ONLY_VIEW_EDIT.has(e) && a !== 'view' && a !== 'edit') ? <span className="block px-2 text-xs text-muted" title="Not available for this record type">—</span> : (
                                 <Select aria-label={`${l} ${a}`} className="h-8 min-w-[4.75rem] pl-2 text-xs" value={grants[e]?.[a] ?? 'none'}
                                   onChange={(ev) => setGrants({ ...grants, [e]: { ...(grants[e] ?? {}), [a]: ev.target.value as Scope } })}>
                                   {(SWITCH_ACTIONS.has(a) ? (['none', 'all'] as Scope[]) : (['none', 'own', 'team', 'all'] as Scope[])).map((s) => <option key={s} value={s}>{SWITCH_ACTIONS.has(a) ? (s === 'all' ? 'Yes' : 'No') : SCOPE_LABEL[s]}</option>)}
@@ -71,7 +73,7 @@ export function RolesSettings() {
                     </tbody>
                   </table>
                 </div>
-                <p className="mt-3 text-xs text-muted">“Own” means records the user owns, “Team” records owned by anyone who shares a team with them, and “All” every record except other people’s private ones. “Import” lets the user upload CSV files; imported rows still need Create, and updating existing records needs Edit on them.</p>
+                <p className="mt-3 text-xs text-muted">“Own” means records the user owns, “Team” records owned by anyone who shares a team with them, and “All” every record except other people’s private ones. “Import” lets the user upload CSV files; imported rows still need Create, and updating existing records needs Edit on them. For the Inbox, “Own” and “Team” mean conversations assigned to the user or their team, plus unassigned ones; Edit lets them reply, assign, close and link conversations.</p>
                 <div className="mt-5 border-t border-[var(--border)] pt-4">
                   <h3 className="mb-2 text-sm font-semibold">Field access</h3>
                   <FieldAccessEditor value={fieldRules} onChange={setFieldRules} />

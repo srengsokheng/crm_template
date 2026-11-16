@@ -4,7 +4,7 @@ export interface Me {
   preferences: { emailReminders: boolean; emailDigest: boolean };
   role: { id: number; name: string; isAdmin: boolean };
   workspace: { id: number; name: string; baseCurrency: string; useLeads: boolean; timezone: string; workingHours: { days: number[]; start: string; end: string } };
-  permissions: Record<'lead' | 'deal' | 'contact' | 'company' | 'product' | 'activity', Record<'view' | 'create' | 'edit' | 'delete' | 'export' | 'import', Scope>>;
+  permissions: Record<'lead' | 'deal' | 'contact' | 'company' | 'product' | 'activity' | 'conversation', Record<'view' | 'create' | 'edit' | 'delete' | 'export' | 'import', Scope>>;
   /** Field-level rules of the user's role: "amount" or "custom.<key>" → readonly | hidden. Empty for admins. */
   fieldRules?: Partial<Record<'deal' | 'lead' | 'contact' | 'company', Record<string, 'readonly' | 'hidden'>>>;
 }

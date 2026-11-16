@@ -12,7 +12,7 @@ export const DEFAULT_ROLES: { name: string; isAdmin: boolean; grants: Grants }[]
     name: 'Manager', isAdmin: false,
     grants: {
       lead: all('all', { import: 'all' }), deal: all('all'), contact: all('all', { import: 'all' }), company: all('all', { import: 'all' }),
-      product: all('all'), activity: all('all'),
+      product: all('all'), activity: all('all'), conversation: { view: 'all', edit: 'all' },
     },
   },
   {
@@ -24,12 +24,16 @@ export const DEFAULT_ROLES: { name: string; isAdmin: boolean; grants: Grants }[]
       company: all('all', { edit: 'team', delete: 'own', export: 'none' }),
       product: { view: 'all', create: 'none', edit: 'none', delete: 'none', export: 'none' },
       activity: all('team', { edit: 'own', delete: 'own', export: 'none' }),
+      conversation: { view: 'team', edit: 'team' },
     },
   },
   {
     name: 'Viewer', isAdmin: false,
-    grants: Object.fromEntries((['lead', 'deal', 'contact', 'company', 'product', 'activity'] as const).map((e) =>
-      [e, { view: 'all', create: 'none', edit: 'none', delete: 'none', export: 'none' }])) as Grants,
+    grants: {
+      ...Object.fromEntries((['lead', 'deal', 'contact', 'company', 'product', 'activity'] as const).map((e) =>
+        [e, { view: 'all', create: 'none', edit: 'none', delete: 'none', export: 'none' }])),
+      conversation: { view: 'all', edit: 'none' },
+    } as Grants,
   },
 ];
 

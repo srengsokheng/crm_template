@@ -40,4 +40,12 @@ export const config = {
     clamav: { host: env.CLAMAV_HOST ?? '', port: Number(env.CLAMAV_PORT ?? 3310) },
   },
   webDist: env.WEB_DIST ?? fileURLToPath(new URL('../../web/dist/', import.meta.url)),
+  /**
+   * Key for credentials stored in the database (e.g. Telegram bot tokens): 32 bytes, base64 or hex. Required in
+   * production; in development and tests a key is generated once into data/secrets.key (git-ignored).
+   */
+  secretsKey: env.SECRETS_KEY ?? '',
+  secretsKeyFile: env.SECRETS_KEY_FILE ?? fileURLToPath(new URL('../../../data/secrets.key', import.meta.url)),
+  /** Inbox channels. TELEGRAM_API_URL is only changed for tests. */
+  telegram: { apiUrl: env.TELEGRAM_API_URL ?? 'https://api.telegram.org' },
 };

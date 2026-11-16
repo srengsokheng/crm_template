@@ -14,6 +14,11 @@ export default tseslint.config(
     },
   },
   {
+    // The website chat widget is a classic browser script served as-is to customers' sites.
+    files: ['apps/api/src/inbox/widget.js'],
+    languageOptions: { sourceType: 'script', globals: { setInterval: 'readonly', clearInterval: 'readonly' } },
+  },
+  {
     files: ['apps/web/**/*.tsx'],
     plugins: { 'react-hooks': reactHooks },
     rules: { 'react-hooks/rules-of-hooks': 'error', 'react-hooks/exhaustive-deps': 'warn' },

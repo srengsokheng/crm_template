@@ -16,6 +16,7 @@ import { MethodsView } from '../records/MethodsView.tsx';
 import { RelatedDeals, type RelatedDeal } from '../records/RelatedDeals.tsx';
 import { Timeline } from '../records/Timeline.tsx';
 import { Attachments } from '../records/Attachments.tsx';
+import { LinkedConversations } from '../inbox/LinkedConversations.tsx';
 import { MergeDialog } from '../records/MergeDialog.tsx';
 import { MergeUndoBanner } from '../records/MergeUndoBanner.tsx';
 
@@ -83,6 +84,7 @@ export function ContactDetail() {
           </div>
         </Card>
         <RelatedDeals deals={c.deals} onAdd={can('deal', 'create') ? () => create.open('deal', { contacts: [{ id, label: name }], stay: true }) : undefined} />
+        <LinkedConversations contactId={id} />
         <Attachments entityType="contact" entityId={id} canEdit={edit} />
       </>}
       right={<Timeline type="contact" id={id} />} />

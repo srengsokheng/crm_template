@@ -69,9 +69,30 @@ export function assertPipelineAllowed(ctx: Ctx, pipelineId: number): void {
 
 /** Grants summary sent to the web app so it can hide actions the user cannot take. */
 export function permissionSummary(ctx: Ctx): Record<string, Record<string, Scope>> {
-  const entities: PermissionEntity[] = ['lead', 'deal', 'contact', 'company', 'product', 'activity'];
+  const entities: PermissionEntity[] = ['lead', 'deal', 'contact', 'company', 'product', 'activity', 'conversation'];
   const actions: PermissionAction[] = ['view', 'create', 'edit', 'delete', 'export', 'import'];
   const out: Record<string, Record<string, Scope>> = {};
   for (const e of entities) { out[e] = {}; for (const a of actions) out[e][a] = scopeOf(ctx, e, a); }
   return out;
+}
+
+/**
+ * Inbox conversations are scoped by assignee rather than owner: own → assigned to me, team → assigned to someone in my
+ * teams, all → everything. Unassigned conversations are in every scope so anyone may pick them up.
+ */
+export function conversationScopeWhere(ctx: Ctx, action: PermissionAction, alias: string): Fragment {
+  const s = scopeOf(ctx, 'conversation', action);
+  const a = raw(`${alias}.assignee_id`);
+  if (s === 'all') return sql`TRUE`;
+  if (s === 'team') return sql`(${a} IS NULL OR ${a} = ANY(${ctx.teamUserIds}))`;
+  if (s === 'own') return sql`(${a} IS NULL OR ${a} = ${ctx.userId})`;
+  return sql`FALSE`;
+}
+export function canOnConversation(ctx: Ctx, action: PermissionAction, row: { assignee_id: number | null }): boolean {
+  const s = scopeOf(ctx, 'conversation', action);
+  const a = row.assignee_id === null ? null : Number(row.assignee_id);
+  if (s === 'all') return true;
+  if (s === 'none') return false;
+  if (a === null) return true;
+  return s === 'team' ? ctx.teamUserIds.includes(a) : a === ctx.userId;
 }

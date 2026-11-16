@@ -231,7 +231,33 @@ The research behind every decision is in this folder:
   `/ActualText` with the original text, plus a ToUnicode map. Khmer, written without spaces, wraps at word boundaries
   (`Intl.Segmenter`). Other scripts (Chinese, Thai, …) still print as "?": add a Noto font for them to `pdfFonts.ts`.
 
-**Quality:** 172 Vitest tests (API against real PostgreSQL), 40 Playwright tests (desktop, tablet, phone), lint and
+- **Inbox: website chat and Telegram bots** (migration 0023, `routes/inbox.ts`, `routes/channels.ts`,
+  `routes/publicChannels.ts`, `inbox/`):
+  - **Channels** (Settings → Channels, admins):
+    - *Website chat*: a `<script src="…/widget.js" data-key="…">` snippet. The widget (`inbox/widget.js`, plain JS in
+      a shadow root, light/dark, phone layout) talks to `/api/v1/public/webchat/:key` (CORS, rate-limited, optional
+      allowed-origins list). Visitors keep a random token in their browser; only its SHA-256 is stored.
+    - *Telegram bot*: paste the @BotFather token. It is checked with getMe and stored AES-256-GCM-encrypted
+      (`lib/secrets.ts`, `SECRETS_KEY`), never returned by the API. With an https `APP_URL` the CRM registers a webhook
+      (`/api/v1/hooks/telegram/:key`, verified by Telegram's secret header); otherwise the worker polls `getUpdates`
+      every 3 s (row-locked, so two workers never read the same updates). Private chats and groups the bot is in;
+      photos/files/stickers/locations show as "[Photo] caption" etc.
+  - **Inbox page** (`/inbox`): open/closed, everyone/mine/unassigned, search (names, usernames, emails, message text);
+    thread with replies (Enter sends), assignee, close/reopen, link a contact/lead, "Create contact" (name, email, phone,
+    Telegram username). Lists refresh every 5 s, threads every 4 s; sidebar badge = open conversations with unread
+    messages. Linked conversations show on contact and lead pages.
+  - **Delivery**: website replies are read by the widget directly; Telegram replies go through job `inbox.send`
+    (3 attempts; "bot blocked"/"not in group" fail at once with Telegram's reason, with a Retry button).
+  - **Rules**: new role entity `conversation` (View = read, Edit = reply/assign/close/link), scoped by **assignee**,
+    with unassigned conversations visible to everyone who has the permission so they can be picked up. Built-in roles:
+    Manager all, Sales rep team, Viewer view-only. Replying to an unassigned conversation assigns it to you; new
+    messages reopen closed conversations and notify the assignee (once per unread conversation). Website visitors who
+    give an email matching exactly one contact are linked to it automatically. Deleting a channel deletes its
+    conversations; disabling keeps them.
+  - **Not included**: personal accounts (Telegram user login, WhatsApp, Messenger), Facebook/Instagram/WhatsApp
+    Business, attachments (only their captions), outgoing files, typing indicators, real-time push (polling).
+
+**Quality:** 181 Vitest tests (API against real PostgreSQL), 42 Playwright tests (desktop, tablet, phone), lint and
 typecheck clean, `npm audit` = 0, GitHub Actions CI in `.github/workflows/ci.yml`.
 
 ## 3. Not built yet — suggested next work (in priority order)
@@ -241,6 +267,13 @@ The earlier list is done (see section 2). Known follow-ups, collected from the p
 1. PDFs: fonts for further scripts if needed (Thai, Chinese, …) — the mechanism is in `lib/pdfFonts.ts`.
 2. Copy & paste of Khmer from PDFs: the file carries the exact text (`/ActualText`), but MuPDF's text extraction
    repeats some fragments where marks step back over a base letter; check in Acrobat / browser viewers.
+3. Inbox, next channels (same `channels` / `conversations` / `messages` tables, add a `kind` and an ingest/send pair):
+   Facebook Page Messenger and Instagram (Meta Graph API webhooks; needs a Meta app and App Review), WhatsApp Business
+   (Cloud API), and a **Telegram personal account** (MTProto user login, e.g. GramJS; the account owner logs in with
+   their phone code — needs `api_id`/`api_hash` from my.telegram.org). Unofficial WhatsApp-Web libraries break
+   WhatsApp's terms and get numbers banned; Meta has no API for personal Messenger/Instagram inboxes.
+4. Inbox: attachments (download Telegram files via getFile into `files`), sending files, real-time updates (SSE)
+   instead of polling, canned replies.
 
 Import limits and choices: 5 MB / 10,000 rows / 100 columns per file; lead rows only match *open* leads; list
 values (type, source, industry, size, deal type, category) must already exist unless an admin ticks "Add values that aren't in
@@ -341,6 +374,8 @@ For real email set `SMTP_HOST` (+ `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `EMAIL_
 are only printed to the log. Check it in Settings → Workspace → "Send a test email to me".
 One process serves `/api/v1/*` and the built SPA, runs migrations on start and runs jobs inline. Serve over HTTPS
 (cookies are `Secure` in production). Health checks: `GET /api/v1/health`.
+Set `SECRETS_KEY` (32 random bytes, base64) before connecting Telegram bots: their tokens are encrypted with it, and
+without it production refuses to store them. Back it up with the database; if it's lost, reconnect the bots.
 
 ## 7. Key business rules (don't break these)
 

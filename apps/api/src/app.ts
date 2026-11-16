@@ -34,6 +34,8 @@ export async function buildApp(opts: { logger?: boolean } = {}): Promise<Fastify
   app.addHook('onRequest', async (req) => {
     const path = req.url.split('?')[0];
     if (!path.startsWith('/api/')) return;
+    // Website chat widget and platform webhooks: no session, no cookies (each checks its own key or secret).
+    if (path.startsWith('/api/v1/public/') || path.startsWith('/api/v1/hooks/')) return;
     // CSRF defence: mutating API calls must carry our custom header (not sendable cross-site without CORS).
     if (!['GET', 'HEAD', 'OPTIONS'].includes(req.method) && req.headers['x-requested-with'] !== 'crm') {
       throw new AppError(403, 'CSRF', 'Missing X-Requested-With header');
@@ -73,6 +75,14 @@ export async function buildApp(opts: { logger?: boolean } = {}): Promise<Fastify
   });
 
   await app.register(registerRoutes, { prefix: '/api/v1' });
+
+  // The website chat widget, embedded on customers' sites with <script src=".../widget.js" data-key="…">.
+  const widget = await readFile(new URL('./inbox/widget.js', import.meta.url));
+  app.get('/widget.js', async (_req, reply) => reply
+    .header('content-type', 'text/javascript; charset=utf-8')
+    .header('cache-control', 'public, max-age=3600')
+    .header('cross-origin-resource-policy', 'cross-origin')
+    .send(widget));
 
   // Serve the built SPA (production). Unknown non-API paths fall back to index.html.
   const types: Record<string, string> = {

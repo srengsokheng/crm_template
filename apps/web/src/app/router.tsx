@@ -32,6 +32,8 @@ import { DocumentSettings } from '../features/settings/DocumentSettings.tsx';
 import { ImportStart } from '../features/imports/ImportStart.tsx';
 import { ImportDetail } from '../features/imports/ImportDetail.tsx';
 import { DuplicatesPage } from '../features/duplicates/DuplicatesPage.tsx';
+import { InboxPage } from '../features/inbox/InboxPage.tsx';
+import { ChannelsSettings } from '../features/settings/ChannelsSettings.tsx';
 
 export const router = createBrowserRouter([
   { path: '/login', element: <LoginPage /> },
@@ -49,6 +51,8 @@ export const router = createBrowserRouter([
       { path: 'leads/:id', element: <LeadDetail /> },
       { path: 'deals', element: <DealsPage /> },
       { path: 'deals/:id', element: <DealDetail /> },
+      { path: 'inbox', element: <InboxPage /> },
+      { path: 'inbox/:id', element: <InboxPage /> },
       { path: 'documents', element: <DocumentsPage /> },
       { path: 'documents/:id', element: <DocumentPage /> },
       { path: 'contacts', element: <ContactsPage /> },
@@ -76,6 +80,7 @@ export const router = createBrowserRouter([
           { path: 'audit-log', element: <AuditLog /> },
           { path: 'currencies', element: <CurrenciesSettings /> },
           { path: 'documents', element: <DocumentSettings /> },
+          { path: 'channels', element: <ChannelsSettings /> },
           { path: 'recycle-bin', element: <RecycleBin /> },
         ],
       },
