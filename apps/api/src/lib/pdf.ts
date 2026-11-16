@@ -6,7 +6,7 @@
  * the embedded Unicode font covers (Khmer — see pdfFonts.ts) are shaped and drawn with that font; anything else (e.g.
  * Chinese, Thai) still prints as "?".
  */
-import { canDraw, fontObjects, glyphAdvance, pdfUnicodeString, shape, unicodeFont } from './pdfFonts.ts';
+import { fontObjects, glyphAdvance, pdfUnicodeString, SCRIPT_COUNT, scriptOf, shape, unicodeFont } from './pdfFonts.ts';
 
 export const A4 = { width: 595.28, height: 841.89 };
 type Rgb = [number, number, number];
@@ -49,16 +49,19 @@ export function winAnsi(s: string): number[] {
   return out;
 }
 
-type Run = { font: 'latin' | 'unicode'; text: string };
+/** "latin" = Helvetica; "unicode" = the embedded font of `script` (see pdfFonts.ts). */
+type Run = { font: 'latin' | 'unicode'; text: string; script?: number };
 /** Splits text into runs for Helvetica ('latin') and for the embedded Unicode font ('unicode'). */
 export function textRuns(s: string): Run[] {
   const runs: Run[] = [];
   for (const ch of s.normalize('NFC')) {
     const c = ch.codePointAt(0)!;
-    const font = winAnsiCode(c) !== undefined ? 'latin' : canDraw(c) ? 'unicode' : ZERO_WIDTH.has(c) ? null : 'latin';
+    const script = winAnsiCode(c) !== undefined ? -1 : scriptOf(c);
+    const font = script >= 0 ? 'unicode' : winAnsiCode(c) !== undefined || !ZERO_WIDTH.has(c) ? 'latin' : null;
     if (!font) continue; // invisible joiners / word separators the fonts don't need
     const last = runs[runs.length - 1];
-    if (last && last.font === font) last.text += ch; else runs.push({ font, text: ch });
+    if (last && last.font === font && (font === 'latin' || last.script === script)) last.text += ch;
+    else runs.push(font === 'latin' ? { font, text: ch } : { font, text: ch, script });
   }
   return runs;
 }
@@ -72,7 +75,7 @@ export function fitSize(s: string, size: number, maxWidth: number, bold = false)
 
 export function textWidth(s: string, size: number, bold = false): number {
   let w = 0;
-  for (const run of textRuns(s)) w += run.font === 'latin' ? latinWidth(run.text, size, bold) : (shape(run.text, bold).advance * size) / unicodeFont(bold).upem;
+  for (const run of textRuns(s)) w += run.font === 'latin' ? latinWidth(run.text, size, bold) : (shape(run.text, bold, run.script).advance * size) / unicodeFont(bold, run.script).upem;
   return w;
 }
 function latinWidth(s: string, size: number, bold: boolean): number {
@@ -117,6 +120,8 @@ export function wrapText(s: string, size: number, maxWidth: number, bold = false
 }
 
 const num = (n: number) => (Math.round(n * 100) / 100).toString();
+/** Font resource names: F1/F2 Helvetica, then F3/F4 (Khmer regular/bold), F5/F6 (Thai)… */
+const unicodeResource = (script: number, bold: boolean) => `F${3 + script * 2 + (bold ? 1 : 0)}`;
 const latinString = (s: string) => '(' + winAnsi(s).map((b) => (b === 0x28 || b === 0x29 || b === 0x5c ? '\\' + String.fromCharCode(b) : b > 126 ? '\\' + b.toString(8).padStart(3, '0') : String.fromCharCode(b))).join('') + ')';
 
 export class PdfDoc {
@@ -124,7 +129,7 @@ export class PdfDoc {
   private title: string;
   constructor(title = 'Document') { this.title = title; this.addPage(); }
   /** Glyphs drawn with the embedded Unicode fonts (glyph id → text), so only fonts actually used are embedded. */
-  private used = { regular: new Map<number, string>(), bold: new Map<number, string>() };
+  private used = Array.from({ length: SCRIPT_COUNT }, () => ({ regular: new Map<number, string>(), bold: new Map<number, string>() }));
 
   private cur = 0;
   get pageCount() { return this.pages.length; }
@@ -149,9 +154,10 @@ export class PdfDoc {
       }
       // Shaped glyphs placed where HarfBuzz put them: horizontal offsets as TJ adjustments (the viewer advances by each
       // glyph's /W width, we correct to HarfBuzz's pen position), vertical offsets (stacked marks) as text rise.
-      const f = unicodeFont(o.bold);
-      const used = o.bold ? this.used.bold : this.used.regular;
-      const shaped = shape(run.text, o.bold);
+      const script = run.script ?? 0;
+      const f = unicodeFont(o.bold, script);
+      const used = o.bold ? this.used[script].bold : this.used[script].regular;
+      const shaped = shape(run.text, o.bold, script);
       const ops: string[] = [];
       let tj: string[] = [];
       let rise = 0;
@@ -170,7 +176,7 @@ export class PdfDoc {
       flush();
       if (rise) ops.push('0 Ts');
       // ActualText gives copy & search the original characters in their logical order.
-      this.ops.push(`/Span << /ActualText ${pdfUnicodeString(run.text)} >> BDC BT ${color} /${o.bold ? 'F4' : 'F3'} ${size} Tf ${num(x0)} ${num(baseline)} Td ${ops.join(' ')} ET EMC`);
+      this.ops.push(`/Span << /ActualText ${pdfUnicodeString(run.text)} >> BDC BT ${color} /${unicodeResource(script, !!o.bold)} ${size} Tf ${num(x0)} ${num(baseline)} Td ${ops.join(' ')} ET EMC`);
       x0 += (shaped.advance * size) / f.upem;
     }
   }
@@ -191,8 +197,10 @@ export class PdfDoc {
     const title = winAnsi(this.title).includes(63) ? pdfUnicodeString(this.title) : latinString(this.title);
     const info = add(`<< /Title ${title} /Producer (Acme CRM) >>`);
     let fonts = `/F1 ${f1} 0 R /F2 ${f2} 0 R`;
-    if (this.used.regular.size) fonts += ` /F3 ${fontObjects(unicodeFont(false), this.used.regular, add)} 0 R`;
-    if (this.used.bold.size) fonts += ` /F4 ${fontObjects(unicodeFont(true), this.used.bold, add)} 0 R`;
+    this.used.forEach((u, script) => {
+      if (u.regular.size) fonts += ` /${unicodeResource(script, false)} ${fontObjects(unicodeFont(false, script), u.regular, add)} 0 R`;
+      if (u.bold.size) fonts += ` /${unicodeResource(script, true)} ${fontObjects(unicodeFont(true, script), u.bold, add)} 0 R`;
+    });
     const kids: number[] = [];
     for (const ops of this.pages) {
       const content = ops.join('\n');

@@ -43,8 +43,8 @@ const base: PdfInput = {
 
 describe('Unicode (Khmer) text in PDFs', () => {
   it('splits text into Helvetica and Khmer runs; other scripts still print as "?"', () => {
-    expect(textRuns('Ada ក្រុមហ៊ុន, 12')).toEqual([{ font: 'latin', text: 'Ada ' }, { font: 'unicode', text: 'ក្រុមហ៊ុន' }, { font: 'latin', text: ', 12' }]);
-    expect(textRuns('ក​ខ')).toEqual([{ font: 'unicode', text: 'ក​ខ' }]); // Khmer word separator: drawn (invisibly) by the font
+    expect(textRuns('Ada ក្រុមហ៊ុន, 12')).toEqual([{ font: 'latin', text: 'Ada ' }, { font: 'unicode', text: 'ក្រុមហ៊ុន', script: 0 }, { font: 'latin', text: ', 12' }]);
+    expect(textRuns('ក​ខ')).toEqual([{ font: 'unicode', text: 'ក​ខ', script: 0 }]); // Khmer word separator: drawn (invisibly) by the font
     expect(textRuns('a⁠b')).toEqual([{ font: 'latin', text: 'ab' }]); // other invisible joiners are dropped, not "?"
     expect(textRuns('東京')).toEqual([{ font: 'latin', text: '東京' }]); // no font for Chinese → "?" via WinAnsi
     const pdf = new PdfDoc();
@@ -124,5 +124,51 @@ describe('Unicode (Khmer) text in PDFs', () => {
     // Another workspace still can't download it (unchanged rule, checked here because the file now carries more data).
     const other = await signup();
     expect((await other.c.download(`/documents/${inv.id}/pdf`)).status).toBe(404);
+  });
+});
+
+describe('Thai text in PDFs', () => {
+  const THAI = readFileSync(new URL('../assets/fonts/NotoSansThai-Regular.ttf', import.meta.url));
+
+  it('runs per script: Thai and Khmer get their own fonts, Latin stays Helvetica', () => {
+    expect(textRuns('บริษัท ABC ក្រុមហ៊ុន')).toEqual([
+      { font: 'unicode', text: 'บริษัท', script: 1 }, { font: 'latin', text: ' ABC ' }, { font: 'unicode', text: 'ក្រុមហ៊ុន', script: 0 },
+    ]);
+  });
+
+  it('shapes tone marks over vowels and measures Thai', () => {
+    const s = shape('ที่นี่', false, 1);
+    expect(s.glyphs.map((g) => g.text).join('')).toHaveLength('ที่นี่'.length);
+    // Upper vowel + tone mark stack: the tone mark is raised or shifted relative to its default place.
+    expect(s.glyphs.some((g) => g.ax === 0)).toBe(true);
+    expect(textWidth('ที่นี่', 10)).toBeCloseTo((s.advance * 10) / 1000, 5);
+  });
+
+  it('wraps Thai (no spaces between words) at word boundaries', () => {
+    const text = 'บริการติดตั้งและบำรุงรักษาระบบสำหรับบริษัทขนาดใหญ่ทั่วประเทศไทย';
+    const lines = wrapText(text, 9.5, 110, true);
+    expect(lines.length).toBeGreaterThan(1);
+    expect(lines.join('')).toBe(text);
+    for (const l of lines) expect(textWidth(l, 9.5, true)).toBeLessThanOrEqual(110);
+    const words = [...new Intl.Segmenter('th', { granularity: 'word' }).segment(text)].map((w) => w.index);
+    for (let i = 1, at = lines[0].length; i < lines.length; at += lines[i].length, i++) expect(words).toContain(at);
+  });
+
+  it('embeds only the fonts a document uses, each as its own resource', () => {
+    const thaiOnly = assertValidPdf(renderDocumentPdf({ ...base, billToName: 'บริษัท สยาม จำกัด' }));
+    expect(thaiOnly).toContain('/BaseFont /NotoSansThai-Bold /Encoding /Identity-H');
+    expect(thaiOnly).not.toContain('NotoSansKhmer');
+    expect(embeddedFonts(thaiOnly).some((f) => f.length > 0)).toBe(true);
+    expect(thaiOnly).toContain(`/ActualText ${pdfUnicodeString('บริษัท')}`);
+
+    const pdf = new PdfDoc();
+    pdf.text(10, 10, 'ក្រុមហ៊ុន');
+    pdf.text(10, 30, 'ขอบคุณ');
+    const both = assertValidPdf(pdf.toBuffer());
+    expect(both).toMatch(/\/F3 \d+ 0 R/); // Khmer regular
+    expect(both).toMatch(/\/F5 \d+ 0 R/); // Thai regular
+    expect(both).toContain('/F5 10 Tf');
+    expect(embeddedFonts(both).some((f) => f.equals(THAI))).toBe(true);
+    expect(both).not.toMatch(/\(\?+\)/);
   });
 });

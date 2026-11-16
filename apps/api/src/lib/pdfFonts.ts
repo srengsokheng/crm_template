@@ -1,9 +1,10 @@
 /**
- * Unicode text in PDFs: characters the built-in Helvetica can't draw (Khmer today) are shaped with HarfBuzz and drawn
- * with an embedded TrueType font. Only scripts in FONTS are supported; anything else still prints as "?".
+ * Unicode text in PDFs: characters the built-in Helvetica can't draw are shaped with HarfBuzz and drawn with an
+ * embedded TrueType font for their script. Only scripts in SCRIPTS are supported; anything else still prints as "?".
  *
- * Shaping matters for Khmer: subscript consonants (coeng), vowel signs and diacritics are reordered and stacked by
- * the font's OpenType rules — drawing the characters one by one would print them in the wrong place.
+ * Shaping matters for Khmer and Thai: subscript consonants, vowel signs, tone marks and diacritics are reordered and
+ * stacked by the font's OpenType rules — drawing the characters one by one would print them in the wrong place.
+ * To add a script: put its Noto Regular/Bold .ttf and licence in assets/fonts/ and add a line to SCRIPTS.
  */
 import { readFileSync } from 'node:fs';
 import { deflateSync } from 'node:zlib';
@@ -11,8 +12,11 @@ import * as hb from 'harfbuzzjs';
 
 const FONT_DIR = new URL('../../assets/fonts/', import.meta.url);
 
-/** Noto Sans Khmer, SIL Open Font License 1.1 (assets/fonts/OFL.txt). */
-const FILES = { regular: 'NotoSansKhmer-Regular.ttf', bold: 'NotoSansKhmer-Bold.ttf' } as const;
+/** Noto fonts, SIL Open Font License 1.1 (assets/fonts/OFL-*.txt). Earlier entries win where coverage overlaps. */
+const SCRIPTS = [
+  { name: 'Khmer', regular: 'NotoSansKhmer-Regular.ttf', bold: 'NotoSansKhmer-Bold.ttf' },
+  { name: 'Thai', regular: 'NotoSansThai-Regular.ttf', bold: 'NotoSansThai-Bold.ttf' },
+] as const;
 
 export interface LoadedFont {
   baseName: string;
@@ -39,14 +43,19 @@ function load(file: string): LoadedFont {
   };
 }
 
-const fonts = { regular: load(FILES.regular), bold: load(FILES.bold) };
-export const unicodeFont = (bold: boolean | undefined) => (bold ? fonts.bold : fonts.regular);
+const fonts = SCRIPTS.map((s) => ({ regular: load(s.regular), bold: load(s.bold) }));
+export const SCRIPT_COUNT = fonts.length;
+/** The embedded font for a script (index into SCRIPTS). */
+export const unicodeFont = (bold: boolean | undefined, script = 0) => (bold ? fonts[script].bold : fonts[script].regular);
 /** A glyph's default advance (font units) — what a PDF viewer moves by after drawing it (the /W widths). */
 export const glyphAdvance = (f: LoadedFont, gid: number) => f.font.glyphHAdvance(gid);
 
-/** Code points the embedded fonts can draw (the regular and bold cuts cover the same set). */
-const coverage = new Set(new hb.Face(new hb.Blob(fonts.regular.data)).collectUnicodes());
-export const canDraw = (cp: number) => coverage.has(cp);
+/** Which script font draws a code point (-1: none). Regular and bold cuts cover the same set. */
+const coverage = fonts.map((f) => new Set(new hb.Face(new hb.Blob(f.regular.data)).collectUnicodes()));
+export function scriptOf(cp: number): number {
+  for (let i = 0; i < coverage.length; i++) if (coverage[i].has(cp)) return i;
+  return -1;
+}
 
 export interface ShapedGlyph { gid: number; ax: number; dx: number; dy: number; text: string }
 export interface Shaped { glyphs: ShapedGlyph[]; advance: number }
@@ -55,11 +64,11 @@ export interface Shaped { glyphs: ShapedGlyph[]; advance: number }
 const cache = new Map<string, Shaped>();
 
 /** Shapes one run of text. Positions are in font units; `text` is the source text the glyph stands for (may be ''). */
-export function shape(text: string, bold: boolean | undefined): Shaped {
-  const key = (bold ? 'b' : 'r') + text;
+export function shape(text: string, bold: boolean | undefined, script = 0): Shaped {
+  const key = `${script}${bold ? 'b' : 'r'}${text}`;
   const hit = cache.get(key);
   if (hit) return hit;
-  const f = unicodeFont(bold);
+  const f = unicodeFont(bold, script);
   const buf = new hb.Buffer();
   buf.addText(text);
   buf.guessSegmentProperties();

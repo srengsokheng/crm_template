@@ -224,12 +224,14 @@ The research behind every decision is in this folder:
   Needs the same rights as merging. Merging leads now adds the other lead's products, except products the kept lead
   already has (same catalogue product or same name).
 
-- **Khmer in PDFs** (`lib/pdfFonts.ts`, `apps/api/assets/fonts/`): text Helvetica can't draw is split into runs, shaped
-  with HarfBuzz (`harfbuzzjs`, WebAssembly) and drawn with embedded **Noto Sans Khmer** Regular/Bold (SIL Open Font
-  License, `assets/fonts/OFL.txt`), so subscripts and vowel signs stack and reorder correctly. The font (~68 KB each,
-  compressed) is embedded only in PDFs that use it; Latin-only PDFs are unchanged (~2–3 KB). Copy & search use
-  `/ActualText` with the original text, plus a ToUnicode map. Khmer, written without spaces, wraps at word boundaries
-  (`Intl.Segmenter`). Other scripts (Chinese, Thai, …) still print as "?": add a Noto font for them to `pdfFonts.ts`.
+- **Khmer and Thai in PDFs** (`lib/pdfFonts.ts`, `apps/api/assets/fonts/`): text Helvetica can't draw is split into
+  runs per script, shaped with HarfBuzz (`harfbuzzjs`, WebAssembly) and drawn with embedded **Noto Sans Khmer** and
+  **Noto Sans Thai** Regular/Bold (SIL Open Font License, `assets/fonts/OFL-*.txt`), so subscripts, vowel signs and
+  tone marks stack and reorder correctly. Each font (Khmer ~68 KB, Thai ~21 KB, compressed) is embedded only in PDFs
+  that use it; Latin-only PDFs are unchanged (~2–3 KB). Copy & search use `/ActualText` with the original text, plus a
+  ToUnicode map. Both scripts are written without spaces and wrap at word boundaries (`Intl.Segmenter`). Other scripts
+  (Chinese, Lao, …) still print as "?": add their Noto font to `SCRIPTS` in `pdfFonts.ts` (CJK fonts are 10+ MB, so
+  they would need subsetting first).
 
 - **Inbox: website chat and Telegram bots** (migration 0023, `routes/inbox.ts`, `routes/channels.ts`,
   `routes/publicChannels.ts`, `inbox/`):
@@ -276,14 +278,16 @@ The research behind every decision is in this folder:
   browser reconnects. Streams end after 30 minutes and reconnect, which also picks up role changes. Behind a reverse
   proxy, keep `/api/v1/inbox/events` unbuffered (the response sends `X-Accel-Buffering: no` for nginx).
 
-**Quality:** 185 Vitest tests (API against real PostgreSQL), 44 Playwright tests (desktop, tablet, phone), lint and
+**Quality:** 189 Vitest tests (API against real PostgreSQL), 45 Playwright tests (desktop, tablet, phone), lint and
 typecheck clean, `npm audit` = 0, GitHub Actions CI in `.github/workflows/ci.yml`.
 
 ## 3. Not built yet — suggested next work (in priority order)
 
 The earlier list is done (see section 2). Known follow-ups, collected from the pull requests' "not verified" notes:
 
-1. PDFs: fonts for further scripts if needed (Thai, Chinese, …) — the mechanism is in `lib/pdfFonts.ts`.
+1. PDFs: fonts for further scripts if needed — Lao; Vietnamese (letters outside Latin-1 such as ư, ạ, ế print as "?"
+   until a Latin font like Noto Sans is added); Chinese/Japanese need font subsetting first (e.g. harfbuzzjs' subset
+   build). The mechanism is `SCRIPTS` in `lib/pdfFonts.ts`.
 2. Copy & paste of Khmer from PDFs: the file carries the exact text (`/ActualText`), but MuPDF's text extraction
    repeats some fragments where marks step back over a base letter; check in Acrobat / browser viewers.
 3. Inbox, next channels (same `channels` / `conversations` / `messages` tables, add a `kind` and an ingest/send pair):
