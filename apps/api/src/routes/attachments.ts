@@ -7,7 +7,7 @@
  *   DELETE /attachments/:id                      (needs edit on the record)
  */
 import { createHash } from 'node:crypto';
-import type { FastifyInstance } from 'fastify';
+import type { FastifyInstance, FastifyReply } from 'fastify';
 import { RECORD_TYPES, type RecordType } from '@crm/shared';
 import { config } from '../config.ts';
 import { pool, q, q1, raw, sql, tx, type Db } from '../db/index.ts';
@@ -46,7 +46,20 @@ export function cleanFileName(name: string): string {
   const cleaned = base.replace(/[\u0000-\u001f\u007f"<>|:*?]/g, '_').trim().slice(0, 180);
   return cleaned && cleaned !== '.' && cleaned !== '..' ? cleaned : 'file';
 }
-const cleanType = (t: unknown) => (typeof t === 'string' && /^[\w.+-]+\/[\w.+-]+$/.test(t) && t.length <= 100 ? t.toLowerCase() : 'application/octet-stream');
+export const cleanType = (t: unknown) => (typeof t === 'string' && /^[\w.+-]+\/[\w.+-]+$/.test(t) && t.length <= 100 ? t.toLowerCase() : 'application/octet-stream');
+
+/** Sends stored bytes safely: download by default, inline only for raster images; sandboxed, never sniffed. */
+export function sendStoredFile(reply: FastifyReply, f: { file_name: string; content_type: string }, data: Buffer, wantInline: boolean) {
+  const inline = wantInline && INLINE_TYPES.has(f.content_type);
+  const encoded = encodeURIComponent(f.file_name);
+  const ascii = f.file_name.replace(/[^\x20-\x7e]/g, '_').replace(/"/g, '');
+  return reply.header('content-type', f.content_type)
+    .header('content-disposition', `${inline ? 'inline' : 'attachment'}; filename="${ascii}"; filename*=UTF-8''${encoded}`)
+    .header('x-content-type-options', 'nosniff')
+    .header('content-security-policy', "default-src 'none'; sandbox")
+    .header('cache-control', 'private, max-age=0, no-store')
+    .send(data);
+}
 
 async function loadAttachment(ctx: Ctx, id: number): Promise<Att> {
   if (!Number.isInteger(id)) throw notFound('File');
@@ -114,15 +127,7 @@ export async function attachmentRoutes(app: FastifyInstance) {
     await checkRecord(pool, ctx, a.entity_type, a.entity_id, 'view');
     const data = await files().get(a.storage_key);
     if (!data) throw notFound('File content');
-    const inline = req.query.inline === '1' && INLINE_TYPES.has(a.content_type);
-    const encoded = encodeURIComponent(a.file_name);
-    const ascii = a.file_name.replace(/[^\x20-\x7e]/g, '_').replace(/"/g, '');
-    reply.header('content-type', a.content_type)
-      .header('content-disposition', `${inline ? 'inline' : 'attachment'}; filename="${ascii}"; filename*=UTF-8''${encoded}`)
-      .header('x-content-type-options', 'nosniff')
-      .header('content-security-policy', "default-src 'none'; sandbox")
-      .header('cache-control', 'private, max-age=0, no-store');
-    return reply.send(data);
+    return sendStoredFile(reply, a, data, req.query.inline === '1');
   });
 
   app.delete<{ Params: { id: string } }>('/attachments/:id', async (req, reply) => {

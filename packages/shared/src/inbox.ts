@@ -56,6 +56,8 @@ export const conversationUpdateSchema = z.object({
 });
 
 export const messageCreateSchema = z.object({ body: text(4000).min(1, 'Write a message') });
+/** Text sent with a file (optional). */
+export const messageCaptionSchema = z.object({ caption: text(4000) });
 
 /** Website chat widget → API. */
 export const webchatMessageSchema = z.object({

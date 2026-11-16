@@ -9,6 +9,8 @@ import { q, q1, sql, tx } from '../db/index.ts';
 import { AppError, forbidden, notFound } from '../lib/errors.ts';
 import { camelAll } from '../lib/records.ts';
 import { parse } from '../lib/validate.ts';
+import { files } from '../lib/files.ts';
+import { sendStoredFile } from './attachments.ts';
 import { recordInbound, type ChannelRow } from '../inbox/store.ts';
 import { channelByKey, ingestUpdate, type TgUpdate } from '../inbox/telegram.ts';
 
@@ -41,7 +43,9 @@ async function webchat(req: FastifyRequest<KeyParams>, reply: FastifyReply): Pro
 /** Messages the visitor sees: theirs and the team's replies (agents shown by first name). */
 async function visitorMessages(conversationId: number) {
   const rows = await q(sql`SELECT * FROM (
-      SELECT m.id, m.direction, m.body, m.created_at, CASE WHEN m.direction = 'out' THEN split_part(coalesce(u.name, ''), ' ', 1) END AS agent
+      SELECT m.id, m.direction, m.body, m.created_at, CASE WHEN m.direction = 'out' THEN split_part(coalesce(u.name, ''), ' ', 1) END AS agent,
+        (SELECT coalesce(json_agg(json_build_object('id', f.id, 'fileName', f.file_name, 'contentType', f.content_type, 'sizeBytes', f.size_bytes) ORDER BY f.id), '[]'::json)
+          FROM message_files f WHERE f.message_id = m.id AND f.status = 'stored') AS files
       FROM messages m LEFT JOIN users u ON u.id = m.author_id
       WHERE m.conversation_id = ${conversationId} AND (m.direction = 'in' OR m.status = 'sent') ORDER BY m.id DESC LIMIT 100
     ) t ORDER BY id`);
@@ -82,6 +86,21 @@ export async function publicChannelRoutes(app: FastifyInstance) {
     if (r && body.name) await q(sql`UPDATE conversations SET title = ${body.name} WHERE id = ${r.conversationId} AND title LIKE 'Website visitor %'`);
     return reply.code(201).send({ token, messages: r ? await visitorMessages(r.conversationId) : [] });
   });
+
+  /** A file the team sent in the visitor's conversation (the visitor's token proves it's theirs). */
+  app.get<KeyParams & { Params: { key: string; id: string }; Querystring: { token?: string; inline?: string } }>('/public/webchat/:key/files/:id',
+    { config: { rateLimit: { max: 120, timeWindow: '1 minute' } } }, async (req, reply) => {
+      const c = await webchat(req, reply);
+      const token = String(req.query.token ?? '');
+      if (!/^[A-Za-z0-9_-]{32,64}$/.test(token)) throw notFound('File');
+      const f = await q1<{ file_name: string; content_type: string; storage_key: string }>(sql`
+        SELECT f.file_name, f.content_type, f.storage_key FROM message_files f JOIN messages m ON m.id = f.message_id
+        JOIN conversations cv ON cv.id = m.conversation_id
+        WHERE f.id = ${Number(req.params.id) || 0} AND f.status = 'stored' AND cv.channel_id = ${c.id} AND cv.external_id = ${hashToken(token)}`);
+      const data = f ? await files().get(f.storage_key) : null;
+      if (!f || !data) throw notFound('File');
+      return sendStoredFile(reply, f, data, req.query.inline === '1');
+    });
 
   /** Telegram pushes bot updates here (only when APP_URL is https; see inbox/telegram.ts). */
   app.post<KeyParams>('/hooks/telegram/:key', async (req) => {

@@ -20,7 +20,8 @@ export interface Inbound {
   body: string;
 }
 
-export const preview = (body: string) => body.replace(/\s+/g, ' ').trim().slice(0, 140);
+/** First 140 characters (whole characters: emoji are never cut in half). */
+export const preview = (body: string) => [...body.replace(/\s+/g, ' ').trim()].slice(0, 140).join('');
 
 /**
  * Stores one incoming message: creates the conversation on first contact (linked to the contact with the same email

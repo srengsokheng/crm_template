@@ -8,6 +8,7 @@ import { moveDeal } from '../routes/deals.ts';
 import { moveLead } from '../routes/leads.ts';
 import { runChunk } from '../imports/engine.ts';
 import { deliverMessage, markFailed } from '../inbox/send.ts';
+import { fetchTelegramFile, setStatus as setFileStatus } from '../inbox/files.ts';
 import { pollTelegram } from '../inbox/telegram.ts';
 import { files } from '../lib/files.ts';
 import { deliverWebhook, type Delivery } from '../lib/webhooks.ts';
@@ -79,6 +80,7 @@ export async function processJobs(limit = 20, now?: Date): Promise<number> {
       else if (job.type === 'email.send') await deliver(job.payload as unknown as Mail);
       else if (job.type === 'import.run') await runChunk(Number((job.payload as { importId: number }).importId));
       else if (job.type === 'inbox.send') await deliverMessage(Number((job.payload as { messageId: number }).messageId));
+      else if (job.type === 'inbox.fetch_file') await fetchTelegramFile(Number((job.payload as { fileId: number }).fileId));
       await q(sql`UPDATE jobs SET status = 'done' WHERE id = ${job.id}`);
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
@@ -89,6 +91,7 @@ export async function processJobs(limit = 20, now?: Date): Promise<number> {
         await q(sql`UPDATE imports SET status = 'failed', error = 'The import stopped because of an unexpected error', finished_at = now()
           WHERE id = ${(job.payload as { importId: number }).importId} AND status IN ('queued','running')`);
       }
+      if (!retry && job.type === 'inbox.fetch_file') await setFileStatus(Number((job.payload as { fileId: number }).fileId), 'failed');
       if (!retry && job.type === 'inbox.send') {
         await markFailed(Number((job.payload as { messageId: number }).messageId), `Not sent after 3 attempts: ${msg}`);
       }

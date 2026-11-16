@@ -47,6 +47,8 @@
       '.row{display:flex;gap:6px}input,textarea{width:100%;font-size:14px;padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--fg);resize:none}' +
       '.send{border:0;border-radius:8px;background:' + color + ';color:#fff;padding:0 14px;font-weight:600;cursor:pointer}.send:disabled{opacity:.5;cursor:default}' +
       '.err{color:#dc2626;font-size:12px;min-height:0}' +
+      '.f{display:block;max-width:80%;font-size:14px;color:inherit;text-decoration:underline;word-break:break-all}.f.in{align-self:flex-end}.f.out{align-self:flex-start}' +
+      '.f img{display:block;max-width:100%;max-height:200px;border-radius:12px;border:1px solid var(--line)}' +
       '</style>' +
       '<div class="panel" role="dialog" aria-label="Chat"><div class="head"><span class="title"></span><button class="x" type="button" aria-label="Close chat">×</button></div>' +
       '<div class="list" aria-live="polite"></div>' +
@@ -65,11 +67,31 @@
     function render(messages) {
       list.textContent = '';
       if (settings.greeting) bubble('out', settings.greeting, '');
-      messages.forEach(function (m) { bubble(m.direction, m.body, m.direction === 'out' ? m.agent : ''); });
+      messages.forEach(function (m) { bubble(m.direction, m.body, m.direction === 'out' ? m.agent : '', m.files || []); });
       list.scrollTop = list.scrollHeight;
     }
-    function bubble(dir, text, who) {
+    var IMAGES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp'];
+    function bubble(dir, text, who, files) {
       if (who) { var w = document.createElement('div'); w.className = 'who'; w.textContent = who; list.appendChild(w); }
+      (files || []).forEach(function (f) {
+        var url = api + '/files/' + f.id + '?token=' + encodeURIComponent(token);
+        var a = document.createElement('a');
+        a.className = 'f ' + dir;
+        a.target = '_blank';
+        a.rel = 'noopener';
+        if (IMAGES.indexOf(f.contentType) >= 0) {
+          a.href = url + '&inline=1';
+          var img = document.createElement('img');
+          img.src = url + '&inline=1';
+          img.alt = f.fileName;
+          a.appendChild(img);
+        } else {
+          a.href = url;
+          a.textContent = '📎 ' + f.fileName;
+        }
+        list.appendChild(a);
+      });
+      if (!text) return;
       var d = document.createElement('div');
       d.className = 'm ' + dir; // "in" = from the visitor (to the CRM), "out" = the team's reply
       d.textContent = text;

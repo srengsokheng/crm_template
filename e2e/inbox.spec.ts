@@ -75,3 +75,31 @@ test('channels settings: Telegram token errors are explained; roles show the Inb
   await expect(page.getByLabel('Inbox edit')).toHaveValue('team');
   await expect(page.getByLabel('Inbox delete')).toHaveCount(0);
 });
+
+test('send a file from the Inbox: the visitor sees the image in the website chat', async ({ page, context, baseURL }) => {
+  await signUp(page);
+  const ch = await api(page, 'POST', '/channels', { kind: 'webchat', name: 'Acme help' });
+  const site = await context.newPage();
+  await site.setContent(`<!doctype html><html><body><script src="${baseURL}/widget.js" data-key="${ch.publicKey}" async></script></body></html>`);
+  await site.getByRole('button', { name: 'Open chat' }).click();
+  await site.getByLabel('Message').fill('Can I see the colours?');
+  await site.getByRole('button', { name: 'Send' }).click();
+  await expect(site.getByText('Can I see the colours?')).toBeVisible();
+
+  const convs = await api(page, 'GET', '/inbox/conversations');
+  await page.goto(`/inbox/${convs.data[0].id}`);
+  // A 1×1 PNG.
+  const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==', 'base64');
+  await page.getByLabel('File to send').setInputFiles({ name: 'colours.png', mimeType: 'image/png', buffer: png });
+  await expect(page.getByText('colours.png')).toBeVisible();
+  await page.getByLabel('Reply').fill('Here they are');
+  await page.getByRole('button', { name: 'Send' }).click();
+  await expect(page.getByRole('img', { name: 'colours.png' })).toBeVisible();
+  await expect(page.locator('ol').getByText('Here they are')).toBeVisible();
+  const loaded = await page.getByRole('img', { name: 'colours.png' }).evaluate((img: HTMLImageElement) => img.complete && img.naturalWidth === 1);
+  expect(loaded).toBe(true);
+
+  await expect(site.getByRole('img', { name: 'colours.png' })).toBeVisible({ timeout: 10_000 });
+  await expect(site.getByText('Here they are')).toBeVisible();
+  await expect.poll(() => site.getByRole('img', { name: 'colours.png' }).evaluate((img: HTMLImageElement) => img.naturalWidth)).toBe(1);
+});

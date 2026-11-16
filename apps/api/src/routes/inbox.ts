@@ -1,10 +1,14 @@
 /** Inbox: conversations from all channels, replies, assignment and links to contacts/leads. */
 import type { FastifyInstance } from 'fastify';
-import { contactCreateSchema, conversationListSchema, conversationUpdateSchema, messageCreateSchema } from '@crm/shared';
+import { contactCreateSchema, conversationListSchema, conversationUpdateSchema, messageCaptionSchema, messageCreateSchema } from '@crm/shared';
+import { config } from '../config.ts';
 import { pool, q, q1, sql, tx, type Db } from '../db/index.ts';
 import { audit, diff } from '../lib/audit.ts';
 import type { Ctx } from '../lib/context.ts';
-import { AppError, forbidden, notFound } from '../lib/errors.ts';
+import { AppError, badRequest, forbidden, notFound } from '../lib/errors.ts';
+import { files, newStorageKey } from '../lib/files.ts';
+import { scanBuffer } from '../lib/virusScan.ts';
+import { cleanFileName, cleanType, sendStoredFile } from './attachments.ts';
 import { ctxOf } from '../lib/http.ts';
 import { likeTerm } from '../lib/list.ts';
 import { canOnConversation, canOnRecord, conversationScopeWhere, requireAny, scopeOf, scopeWhere } from '../lib/permissions.ts';
@@ -37,7 +41,22 @@ const linkedJoins = sql`
   LEFT JOIN contacts ct ON ct.id = cv.contact_id AND ct.deleted_at IS NULL
   LEFT JOIN leads l ON l.id = cv.lead_id AND l.deleted_at IS NULL`;
 
+/** A message's files as JSON (alias m = messages). */
+export const messageFilesJson = sql`(SELECT coalesce(json_agg(json_build_object('id', f.id, 'fileName', f.file_name, 'contentType', f.content_type,
+    'sizeBytes', f.size_bytes, 'status', f.status) ORDER BY f.id), '[]'::json) FROM message_files f WHERE f.message_id = m.id) AS files`;
+
+/** After a reply (text or file): take an unassigned conversation, reopen it, mark it read, queue Telegram delivery. */
+async function afterReply(db: Db, ctx: Ctx, c: ConvRow, messageId: number, previewText: string, needsSending: boolean) {
+  await q(sql`UPDATE conversations SET last_message_at = now(), last_message_preview = ${preview(previewText)}, last_direction = 'out',
+    status = 'open', unread = 0, assignee_id = coalesce(assignee_id, ${ctx.userId}) WHERE id = ${c.id}`, db);
+  if (!c.assignee_id) await audit(db, ctx, 'conversation', c.id, 'assigned', { assignee_id: [null, ctx.userId], via: 'reply' });
+  if (needsSending) await enqueue('inbox.send', { messageId }, new Date(), db);
+}
+
 export async function inboxRoutes(app: FastifyInstance) {
+  // Raw file uploads (replies with a file) are only accepted by this plugin's routes.
+  app.addContentTypeParser('application/octet-stream', { parseAs: 'buffer', bodyLimit: config.files.maxBytes }, (_req, body, done) => done(null, body));
+
   app.get('/inbox/conversations', async (req) => {
     const ctx = ctxOf(req);
     requireAny(ctx, 'conversation', 'view');
@@ -81,7 +100,8 @@ export async function inboxRoutes(app: FastifyInstance) {
       WHERE cv.id = ${c.id}`);
     // The latest 200 messages, oldest first.
     const messages = await q(sql`SELECT * FROM (
-        SELECT m.id, m.direction, m.sender_name, m.author_id, a.name AS author_name, m.body, m.status, m.error, m.created_at
+        SELECT m.id, m.direction, m.sender_name, m.author_id, a.name AS author_name, m.body, m.status, m.error, m.created_at,
+          ${messageFilesJson}
         FROM messages m LEFT JOIN users a ON a.id = m.author_id WHERE m.conversation_id = ${c.id} ORDER BY m.id DESC LIMIT 200
       ) t ORDER BY id`);
     return {
@@ -112,14 +132,58 @@ export async function inboxRoutes(app: FastifyInstance) {
       const status = c.channel_kind === 'webchat' ? 'sent' : 'pending';
       const m = await q1<{ id: number }>(sql`INSERT INTO messages (workspace_id, conversation_id, direction, sender_name, author_id, body, status)
         VALUES (${ctx.workspaceId}, ${c.id}, 'out', ${ctx.userName}, ${ctx.userId}, ${body.body}, ${status}) RETURNING id`, db);
-      // Replying to an unassigned conversation takes it; replying reopens it and marks it read.
-      await q(sql`UPDATE conversations SET last_message_at = now(), last_message_preview = ${preview(body.body)}, last_direction = 'out',
-        status = 'open', unread = 0, assignee_id = coalesce(assignee_id, ${ctx.userId}) WHERE id = ${c.id}`, db);
-      if (!c.assignee_id) await audit(db, ctx, 'conversation', c.id, 'assigned', { assignee_id: [null, ctx.userId], via: 'reply' });
-      if (status === 'pending') await enqueue('inbox.send', { messageId: m!.id }, new Date(), db);
+      await afterReply(db, ctx, c, m!.id, body.body, status === 'pending');
       return m!;
     });
     return reply.code(201).send(out);
+  });
+
+  /** Reply with a file: raw bytes (application/octet-stream), ?fileName=&caption=, X-File-Type = the file's type. */
+  app.post<IdParams & { Querystring: { fileName?: string; caption?: string } }>('/inbox/conversations/:id/files',
+    { bodyLimit: config.files.maxBytes, config: { rateLimit: { max: config.isTest ? 1000 : 60, timeWindow: '1 minute' } } }, async (req, reply) => {
+      const ctx = ctxOf(req);
+      requireAny(ctx, 'conversation', 'edit');
+      if (!Buffer.isBuffer(req.body)) throw new AppError(415, 'UNSUPPORTED', 'Upload the file as application/octet-stream');
+      const data = req.body as Buffer;
+      if (data.length === 0) throw badRequest('The file is empty');
+      const fileName = cleanFileName(String(req.query.fileName ?? ''));
+      const contentType = cleanType(req.headers['x-file-type']);
+      const caption = parse(messageCaptionSchema, { caption: req.query.caption ?? '' }).caption;
+      const c0 = await loadConversation(pool, ctx, Number(req.params.id), 'edit'); // permission before scanning
+      if (c0.channel_status !== 'active') throw new AppError(409, 'CHANNEL_INACTIVE', 'This channel is disabled or disconnected, so replies can’t be sent.');
+      if (config.files.clamav.host) {
+        let verdict;
+        try { verdict = await scanBuffer(data, config.files.clamav); } catch {
+          throw new AppError(503, 'SCANNER_UNAVAILABLE', 'Files can’t be checked for viruses right now, so the file was not sent. Please try again later.');
+        }
+        if (!verdict.clean) throw new AppError(422, 'FILE_INFECTED', `“${fileName}” was flagged by the virus scanner (${verdict.signature}) and was not sent.`);
+      }
+      const key = newStorageKey(ctx.workspaceId);
+      const out = await tx(async (db) => {
+        const c = await loadConversation(db, ctx, c0.id, 'edit', true);
+        const status = c.channel_kind === 'webchat' ? 'sent' : 'pending';
+        const m = await q1<{ id: number }>(sql`INSERT INTO messages (workspace_id, conversation_id, direction, sender_name, author_id, body, status)
+          VALUES (${ctx.workspaceId}, ${c.id}, 'out', ${ctx.userName}, ${ctx.userId}, ${caption}, ${status}) RETURNING id`, db);
+        await q(sql`INSERT INTO message_files (workspace_id, message_id, file_name, content_type, size_bytes, status, storage_key)
+          VALUES (${ctx.workspaceId}, ${m!.id}, ${fileName}, ${contentType}, ${data.length}, 'stored', ${key})`, db);
+        await afterReply(db, ctx, c, m!.id, `📎 ${fileName}${caption ? ` ${caption}` : ''}`, status === 'pending');
+        await files().put(key, data); // inside the transaction: if storage fails, nothing is recorded
+        return m!;
+      });
+      return reply.code(201).send(out);
+    });
+
+  app.get<{ Params: { id: string }; Querystring: { inline?: string } }>('/inbox/files/:id', async (req, reply) => {
+    const ctx = ctxOf(req);
+    requireAny(ctx, 'conversation', 'view');
+    const f = await q1<{ file_name: string; content_type: string; storage_key: string | null; status: string; conversation_id: number }>(sql`
+      SELECT f.file_name, f.content_type, f.storage_key, f.status, m.conversation_id FROM message_files f JOIN messages m ON m.id = f.message_id
+      WHERE f.id = ${Number(req.params.id) || 0} AND f.workspace_id = ${ctx.workspaceId}`);
+    if (!f) throw notFound('File');
+    await loadConversation(pool, ctx, f.conversation_id, 'view');
+    const data = f.status === 'stored' && f.storage_key ? await files().get(f.storage_key) : null;
+    if (!data) throw notFound('File content');
+    return sendStoredFile(reply, f, data, req.query.inline === '1');
   });
 
   /** Try a failed message again. */

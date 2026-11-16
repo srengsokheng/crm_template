@@ -2,8 +2,9 @@ import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 
 import { Link, useNavigate, useParams } from 'react-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { AlertCircle, ArrowLeft, Clock, Globe, Inbox, Link2, MessageCircle, RotateCcw, Search, Send, UserPlus, Users, X } from 'lucide-react';
-import { api, errorMessage } from '../../lib/api.ts';
+import { AlertCircle, ArrowLeft, Clock, FileText, Globe, Inbox, Link2, MessageCircle, Paperclip, RotateCcw, Search, Send, UserPlus, Users, X } from 'lucide-react';
+import { api, ApiError, errorMessage } from '../../lib/api.ts';
+import { fileSize } from '../records/Attachments.tsx';
 import { cn } from '../../lib/cn.ts';
 import { dateTime, relative } from '../../lib/format.ts';
 import { useCan, useDebounced, useMe, useMeta } from '../../lib/hooks.ts';
@@ -17,7 +18,9 @@ interface ConversationItem {
   unread: number; lastMessageAt: string; lastMessagePreview: string; lastDirection: 'in' | 'out';
   assigneeId: number | null; assigneeName: string | null; contactId: number | null; contactName: string | null; leadId: number | null; leadTitle: string | null;
 }
-interface Message { id: number; direction: 'in' | 'out'; senderName: string; authorName: string | null; body: string; status: 'received' | 'pending' | 'sent' | 'failed'; error: string | null; createdAt: string }
+interface MessageFile { id: number; fileName: string; contentType: string; sizeBytes: number | null; status: 'pending' | 'stored' | 'too_large' | 'blocked' | 'failed' }
+interface Message { id: number; direction: 'in' | 'out'; senderName: string; authorName: string | null; body: string; status: 'received' | 'pending' | 'sent' | 'failed'; error: string | null; createdAt: string; files: MessageFile[] }
+const PREVIEW_TYPES = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/webp']);
 interface ConversationDetail extends ConversationItem {
   channelStatus: string; botUsername: string | null; profile: { name?: string; username?: string; email?: string; phone?: string };
   canEdit: boolean; canReply: boolean; messages: Message[];
@@ -208,11 +211,14 @@ function Thread({ id }: { id: number }) {
 function Bubble({ m, group, conversationId, canRetry, onRetried }: { m: Message; group: boolean; conversationId: number; canRetry: boolean; onRetried: () => void }) {
   const out = m.direction === 'out';
   const who = out ? m.authorName : group ? m.senderName : '';
+  // "[Photo] caption" describes the file for the list preview; with the file shown, only the caption is needed.
+  const text = m.files.length ? m.body.replace(/^\[[^\]]*\]\s?/, '') : m.body;
   return (
     <li className={cn('flex flex-col', out ? 'items-end' : 'items-start')}>
       {who && <span className="mb-0.5 px-1 text-[11px] text-muted">{who}</span>}
-      <div className={cn('max-w-[85%] whitespace-pre-wrap break-words rounded-2xl px-3.5 py-2 text-sm md:max-w-[70%]',
-        out ? 'rounded-br-md bg-brand-600 text-white' : 'rounded-bl-md bg-[var(--surface-2)]', m.status === 'failed' && 'opacity-70')}>{m.body}</div>
+      {m.files.map((f) => <FileView key={f.id} f={f} out={out} />)}
+      {text && <div className={cn('max-w-[85%] whitespace-pre-wrap break-words rounded-2xl px-3.5 py-2 text-sm md:max-w-[70%]',
+        out ? 'rounded-br-md bg-brand-600 text-white' : 'rounded-bl-md bg-[var(--surface-2)]', m.files.length > 0 && 'mt-1', m.status === 'failed' && 'opacity-70')}>{text}</div>}
       <span className="mt-0.5 flex items-center gap-1 px-1 text-[11px] text-muted" title={dateTime(m.createdAt)}>
         {m.status === 'pending' && <><Clock className="size-3" />Sending…</>}
         {m.status === 'failed' && <span className="flex items-center gap-1 text-rose-600"><AlertCircle className="size-3" />{m.error ?? 'Not sent'}</span>}
@@ -227,25 +233,64 @@ function Bubble({ m, group, conversationId, canRetry, onRetried }: { m: Message;
   );
 }
 
+function FileView({ f, out }: { f: MessageFile; out: boolean }) {
+  const url = `/api/v1/inbox/files/${f.id}`;
+  if (f.status === 'stored' && PREVIEW_TYPES.has(f.contentType)) {
+    return <a href={`${url}?inline=1`} target="_blank" rel="noreferrer" className="mb-0.5 block"><img src={`${url}?inline=1`} alt={f.fileName} loading="lazy" className="max-h-60 max-w-[min(15rem,70vw)] rounded-xl border border-base object-cover" /></a>;
+  }
+  const note = f.status === 'pending' ? 'Downloading…' : f.status === 'too_large' ? `Too large to download${f.sizeBytes ? ` (${fileSize(f.sizeBytes)})` : ''} — open it in the app it was sent from`
+    : f.status === 'blocked' ? 'Blocked by the virus scanner' : f.status === 'failed' ? 'Couldn’t be downloaded' : f.sizeBytes !== null ? fileSize(f.sizeBytes) : '';
+  const body = <><FileText className="size-4 shrink-0" /><span className="min-w-0"><span className="block truncate font-medium">{f.fileName}</span><span className="block text-xs opacity-80">{note}</span></span></>;
+  const cls = cn('mb-0.5 flex max-w-[min(18rem,80vw)] items-center gap-2 rounded-xl border px-3 py-2 text-sm', out ? 'border-brand-600/40' : 'border-base');
+  return f.status === 'stored' ? <a href={url} className={cn(cls, 'hover:bg-[var(--surface-2)]')} download>{body}</a> : <div className={cn(cls, 'text-muted')}>{body}</div>;
+}
+
+async function uploadReply(conversationId: number, file: File, caption: string) {
+  const res = await fetch(`/api/v1/inbox/conversations/${conversationId}/files?fileName=${encodeURIComponent(file.name)}&caption=${encodeURIComponent(caption)}`, {
+    method: 'POST', credentials: 'same-origin', body: file,
+    headers: { 'x-requested-with': 'crm', 'content-type': 'application/octet-stream', 'x-file-type': file.type || 'application/octet-stream' },
+  });
+  if (!res.ok) {
+    let msg = `Sending the file failed (${res.status})`;
+    try { msg = (await res.json()).error?.message ?? msg; } catch { /* not JSON */ }
+    if (res.status === 413) msg = 'This file is too large';
+    throw new ApiError(res.status, 'UPLOAD_FAILED', msg);
+  }
+}
+
 function Composer({ conversationId, canReply, reason, onSent }: { conversationId: number; canReply: boolean; reason: string; onSent: () => void }) {
   const [body, setBody] = useState('');
+  const [file, setFile] = useState<File | null>(null);
   const [sending, setSending] = useState(false);
+  const picker = useRef<HTMLInputElement>(null);
   if (!canReply) return <p className="border-t border-base px-4 py-3 text-sm text-muted">{reason}</p>;
   const send = async (e?: FormEvent) => {
     e?.preventDefault();
     const text = body.trim();
-    if (!text || sending) return;
+    if ((!text && !file) || sending) return;
     setSending(true);
-    try { await api.post(`/inbox/conversations/${conversationId}/messages`, { body: text }); setBody(''); onSent(); }
+    try {
+      if (file) await uploadReply(conversationId, file, text);
+      else await api.post(`/inbox/conversations/${conversationId}/messages`, { body: text });
+      setBody(''); setFile(null); onSent();
+    }
     catch (err) { toast.error(errorMessage(err)); }
     finally { setSending(false); }
   };
   const onKey = (e: KeyboardEvent<HTMLTextAreaElement>) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } };
   return (
-    <form onSubmit={send} className="flex items-end gap-2 border-t border-base p-3">
-      <Textarea aria-label="Reply" rows={2} maxLength={4000} placeholder="Write a reply… (Enter to send, Shift+Enter for a new line)" value={body}
-        onChange={(e) => setBody(e.target.value)} onKeyDown={onKey} className="min-h-[2.75rem] flex-1 resize-none" />
-      <Button type="submit" variant="primary" disabled={!body.trim() || sending} icon={sending ? <Spinner className="size-4 text-white" /> : <Send className="size-4" />}>Send</Button>
+    <form onSubmit={send} className="flex flex-wrap items-end gap-2 border-t border-base p-3">
+      {file && (
+        <div className="flex w-full items-center gap-2 rounded-md bg-[var(--surface-2)] px-3 py-1.5 text-sm">
+          <FileText className="size-4 shrink-0 text-muted" /><span className="min-w-0 flex-1 truncate">{file.name}</span><span className="text-xs text-muted">{fileSize(file.size)}</span>
+          <IconButton size="sm" label="Remove file" onClick={() => setFile(null)}><X className="size-3.5" /></IconButton>
+        </div>
+      )}
+      <input ref={picker} type="file" className="hidden" aria-label="File to send" onChange={(e) => { setFile(e.target.files?.[0] ?? null); e.target.value = ''; }} />
+      <IconButton label="Attach a file" onClick={() => picker.current?.click()}><Paperclip className="size-4" /></IconButton>
+      <Textarea aria-label="Reply" rows={2} maxLength={4000} placeholder={file ? 'Add a caption (optional)' : 'Write a reply… (Enter to send, Shift+Enter for a new line)'} value={body}
+        onChange={(e) => setBody(e.target.value)} onKeyDown={onKey} className="min-h-[2.75rem] min-w-0 flex-1 resize-none" />
+      <Button type="submit" variant="primary" disabled={(!body.trim() && !file) || sending} icon={sending ? <Spinner className="size-4 text-white" /> : <Send className="size-4" />}>Send</Button>
     </form>
   );
 }

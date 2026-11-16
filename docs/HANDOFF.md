@@ -255,9 +255,19 @@ The research behind every decision is in this folder:
     give an email matching exactly one contact are linked to it automatically. Deleting a channel deletes its
     conversations; disabling keeps them.
   - **Not included**: personal accounts (Telegram user login, WhatsApp, Messenger), Facebook/Instagram/WhatsApp
-    Business, attachments (only their captions), outgoing files, typing indicators, real-time push (polling).
+    Business, visitors sending files from the website chat, typing indicators, real-time push (polling).
 
-**Quality:** 181 Vitest tests (API against real PostgreSQL), 42 Playwright tests (desktop, tablet, phone), lint and
+- **Inbox files** (migration 0024, `message_files`, `inbox/files.ts`): incoming Telegram photos (largest size),
+  documents, audio, voice notes and videos are downloaded by job `inbox.fetch_file` (getFile + file URL) into the same
+  storage as record attachments (disk/S3, ClamAV scan when configured). The Bot API only serves files up to 20 MB, so
+  larger ones (or over `FILES_MAX_BYTES`) are listed as "too large — open it in the app"; blocked/failed downloads say
+  so too. Agents attach one file per reply (paperclip; caption optional): Telegram gets images via sendPhoto, other
+  files via sendDocument (captions over 1,024 characters follow as a separate message); website visitors see images
+  inline and other files as links, downloadable only with their own chat token. Downloads (`GET /inbox/files/:id`)
+  follow the conversation's view permission and use the attachment download headers (inline only for raster images,
+  sandboxed). Deleting a channel removes its stored files.
+
+**Quality:** 184 Vitest tests (API against real PostgreSQL), 43 Playwright tests (desktop, tablet, phone), lint and
 typecheck clean, `npm audit` = 0, GitHub Actions CI in `.github/workflows/ci.yml`.
 
 ## 3. Not built yet — suggested next work (in priority order)
@@ -272,8 +282,8 @@ The earlier list is done (see section 2). Known follow-ups, collected from the p
    (Cloud API), and a **Telegram personal account** (MTProto user login, e.g. GramJS; the account owner logs in with
    their phone code — needs `api_id`/`api_hash` from my.telegram.org). Unofficial WhatsApp-Web libraries break
    WhatsApp's terms and get numbers banned; Meta has no API for personal Messenger/Instagram inboxes.
-4. Inbox: attachments (download Telegram files via getFile into `files`), sending files, real-time updates (SSE)
-   instead of polling, canned replies.
+4. Inbox: real-time updates (SSE) instead of polling, canned replies, file uploads from website visitors (needs
+   abuse limits and scanning).
 
 Import limits and choices: 5 MB / 10,000 rows / 100 columns per file; lead rows only match *open* leads; list
 values (type, source, industry, size, deal type, category) must already exist unless an admin ticks "Add values that aren't in

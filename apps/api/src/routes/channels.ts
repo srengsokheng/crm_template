@@ -12,6 +12,8 @@ import { sealSecret, openSecret } from '../lib/secrets.ts';
 import { parse } from '../lib/validate.ts';
 import type { ChannelRow } from '../inbox/store.ts';
 import { connectBot, disconnectBot } from '../inbox/telegram.ts';
+import { channelStorageKeys } from '../inbox/files.ts';
+import { files } from '../lib/files.ts';
 
 /** What the API shows of a channel: never the token or the webhook secret. */
 function publicChannel(c: ChannelRow & { conversation_count?: number; created_at?: Date }) {
@@ -104,10 +106,14 @@ export async function channelRoutes(app: FastifyInstance) {
     const c = await q1<ChannelRow>(sql`SELECT * FROM channels WHERE id = ${Number(req.params.id)} AND workspace_id = ${ctx.workspaceId}`);
     if (!c) throw notFound('Channel');
     if (c.kind === 'telegram_bot') await disconnectBot(c);
-    await tx(async (db) => {
+    const keys = await tx(async (db) => {
+      const k = await channelStorageKeys(db, c.id);
       await q(sql`DELETE FROM channels WHERE id = ${c.id}`, db);
       await audit(db, ctx, 'channel', c.id, 'deleted', { kind: c.kind, name: c.name });
+      return k;
     });
+    // After commit: a leftover file is harmless, a missing one is not.
+    for (const k of keys) await files().remove(k).catch(() => {});
     return noContent(reply);
   });
 

@@ -14,6 +14,7 @@ import { pool, q, sql, tx, type Db } from '../db/index.ts';
 import { AppError } from '../lib/errors.ts';
 import { openSecret } from '../lib/secrets.ts';
 import { recordInbound, type ChannelRow } from './store.ts';
+import { fileRefOf, queueIncomingFile } from './files.ts';
 
 export class TelegramError extends Error {
   status: number;
@@ -37,11 +38,12 @@ export async function tg<T>(token: string, method: string, params: Record<string
 
 interface TgUser { id: number; is_bot?: boolean; first_name?: string; last_name?: string; username?: string }
 interface TgChat { id: number; type: 'private' | 'group' | 'supergroup' | 'channel'; title?: string; first_name?: string; last_name?: string; username?: string }
+export interface TgFile { file_id: string; file_name?: string; mime_type?: string; file_size?: number }
 export interface TgMessage {
   message_id: number; from?: TgUser; chat: TgChat; date: number;
   text?: string; caption?: string;
-  photo?: unknown[]; document?: { file_name?: string }; sticker?: { emoji?: string }; voice?: unknown; audio?: unknown;
-  video?: unknown; video_note?: unknown; animation?: unknown; location?: { latitude: number; longitude: number };
+  photo?: TgFile[]; document?: TgFile; sticker?: { emoji?: string }; voice?: TgFile; audio?: TgFile;
+  video?: TgFile; video_note?: TgFile; animation?: TgFile; location?: { latitude: number; longitude: number };
   contact?: { phone_number: string; first_name?: string; last_name?: string }; poll?: { question: string };
 }
 export interface TgUpdate { update_id: number; message?: TgMessage }
@@ -83,7 +85,10 @@ export async function ingestUpdate(db: Db, channel: ChannelRow, u: TgUpdate): Pr
     senderName: sender,
     body,
   });
-  return r !== null;
+  if (!r) return false;
+  const file = fileRefOf(m);
+  if (file) await queueIncomingFile(db, channel.workspace_id, r.messageId, file);
+  return true;
 }
 
 const tokenOf = (c: ChannelRow) => openSecret(c.secret!);
