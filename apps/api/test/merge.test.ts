@@ -37,7 +37,7 @@ describe('merge contacts', () => {
 
     const r = await c.post('/merge/contact', { survivorId: keep.id, mergedId: dup.id, choose: { jobTitle: 'merged' } });
     expect(r.status, JSON.stringify(r.body)).toBe(200);
-    expect(r.body).toEqual({ id: keep.id, mergedId: dup.id, mergedIds: [dup.id] });
+    expect(r.body).toEqual({ id: keep.id, mergedId: dup.id, mergedIds: [dup.id], undoId: expect.any(Number) });
 
     const after = (await c.get(`/contacts/${keep.id}`)).body;
     expect(after).toMatchObject({

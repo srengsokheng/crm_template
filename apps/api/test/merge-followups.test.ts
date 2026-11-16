@@ -21,7 +21,7 @@ describe('merge follow-ups', () => {
     // Job title from the third record, by id; birthday not chosen → first non-empty (the third); name stays (survivor's).
     const r = await c.post('/merge/contact', { survivorId: a.id, mergedIds: [b.id, d.id], choose: { jobTitle: d.id } });
     expect(r.status, JSON.stringify(r.body)).toBe(200);
-    expect(r.body).toEqual({ id: a.id, mergedId: b.id, mergedIds: [b.id, d.id] });
+    expect(r.body).toEqual({ id: a.id, mergedId: b.id, mergedIds: [b.id, d.id], undoId: expect.any(Number) });
     const kept = (await c.get(`/contacts/${a.id}`)).body;
     expect(kept).toMatchObject({ firstName: 'Ada', lastName: 'Lovelace', jobTitle: 'Countess', birthday: '1815-12-10' });
     expect(kept.methods.map((m: any) => m.value).sort()).toEqual(['+44 20 7946 0001', 'ada@example.com', 'countess@example.com']);

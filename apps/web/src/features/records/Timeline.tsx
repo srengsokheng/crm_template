@@ -203,6 +203,9 @@ export function describeEvent(d: Record<string, any>, userName: (id: number) => 
     case 'file_added': return { icon: History, text: `Added file ${ch.file?.name ?? ''}` };
     case 'file_removed': return { icon: Trash2, text: `Deleted file ${ch.file?.name ?? ''}` };
     case 'merged_into': return { icon: History, text: `Merged into ${ch.into?.name ?? 'another record'} (#${ch.into?.id})` };
+    case 'merge_undone': return ch.restored
+      ? { icon: History, text: `Merge undone — ${(ch.restored as { name: string | null }[]).map((r) => r.name ?? 'a record').join(', ')} separate again` }
+      : { icon: History, text: `Restored: the merge into ${ch.from?.name ?? 'another record'} was undone` };
     case 'merged': {
       const chosen = Object.keys(ch).filter((k) => !['merged', 'movedMethods'].includes(k) && !k.startsWith('_')).map((k) => FIELD_LABELS[k] ?? k.replace(/^custom\./, ''));
       return { icon: History, text: `Merged with ${ch.merged?.name ?? 'a duplicate'} (#${ch.merged?.id})${chosen.length ? ` — took ${[...new Set(chosen)].join(', ')}` : ''}` };

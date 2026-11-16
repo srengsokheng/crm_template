@@ -16,6 +16,7 @@ import { RelatedDeals, type RelatedDeal } from '../records/RelatedDeals.tsx';
 import { Timeline } from '../records/Timeline.tsx';
 import { Attachments } from '../records/Attachments.tsx';
 import { MergeDialog } from '../records/MergeDialog.tsx';
+import { MergeUndoBanner } from '../records/MergeUndoBanner.tsx';
 
 interface Company {
   id: number; version: number; name: string; typeId: number | null; industryId: number | null; sizeId: number | null; sourceId: number | null;
@@ -60,6 +61,7 @@ export function CompanyDetail() {
           current={{ id, name: c.name, emails: c.methods.filter((m) => m.kind === 'email').map((m) => m.value), phones: c.methods.filter((m) => m.kind === 'phone').map((m) => m.value), websites: c.methods.filter((m) => m.kind === 'website').map((m) => m.value) }} />
       </>}
       left={<>
+        <MergeUndoBanner entity="company" id={id} canEdit={edit} />
         <Card title="Details">
           <div className="divide-y divide-[var(--border)]">
             <EditRow label="Name" required value={c.name} canEdit={edit} locked={locked('company', 'name')} display={c.name} renderEditor={(v, s) => <Input autoFocus value={v} onChange={(e) => s(e.target.value)} />} onSave={(v) => patch({ name: v, version: c.version })} />

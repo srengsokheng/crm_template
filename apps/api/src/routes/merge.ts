@@ -9,19 +9,31 @@
  */
 import type { FastifyInstance } from 'fastify';
 import { MERGE_ENTITIES, MERGE_MAX, mergeSchema, normalizeContactValue, personName } from '@crm/shared';
-import { q, q1, raw, sql, tx, type Db } from '../db/index.ts';
+import { join, q, q1, raw, sql, tx, type Db, type Fragment } from '../db/index.ts';
 import { audit } from '../lib/audit.ts';
 import { loadMethods } from '../lib/contactMethods.ts';
 import type { Ctx } from '../lib/context.ts';
 import { loadDefs } from '../lib/customFields.ts';
 import { fieldRule, hiddenCustomKeys, stripHidden } from '../lib/fieldAccess.ts';
-import { AppError, badRequest, notFound } from '../lib/errors.ts';
+import { AppError, badRequest, conflict, notFound } from '../lib/errors.ts';
 import { ctxOf } from '../lib/http.ts';
 import { assertOnRecord, canOnRecord } from '../lib/permissions.ts';
 import { camel, camelAll, updateRow } from '../lib/records.ts';
 import { parse } from '../lib/validate.ts';
 
 type Entity = (typeof MERGE_ENTITIES)[number];
+/** Merges can be undone for this many days (while the kept record hasn't been edited since). */
+export const UNDO_DAYS = 7;
+interface MergeSnapshot {
+  survivor: Record<string, unknown>;
+  titles: Record<number, string>;
+  methods: Record<string, unknown>[];
+  activityLinks: Record<string, unknown>[];
+  dealContacts: Record<string, unknown>[];
+  contactCompanies: Record<string, unknown>[];
+  /** Per merged record: ids of rows moved to the kept record, by kind. */
+  moved: Record<number, Record<string, number[]>>;
+}
 type Row = Record<string, unknown> & { id: number; owner_id: number; visibility: string; custom: Record<string, unknown>; created_at: Date };
 
 const TABLE: Record<Entity, string> = { contact: 'contacts', company: 'companies', lead: 'leads' };
@@ -165,6 +177,19 @@ export async function mergeRoutes(app: FastifyInstance) {
       for (const g of gones) assertOnRecord(ctx, entity, 'delete', g);
       for (const r of [keep, ...gones]) assertMergeable(entity, r);
       const S = keep.id;
+      const all = [S, ...mergedIds];
+      // Everything needed to undo this merge: the kept record, all contact details and link rows as they were, and
+      // (filled in below) the ids of every row that is moved from a merged record to the kept one.
+      const snap: MergeSnapshot = {
+        survivor: keep, titles: Object.fromEntries(gones.map((g) => [g.id, titleOf(entity, g)])),
+        methods: await q(sql`SELECT * FROM contact_methods WHERE party_type = ${entity} AND party_id = ANY(${all})`, db),
+        activityLinks: await q(sql`SELECT activity_id, entity_id FROM activity_links WHERE entity_type = ${entity} AND entity_id = ANY(${all})`, db),
+        dealContacts: entity === 'contact' ? await q(sql`SELECT deal_id, contact_id, is_primary FROM deal_contacts WHERE contact_id = ANY(${all})`, db) : [],
+        contactCompanies: entity === 'contact' ? await q(sql`SELECT contact_id, company_id, role FROM contact_companies WHERE contact_id = ANY(${all})`, db)
+          : entity === 'company' ? await q(sql`SELECT contact_id, company_id, role FROM contact_companies WHERE company_id = ANY(${all})`, db) : [],
+        moved: {},
+      };
+      const ids = async (f: Fragment) => (await q<{ id: number }>(f, db)).map((r) => Number(r.id));
 
       // ── Field values ──
       // A choice names the record whose value wins. Locked/hidden fields ignore the user's choice; the automatic rule
@@ -216,6 +241,7 @@ export async function mergeRoutes(app: FastifyInstance) {
 
       for (const [n, gone] of gones.entries()) {
         const M = gone.id;
+        const moved: Record<string, number[]> = (snap.moved[M] = {});
         // ── Contact details: add the merged record's values that the survivor doesn't have yet ──
         const mine = (await loadMethods(entity, [S], db))[S] ?? [];
         const have = new Set(mine.map((m) => `${m.kind}:${normalizeContactValue(m.kind, m.value)}`));
@@ -239,35 +265,43 @@ export async function mergeRoutes(app: FastifyInstance) {
           await q(sql`INSERT INTO contact_companies (contact_id, company_id, role) SELECT ${S}, company_id, role FROM contact_companies WHERE contact_id = ${M}
             ON CONFLICT DO NOTHING`, db);
           await q(sql`DELETE FROM contact_companies WHERE contact_id = ${M}`, db);
-          await q(sql`UPDATE leads SET converted_contact_id = ${S} WHERE workspace_id = ${ctx.workspaceId} AND converted_contact_id = ${M}`, db);
+          moved.leadsConvertedContact = await ids(sql`UPDATE leads SET converted_contact_id = ${S} WHERE workspace_id = ${ctx.workspaceId} AND converted_contact_id = ${M} RETURNING id`);
         } else if (entity === 'company') {
-          await q(sql`UPDATE deals SET company_id = ${S} WHERE workspace_id = ${ctx.workspaceId} AND company_id = ${M}`, db);
+          moved.dealsCompany = await ids(sql`UPDATE deals SET company_id = ${S} WHERE workspace_id = ${ctx.workspaceId} AND company_id = ${M} RETURNING id`);
           await q(sql`INSERT INTO contact_companies (contact_id, company_id, role) SELECT contact_id, ${S}, role FROM contact_companies WHERE company_id = ${M}
             ON CONFLICT DO NOTHING`, db);
           await q(sql`DELETE FROM contact_companies WHERE company_id = ${M}`, db);
-          await q(sql`UPDATE contacts SET primary_company_id = ${S} WHERE workspace_id = ${ctx.workspaceId} AND primary_company_id = ${M}`, db);
-          await q(sql`UPDATE leads SET converted_company_id = ${S} WHERE workspace_id = ${ctx.workspaceId} AND converted_company_id = ${M}`, db);
+          moved.contactsPrimary = await ids(sql`UPDATE contacts SET primary_company_id = ${S} WHERE workspace_id = ${ctx.workspaceId} AND primary_company_id = ${M} RETURNING id`);
+          moved.leadsConvertedCompany = await ids(sql`UPDATE leads SET converted_company_id = ${S} WHERE workspace_id = ${ctx.workspaceId} AND converted_company_id = ${M} RETURNING id`);
         } else {
-          // Leads: products move only when the kept lead has none (two product lists can't be combined sensibly).
-          const hasItems = await q1(sql`SELECT 1 FROM line_items WHERE parent_type = 'lead' AND parent_id = ${S} LIMIT 1`, db);
-          if (!hasItems) await q(sql`UPDATE line_items SET parent_id = ${S} WHERE parent_type = 'lead' AND parent_id = ${M}`, db);
-          await q(sql`UPDATE deals SET lead_id = ${S} WHERE workspace_id = ${ctx.workspaceId} AND lead_id = ${M}`, db);
+          // Leads: the merged lead's products are added, except products the kept lead already has (same catalogue
+          // product, or the same name for free-text lines) — like contact details, without duplicates.
+          const keyOf = (l: { product_id: number | null; name: string }) => (l.product_id ? `p:${l.product_id}` : `n:${l.name.trim().toLowerCase()}`);
+          const haveItems = new Set((await q<{ product_id: number | null; name: string }>(sql`SELECT product_id, name FROM line_items WHERE parent_type = 'lead' AND parent_id = ${S}`, db)).map(keyOf));
+          moved.lineItems = [];
+          for (const l of await q<{ id: number; product_id: number | null; name: string }>(sql`SELECT id, product_id, name FROM line_items WHERE parent_type = 'lead' AND parent_id = ${M} ORDER BY sort, id`, db)) {
+            if (haveItems.has(keyOf(l))) continue;
+            haveItems.add(keyOf(l));
+            await q(sql`UPDATE line_items SET parent_id = ${S}, sort = sort + 1000 WHERE id = ${l.id}`, db);
+            moved.lineItems.push(Number(l.id));
+          }
+          moved.dealsLead = await ids(sql`UPDATE deals SET lead_id = ${S} WHERE workspace_id = ${ctx.workspaceId} AND lead_id = ${M} RETURNING id`);
         }
         await q(sql`INSERT INTO activity_links (activity_id, entity_type, entity_id) SELECT activity_id, entity_type, ${S} FROM activity_links
           WHERE entity_type = ${entity} AND entity_id = ${M} ON CONFLICT DO NOTHING`, db);
         await q(sql`DELETE FROM activity_links WHERE entity_type = ${entity} AND entity_id = ${M}`, db);
-        await q(sql`UPDATE notes SET entity_id = ${S} WHERE workspace_id = ${ctx.workspaceId} AND entity_type = ${entity} AND entity_id = ${M}`, db);
-        await q(sql`UPDATE attachments SET entity_id = ${S} WHERE workspace_id = ${ctx.workspaceId} AND entity_type = ${entity} AND entity_id = ${M}`, db);
-        await q(sql`UPDATE notifications SET entity_id = ${S} WHERE workspace_id = ${ctx.workspaceId} AND entity_type = ${entity} AND entity_id = ${M}`, db);
+        moved.notes = await ids(sql`UPDATE notes SET entity_id = ${S} WHERE workspace_id = ${ctx.workspaceId} AND entity_type = ${entity} AND entity_id = ${M} RETURNING id`);
+        moved.attachments = await ids(sql`UPDATE attachments SET entity_id = ${S} WHERE workspace_id = ${ctx.workspaceId} AND entity_type = ${entity} AND entity_id = ${M} RETURNING id`);
+        moved.notifications = await ids(sql`UPDATE notifications SET entity_id = ${S} WHERE workspace_id = ${ctx.workspaceId} AND entity_type = ${entity} AND entity_id = ${M} RETURNING id`);
         // History of the merged record continues on the survivor (field changes, creation, imports…).
         // Each moved event remembers which record it came from, so the timeline can say so.
-        await q(sql`UPDATE audit_events SET entity_id = ${S}, changes = changes || jsonb_build_object('_from', jsonb_build_object('id', ${M}::bigint, 'name', ${titleOf(entity, gone)}::text))
-          WHERE workspace_id = ${ctx.workspaceId} AND entity_type = ${entity} AND entity_id = ${M}`, db);
+        moved.audit = await ids(sql`UPDATE audit_events SET entity_id = ${S}, changes = changes || jsonb_build_object('_from', jsonb_build_object('id', ${M}::bigint, 'name', ${titleOf(entity, gone)}::text))
+          WHERE workspace_id = ${ctx.workspaceId} AND entity_type = ${entity} AND entity_id = ${M} RETURNING id`);
 
         // ── Retire the merged record ──
         await q(sql`UPDATE ${table} SET deleted_at = now(), deleted_by = ${ctx.userId}, merged_into_id = ${S} WHERE id = ${M}`, db);
         // Records previously merged into M now point at S.
-        await q(sql`UPDATE ${table} SET merged_into_id = ${S} WHERE workspace_id = ${ctx.workspaceId} AND merged_into_id = ${M}`, db);
+        moved.previouslyMerged = await ids(sql`UPDATE ${table} SET merged_into_id = ${S} WHERE workspace_id = ${ctx.workspaceId} AND merged_into_id = ${M} RETURNING id`);
 
         // Field changes are recorded once, with the first merged record.
         await audit(db, ctx, entity, S, 'merged', { merged: { id: M, name: titleOf(entity, gone) }, ...(n === 0 ? changes : {}), movedMethods });
@@ -282,9 +316,116 @@ export async function mergeRoutes(app: FastifyInstance) {
           if (first) await q(sql`UPDATE contacts SET primary_company_id = ${first.company_id} WHERE id = ${S}`, db);
         }
       }
-      return { id: S, mergedId: mergedIds[0], mergedIds };
+      const saved = await q1<{ id: number }>(sql`INSERT INTO merge_snapshots (workspace_id, entity_type, survivor_id, merged_ids, snapshot, created_by)
+        VALUES (${ctx.workspaceId}, ${entity}, ${S}, ${mergedIds}, ${JSON.stringify(snap)}::jsonb, ${ctx.userId}) RETURNING id`, db);
+      return { id: S, mergedId: mergedIds[0], mergedIds, undoId: Number(saved!.id) };
     });
   });
+
+  // ── Undo ──
+  /** The latest merge into this record that can still be undone (7 days, kept record not edited since), or null. */
+  app.get<{ Params: { entity: string; id: string } }>('/merge/:entity/undoable/:id', async (req) => {
+    const ctx = ctxOf(req);
+    const entity = entityOf(req.params.entity);
+    const r = await q1<{ id: number; merged_ids: number[]; snapshot: MergeSnapshot; created_at: Date }>(sql`SELECT m.id, m.merged_ids, m.snapshot, m.created_at
+      FROM merge_snapshots m JOIN ${raw(TABLE[entity])} t ON t.id = m.survivor_id AND t.deleted_at IS NULL AND t.updated_at <= m.created_at
+      WHERE m.workspace_id = ${ctx.workspaceId} AND m.entity_type = ${entity} AND m.survivor_id = ${Number(req.params.id)}
+        AND m.undone_at IS NULL AND m.created_at > now() - ${UNDO_DAYS + ' days'}::interval
+      ORDER BY m.id DESC LIMIT 1`);
+    return r ? { undoId: Number(r.id), createdAt: r.created_at, merged: r.merged_ids.map((id) => ({ id: Number(id), title: r.snapshot.titles?.[id] ?? `#${id}` })) } : null;
+  });
+
+  app.post<{ Params: { entity: string; id: string } }>('/merge/:entity/undo/:id', async (req) => {
+    const ctx = ctxOf(req);
+    const entity = entityOf(req.params.entity);
+    const table = raw(TABLE[entity]);
+    return tx(async (db) => {
+      const m = await q1<{ id: number; survivor_id: number; merged_ids: number[]; snapshot: MergeSnapshot; created_at: Date; undone_at: Date | null; fresh: boolean }>(sql`
+        SELECT *, created_at > now() - ${UNDO_DAYS + ' days'}::interval AS fresh FROM merge_snapshots
+        WHERE id = ${Number(req.params.id)} AND workspace_id = ${ctx.workspaceId} AND entity_type = ${entity} FOR UPDATE`, db);
+      if (!m) throw notFound('Merge');
+      if (m.undone_at) throw conflict('This merge was already undone');
+      if (!m.fresh) throw conflict(`Merges can be undone for ${UNDO_DAYS} days`);
+      const S = Number(m.survivor_id);
+      const Ms = m.merged_ids.map(Number);
+      const snap = m.snapshot;
+      const keep = await q1<Row & { updated_at: Date }>(sql`SELECT * FROM ${table} WHERE id = ${S} AND workspace_id = ${ctx.workspaceId} AND deleted_at IS NULL FOR UPDATE`, db);
+      if (!keep) throw conflict(`The kept ${entity} no longer exists`);
+      if (new Date(keep.updated_at) > new Date(m.created_at)) {
+        throw conflict(`“${titleOf(entity, keep)}” was changed after the merge, so the merge can’t be undone automatically`);
+      }
+      assertOnRecord(ctx, entity, 'edit', keep);
+      for (const M of Ms) {
+        const g = await q1<Row & { deleted_at: Date | null; merged_into_id: number | null }>(sql`SELECT * FROM ${table} WHERE id = ${M} AND workspace_id = ${ctx.workspaceId} FOR UPDATE`, db);
+        if (!g || !g.deleted_at || Number(g.merged_into_id) !== S) throw conflict(`“${snap.titles?.[M] ?? `#${M}`}” was restored or merged somewhere else since`);
+        assertOnRecord(ctx, entity, 'delete', g);
+      }
+
+      // Kept record: its field values before the merge.
+      const restoreCols = [...new Set([...MERGE_FIELDS[entity].flatMap((f) => f.cols), 'custom', ...(entity === 'contact' ? ['primary_company_id'] : [])])];
+      await updateRow(db, TABLE[entity], S, ctx.workspaceId, { ...Object.fromEntries(restoreCols.map((c) => [c, colValue(snap.survivor[c])])), updated_by: ctx.userId });
+
+      // Contact details of all of them, exactly as they were (same ids).
+      await q(sql`DELETE FROM contact_methods WHERE party_type = ${entity} AND party_id = ANY(${[S, ...Ms]})`, db);
+      for (const row of snap.methods) {
+        const cols = Object.keys(row);
+        await q(sql`INSERT INTO contact_methods (${raw(cols.join(', '))}) OVERRIDING SYSTEM VALUE VALUES (${join(cols.map((c) => sql`${colValue(row[c])}`))})`, db);
+      }
+
+      // Links: give each merged record its links back; remove the kept record's copies it didn't have before.
+      const before = (rows: Record<string, unknown>[], key: string, owner: string, id: number) => new Set(rows.filter((r) => Number(r[owner]) === id).map((r) => Number(r[key])));
+      const sActs = before(snap.activityLinks, 'activity_id', 'entity_id', S);
+      for (const l of snap.activityLinks.filter((r) => Number(r.entity_id) !== S)) {
+        await q(sql`INSERT INTO activity_links (activity_id, entity_type, entity_id) VALUES (${l.activity_id as number}, ${entity}, ${l.entity_id as number}) ON CONFLICT DO NOTHING`, db);
+        if (!sActs.has(Number(l.activity_id))) await q(sql`DELETE FROM activity_links WHERE activity_id = ${l.activity_id as number} AND entity_type = ${entity} AND entity_id = ${S}`, db);
+      }
+      if (entity === 'contact') {
+        const sDeals = before(snap.dealContacts, 'deal_id', 'contact_id', S);
+        for (const l of snap.dealContacts.filter((r) => Number(r.contact_id) !== S)) {
+          await q(sql`INSERT INTO deal_contacts (deal_id, contact_id, is_primary) VALUES (${l.deal_id as number}, ${l.contact_id as number}, ${l.is_primary as boolean}) ON CONFLICT DO NOTHING`, db);
+          if (!sDeals.has(Number(l.deal_id))) await q(sql`DELETE FROM deal_contacts WHERE deal_id = ${l.deal_id as number} AND contact_id = ${S}`, db);
+        }
+        for (const l of snap.dealContacts.filter((r) => Number(r.contact_id) === S)) {
+          await q(sql`UPDATE deal_contacts SET is_primary = ${l.is_primary as boolean} WHERE deal_id = ${l.deal_id as number} AND contact_id = ${S}`, db);
+        }
+      }
+      if (entity === 'contact' || entity === 'company') {
+        const [own, other] = entity === 'contact' ? ['contact_id', 'company_id'] : ['company_id', 'contact_id'];
+        const sOther = before(snap.contactCompanies, other, own, S);
+        for (const l of snap.contactCompanies.filter((r) => Number(r[own]) !== S)) {
+          await q(sql`INSERT INTO contact_companies (contact_id, company_id, role) VALUES (${l.contact_id as number}, ${l.company_id as number}, ${(l.role as string | null) ?? null}) ON CONFLICT DO NOTHING`, db);
+          if (!sOther.has(Number(l[other]))) await q(sql`DELETE FROM contact_companies WHERE ${raw(own)} = ${S} AND ${raw(other)} = ${l[other] as number}`, db);
+        }
+      }
+
+      // Moved rows go back to the record they came from (only rows that are still on the kept record).
+      for (const M of Ms) {
+        const mv = snap.moved[M] ?? {};
+        const back = async (key: string, f: (idList: number[]) => Fragment) => { if (mv[key]?.length) await q(f(mv[key]), db); };
+        await back('notes', (l) => sql`UPDATE notes SET entity_id = ${M} WHERE id = ANY(${l}) AND entity_id = ${S}`);
+        await back('attachments', (l) => sql`UPDATE attachments SET entity_id = ${M} WHERE id = ANY(${l}) AND entity_id = ${S}`);
+        await back('notifications', (l) => sql`UPDATE notifications SET entity_id = ${M} WHERE id = ANY(${l}) AND entity_id = ${S}`);
+        await back('audit', (l) => sql`UPDATE audit_events SET entity_id = ${M}, changes = changes - '_from' WHERE id = ANY(${l}) AND entity_id = ${S}`);
+        await back('dealsCompany', (l) => sql`UPDATE deals SET company_id = ${M} WHERE id = ANY(${l}) AND company_id = ${S}`);
+        await back('contactsPrimary', (l) => sql`UPDATE contacts SET primary_company_id = ${M} WHERE id = ANY(${l}) AND primary_company_id = ${S}`);
+        await back('leadsConvertedContact', (l) => sql`UPDATE leads SET converted_contact_id = ${M} WHERE id = ANY(${l}) AND converted_contact_id = ${S}`);
+        await back('leadsConvertedCompany', (l) => sql`UPDATE leads SET converted_company_id = ${M} WHERE id = ANY(${l}) AND converted_company_id = ${S}`);
+        await back('dealsLead', (l) => sql`UPDATE deals SET lead_id = ${M} WHERE id = ANY(${l}) AND lead_id = ${S}`);
+        await back('lineItems', (l) => sql`UPDATE line_items SET parent_id = ${M}, sort = sort - 1000 WHERE id = ANY(${l}) AND parent_type = 'lead' AND parent_id = ${S}`);
+        await back('previouslyMerged', (l) => sql`UPDATE ${table} SET merged_into_id = ${M} WHERE id = ANY(${l}) AND merged_into_id = ${S}`);
+        await q(sql`UPDATE ${table} SET deleted_at = NULL, deleted_by = NULL, merged_into_id = NULL WHERE id = ${M}`, db);
+        await audit(db, ctx, entity, M, 'merge_undone', { from: { id: S, name: titleOf(entity, keep) } });
+      }
+      await audit(db, ctx, entity, S, 'merge_undone', { restored: Ms.map((id) => ({ id, name: snap.titles?.[id] ?? null })) });
+      await q(sql`UPDATE merge_snapshots SET undone_at = now(), undone_by = ${ctx.userId} WHERE id = ${m.id}`, db);
+      return { id: S, restoredIds: Ms };
+    });
+  });
+}
+
+/** JSON snapshot values back to SQL parameters (objects such as address and custom stay JSON). */
+function colValue(v: unknown): unknown {
+  return v !== null && typeof v === 'object' && !(v instanceof Date) ? JSON.stringify(v) : v;
 }
 
 /** For detail endpoints: a 404 that tells the client where a merged record went. */

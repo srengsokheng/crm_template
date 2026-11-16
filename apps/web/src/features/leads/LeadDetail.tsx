@@ -19,6 +19,7 @@ import { LineItemsEditor, saveLineItems } from '../products/LineItemsEditor.tsx'
 import { useStageMove } from '../deals/useStageMove.tsx';
 import { ConvertDialog } from './ConvertDialog.tsx';
 import { MergeDialog } from '../records/MergeDialog.tsx';
+import { MergeUndoBanner } from '../records/MergeUndoBanner.tsx';
 
 interface Lead {
   id: number; version: number; title: string; firstName: string | null; lastName: string | null; jobTitle: string | null; companyName: string | null;
@@ -75,6 +76,7 @@ export function LeadDetail() {
       </>}
       stageBar={stages.length > 0 && <StageBar stages={stages} currentId={l.stageId} status={l.status} disabled={!edit || l.status !== 'open'} onSelect={(s) => mover.move(id, l.title, stage, s)} />}
       left={<>
+        <MergeUndoBanner entity="lead" id={id} canEdit={can('lead', 'edit', l.ownerId, l.visibility)} />
         {l.status === 'won' && (
           <Card title="Converted to">
             <ul className="space-y-1.5 text-sm">

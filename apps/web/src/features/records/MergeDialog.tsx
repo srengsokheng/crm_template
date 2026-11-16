@@ -12,6 +12,7 @@ import { Badge, Button, ErrorState, IconButton, Skeleton } from '../../component
 import { Dialog } from '../../components/ui/overlays.tsx';
 import { EntityPicker, type PickerItem } from '../../components/ui/EntityPicker.tsx';
 import { customDisplay } from './form.tsx';
+import { undoMerge } from './MergeUndoBanner.tsx';
 
 export type MergeEntity = 'contact' | 'company' | 'lead';
 interface MergeRecord extends Record<string, unknown> {
@@ -172,9 +173,16 @@ function CompareStep({ entity, ids, onAdd, onRemove, onBack, onDone, onMerged, b
     setBusy(true);
     try {
       const choose = Object.fromEntries(differing.filter((r) => !r.locked).map((r) => [r.key, choiceOf(r)]));
-      const res = await api.post<{ id: number }>(`/merge/${entity}`, { survivorId: keep.id, mergedIds: others.map((o) => o.id), choose });
+      const res = await api.post<{ id: number; undoId: number }>(`/merge/${entity}`, { survivorId: keep.id, mergedIds: others.map((o) => o.id), choose });
       for (const k of [n.many, entity, 'deals', 'timeline', 'history', 'duplicates', 'duplicate-pairs']) qc.invalidateQueries({ queryKey: [k] });
-      toast.success(others.length === 1 ? `${n.many[0].toUpperCase()}${n.many.slice(1)} merged` : `${others.length + 1} ${n.many} merged`);
+      toast.success(others.length === 1 ? `${n.many[0].toUpperCase()}${n.many.slice(1)} merged` : `${others.length + 1} ${n.many} merged`, {
+        action: { label: 'Undo', onClick: () => {
+          undoMerge(entity, res.undoId).then(() => {
+            for (const k of [n.many, entity, 'deals', 'timeline', 'history', 'duplicates', 'duplicate-pairs', 'merge-undoable']) qc.invalidateQueries({ queryKey: [k] });
+            toast.success('Merge undone');
+          }).catch((e) => toast.error(errorMessage(e)));
+        } },
+      });
       onDone();
       if (onMerged) onMerged(res.id); else nav(`${n.path}/${res.id}`);
     } catch (e) {

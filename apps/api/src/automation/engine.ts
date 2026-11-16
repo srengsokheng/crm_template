@@ -360,6 +360,7 @@ export async function purge() {
   await q(sql`DELETE FROM jobs WHERE status IN ('done','failed') AND created_at < now() - interval '14 days'`);
   await q(sql`DELETE FROM outbox_events WHERE processed_at < now() - interval '14 days'`);
   await q(sql`DELETE FROM webhook_deliveries WHERE created_at < now() - interval '30 days'`);
+  await q(sql`DELETE FROM merge_snapshots WHERE created_at < now() - interval '30 days'`);
 }
 
 /** Long-running loop used by the API process (inline) or the dedicated worker. */

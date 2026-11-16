@@ -217,7 +217,14 @@ The research behind every decision is in this folder:
   are recalculated; Undo removes the added lines. "Add values that aren't in the lists yet" (admins) now also adds
   options to custom select / multi-select fields (stable id from the label; audited as `option_added`).
 
-**Quality:** 163 Vitest tests (API against real PostgreSQL), 39 Playwright tests (desktop, tablet, phone), lint and
+- **Undo merge; lead products combined** (migration 0022, `merge_snapshots`): every merge stores what it changed (the
+  kept record's fields, all contact details and link rows as they were, the ids of every moved row). "Undo merge" (toast
+  right after merging, and a banner on the kept record) restores the merged records and moves exactly those rows back;
+  available for 7 days while the kept record hasn't been edited since (anything added to it after the merge stays).
+  Needs the same rights as merging. Merging leads now adds the other lead's products, except products the kept lead
+  already has (same catalogue product or same name).
+
+**Quality:** 166 Vitest tests (API against real PostgreSQL), 40 Playwright tests (desktop, tablet, phone), lint and
 typecheck clean, `npm audit` = 0, GitHub Actions CI in `.github/workflows/ci.yml`.
 
 ## 3. Not built yet — suggested next work (in priority order)
@@ -225,7 +232,6 @@ typecheck clean, `npm audit` = 0, GitHub Actions CI in `.github/workflows/ci.yml
 The earlier list is done (see section 2). Known follow-ups, collected from the pull requests' "not verified" notes:
 
 1. PDFs: embed a Unicode font (e.g. Noto Sans Khmer) so non-Latin names print instead of "?".
-2. Merge: combine both leads' product lists; an undo for merges.
 
 Import limits and choices: 5 MB / 10,000 rows / 100 columns per file; lead rows only match *open* leads; list
 values (type, source, industry, size, deal type, category) must already exist unless an admin ticks "Add values that aren't in
@@ -235,8 +241,8 @@ Email choices: reminder emails and the daily summary use the workspace time zone
 then listed for admins under Settings → Workspace → Email delivery (Retry; kept 14 days) — the in-app notification is
 unaffected; invitation links are never written to the server log.
 
-Merge choices: a merge cannot be undone (the merged record's values that lost are only in the audit event); private
-records can be merged only by people who may see both.
+Merge choices: a merge can be undone for 7 days while the kept record is unchanged (after that, the losing values
+are only in the audit event); private records can be merged only by people who may see both.
 
 Fixed in the merge PR (were "small known gaps"): Activities now opens on the first non-empty tab (Overdue → Today →
 Upcoming); dashboard chart colours follow a theme switch without a reload.
