@@ -12,6 +12,8 @@ export interface PdfInput {
   billToDetails: string;
   notes: string;
   listTotal: string; discount: string; tax: string; total: string;
+  /** Invoices: payments received so far (prints "Paid" and "Balance due" when > 0). */
+  paidAmount?: string;
   items: { name: string; quantity: string | number; unit: string; unitPrice: string; discountType: string | null; discountValue: string | number | null; taxRate: string | number | null; taxIncluded: boolean; lineTotal: string }[];
   seller: { name: string; details: string; footer: string };
 }
@@ -107,6 +109,9 @@ export function renderDocumentPdf(d: PdfInput): Buffer {
   const rows: [string, string, boolean][] = [['Subtotal', money(d.listTotal), false]];
   if (Number(d.discount) > 0) rows.push(['Discount', `-${money(d.discount)}`, false]);
   rows.push(['Tax', money(d.tax), false], ['Total', money(d.total), true]);
+  if (d.paidAmount && Number(d.paidAmount) > 0) {
+    rows.push(['Paid', `-${money(d.paidAmount)}`, false], ['Balance due', money((Number(d.total) - Number(d.paidAmount)).toFixed(2)), true]);
+  }
   if (y + rows.length * 18 + 10 > bottom) { pdf.addPage(); y = M; }
   y += 8;
   // Labels sit left of the widest value so long amounts never touch them.

@@ -2,7 +2,7 @@ import { Suspense, useEffect, useState, type ReactNode } from 'react';
 import { Link, NavLink, Navigate, Outlet, useLocation, useNavigate } from 'react-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
-  BarChart3, Bell, BellOff, BellRing, Building2, CheckSquare, Handshake, Home, LogOut, Menu as MenuIcon, Moon, Package, Plus, Search, Settings, Sun, Users, Zap, Monitor, X, Mail } from 'lucide-react';
+  BarChart3, Bell, BellOff, BellRing, Building2, CheckSquare, Handshake, Home, LogOut, Menu as MenuIcon, Moon, Package, Plus, Search, Settings, Sun, Users, Zap, Monitor, X, Mail, FileText } from 'lucide-react';
 import { toast } from 'sonner';
 import { api, ApiError, errorMessage } from '../lib/api.ts';
 import { cn } from '../lib/cn.ts';
@@ -28,6 +28,7 @@ function useNav(): NavItem[] {
     { to: '/contacts', label: 'Contacts', icon: <Users className="size-[18px]" />, show: can('contact', 'view') },
     { to: '/companies', label: 'Companies', icon: <Building2 className="size-[18px]" />, show: can('company', 'view') },
     { to: '/products', label: 'Products', icon: <Package className="size-[18px]" />, show: can('product', 'view') },
+    { to: '/documents', label: 'Invoices', icon: <FileText className="size-[18px]" />, show: can('deal', 'view') },
     { to: '/reports', label: 'Reports', icon: <BarChart3 className="size-[18px]" /> },
   ].filter((i) => i.show !== false);
 }

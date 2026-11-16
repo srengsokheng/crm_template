@@ -363,6 +363,17 @@ export const documentUpdateSchema = z.object({
   items: z.array(lineItemSchema).max(200).optional(),
 });
 export const documentStatusSchema = z.object({ status: z.enum(['sent', 'accepted', 'declined', 'paid', 'void']) });
+export const paymentSchema = z.object({
+  amount: moneySchema.refine((v) => Number(v) > 0, 'Must be more than 0'),
+  paidOn: dateSchema,
+  method: trimmed(60).default(''),
+  note: z.string().trim().max(500).default(''),
+});
+export const documentEmailSchema = z.object({
+  to: z.array(z.email('Invalid email address').max(200)).min(1, 'Add at least one recipient').max(5, 'Up to 5 recipients'),
+  subject: trimmed(200).min(1, 'Required'),
+  message: z.string().max(5000).default(''),
+});
 export const documentSettingsSchema = z.object({
   companyDetails: z.string().max(2000).default(''),
   footer: z.string().max(1000).default(''),

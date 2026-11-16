@@ -64,3 +64,13 @@ export function calcTotals(lines: LineInput[]) {
 export function sumMoney(values: (string | number | null | undefined)[]): string {
   return values.reduce<Decimal>((a, v) => a.plus(D(v)), new Decimal(0)).toFixed(2);
 }
+
+/** a − b, decimal-safe, as a 2-decimal string. */
+export function moneyMinus(a: string | number | null | undefined, b: string | number | null | undefined): string {
+  return D(a).minus(D(b)).toFixed(2);
+}
+
+/** Compare two amounts: −1, 0 or 1 (decimal-safe). */
+export function moneyCompare(a: string | number | null | undefined, b: string | number | null | undefined): number {
+  return D(a).comparedTo(D(b));
+}

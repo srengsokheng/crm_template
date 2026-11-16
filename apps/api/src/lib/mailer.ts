@@ -16,6 +16,10 @@ export interface Mail {
   to: string; subject: string; text: string; html: string;
   /** Display name for the From header (the workspace's sender name); the address is always the configured one. */
   fromName?: string | null;
+  /** Where replies go (e.g. the salesperson who sent a quote). */
+  replyTo?: string | null;
+  /** Files, base64-encoded (kept small: quotes and invoices). */
+  attachments?: { filename: string; contentType: string; content: string }[];
 }
 export interface Transport { name: 'console' | 'smtp' | 'memory'; send(mail: Mail, from: string): Promise<void> }
 export interface SmtpConfig { host: string; port: number; secure: boolean; user?: string; pass?: string }
@@ -28,7 +32,8 @@ export const memoryFailures = { next: 0 };
 const consoleTransport: Transport = {
   name: 'console',
   async send(mail, from) {
-    console.log(`\n── email (not sent: EMAIL_TRANSPORT=console) ──\nFrom: ${from}\nTo: ${mail.to}\nSubject: ${mail.subject}\n\n${mail.text}\n──\n`);
+    const files = mail.attachments?.length ? `\nAttachments: ${mail.attachments.map((a) => a.filename).join(', ')}` : '';
+    console.log(`\n── email (not sent: EMAIL_TRANSPORT=console) ──\nFrom: ${from}\nTo: ${mail.to}${mail.replyTo ? `\nReply-To: ${mail.replyTo}` : ''}\nSubject: ${mail.subject}${files}\n\n${mail.text}\n──\n`);
   },
 };
 
@@ -48,7 +53,12 @@ export function createSmtpTransport(cfg: SmtpConfig): Transport {
   });
   return {
     name: 'smtp',
-    async send(mail, from) { await t.sendMail({ from, to: mail.to, subject: mail.subject, text: mail.text, html: mail.html }); },
+    async send(mail, from) {
+      await t.sendMail({
+        from, to: mail.to, subject: mail.subject, text: mail.text, html: mail.html, replyTo: mail.replyTo ?? undefined,
+        attachments: mail.attachments?.map((a) => ({ filename: a.filename, contentType: a.contentType, content: a.content, encoding: 'base64' })),
+      });
+    },
   };
 }
 
@@ -166,6 +176,19 @@ export function resetMail(o: { to: string; name: string; url: string }): Mail {
       lines: [`Hi ${o.name},`, 'Someone (hopefully you) asked to reset the password for this email address. Choose a new password with the button below. The link works once and expires in 1 hour.'],
       button: { label: 'Choose a new password', url: o.url },
       footer: 'If you did not ask for this, ignore this email — your password stays the same.',
+    }),
+  };
+}
+
+/** A quote or invoice sent to a customer, with the PDF attached. The user's message is plain text (escaped). */
+export function documentMail(o: { to: string[]; replyTo: string; subject: string; message: string; sender: string; workspace: string; pdf: { filename: string; base64: string } }): Mail {
+  return {
+    to: o.to.join(', '), subject: oneLine(o.subject), replyTo: o.replyTo,
+    attachments: [{ filename: o.pdf.filename, contentType: 'application/pdf', content: o.pdf.base64 }],
+    ...layout({
+      heading: oneLine(o.subject),
+      lines: o.message.split(/\r?\n/).filter((l, i, all) => l.trim() || (i > 0 && all[i - 1].trim())),
+      footer: `Sent by ${o.sender} from ${o.workspace}. The document is attached as a PDF. Reply to this email to reach ${o.sender}.`,
     }),
   };
 }

@@ -41,7 +41,7 @@ export function DocumentsCard({ dealId, canEdit }: { dealId: number; canEdit: bo
                     <div className="truncate text-xs text-muted">{d.issueDate ? `Issued ${dateOnly(d.issueDate)}` : 'Not sent yet'}{d.dueDate ? ` · ${d.kind === 'quote' ? 'valid until' : 'due'} ${dateOnly(d.dueDate)}` : ''}</div>
                   </div>
                   <span className="font-medium tabular">{money(d.total, d.currency)}</span>
-                  <DocStatus status={d.status} />
+                  <DocStatus status={d.status} paidAmount={d.paidAmount} overdue={d.overdue} />
                 </Link>
               </li>
             ))}

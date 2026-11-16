@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { Download, ExternalLink, FileText, Trash2 } from 'lucide-react';
+import { Banknote, Download, ExternalLink, FileText, Mail, Trash2 } from 'lucide-react';
 import { api, errorMessage } from '../../lib/api.ts';
 import { money } from '../../lib/format.ts';
 import { Button, Card, Field, Input, Textarea } from '../../components/ui/primitives.tsx';
@@ -10,11 +10,12 @@ import { ConfirmDialog } from '../../components/ui/overlays.tsx';
 import { RecordError, RecordShell, RecordSkeleton } from '../records/record.tsx';
 import { itemsPayload, LineItemsEditor } from '../products/LineItemsEditor.tsx';
 import { dateOnly, DocStatus, docTitle, kindLabel, type DocFull } from './common.tsx';
+import { EmailDialog, PaymentDialog, PaymentsCard } from './DocumentExtras.tsx';
 
 /** The next steps offered for each status (the server enforces the same rules). */
 const ACTIONS: Record<string, Record<string, { status: string; label: string; primary?: boolean; danger?: boolean }[]>> = {
   quote: { draft: [{ status: 'sent', label: 'Mark as sent', primary: true }], sent: [{ status: 'accepted', label: 'Accepted', primary: true }, { status: 'declined', label: 'Declined' }], declined: [{ status: 'sent', label: 'Send again' }] },
-  invoice: { draft: [{ status: 'sent', label: 'Mark as sent', primary: true }], sent: [{ status: 'paid', label: 'Mark as paid', primary: true }, { status: 'void', label: 'Void', danger: true }] },
+  invoice: { draft: [{ status: 'sent', label: 'Mark as sent' }], sent: [{ status: 'paid', label: 'Mark as paid' }, { status: 'void', label: 'Void', danger: true }] },
 };
 
 export function DocumentPage() {
@@ -25,6 +26,7 @@ export function DocumentPage() {
   const q = useQuery({ queryKey: key, queryFn: () => api.get<DocFull>(`/documents/${id}`) });
   const [busy, setBusy] = useState<string | null>(null);
   const [confirm, setConfirm] = useState<'delete' | 'void' | null>(null);
+  const [dialog, setDialog] = useState<'email' | 'payment' | null>(null);
   const [form, setForm] = useState({ billToName: '', billToDetails: '', notes: '', dueDate: '' });
   const d = q.data;
   useEffect(() => { if (d) setForm({ billToName: d.billToName, billToDetails: d.billToDetails, notes: d.notes, dueDate: d.dueDate ?? '' }); }, [d]);
@@ -38,7 +40,9 @@ export function DocumentPage() {
     await qc.invalidateQueries({ queryKey: key });
     await qc.invalidateQueries({ queryKey: ['documents', d.dealId] });
     await qc.invalidateQueries({ queryKey: ['timeline', 'deal', d.dealId] }); // the deal's history lists document events
+    await qc.invalidateQueries({ queryKey: ['documents-list'] });
   };
+  const overdue = d.kind === 'invoice' && d.status === 'sent' && !!d.dueDate && d.dueDate < new Date().toISOString().slice(0, 10);
 
   const save = async () => {
     setBusy('save');
@@ -68,9 +72,11 @@ export function DocumentPage() {
 
   return (
     <RecordShell back={{ to: `/deals/${d.dealId}`, label: d.dealTitle }}
-      title={<span className="flex flex-wrap items-center gap-2">{docTitle(d)} <DocStatus status={d.status} /></span>}
-      subtitle={<span className="text-muted">{money(d.total, d.currency)} · {d.issueDate ? `issued ${dateOnly(d.issueDate)}` : 'not sent yet'}</span>}
+      title={<span className="flex flex-wrap items-center gap-2">{docTitle(d)} <DocStatus status={d.status} paidAmount={d.paidAmount} overdue={overdue} /></span>}
+      subtitle={<span className="text-muted">{money(d.total, d.currency)}{d.kind === 'invoice' && Number(d.paidAmount) > 0 && d.status === 'sent' ? ` · ${money(d.balance, d.currency)} due` : ''} · {d.issueDate ? `issued ${dateOnly(d.issueDate)}` : 'not sent yet'}{d.lastEmailedAt ? ` · emailed ${dateOnly(d.lastEmailedAt)}` : ''}</span>}
       actions={<div className="flex flex-wrap gap-2">
+        {d.canEdit && d.status !== 'void' && <Button variant="primary" icon={<Mail className="size-4" />} onClick={() => setDialog('email')}>{draft ? 'Send by email' : 'Email'}</Button>}
+        {d.canEdit && d.kind === 'invoice' && d.status === 'sent' && <Button variant="primary" icon={<Banknote className="size-4" />} onClick={() => setDialog('payment')}>Record payment</Button>}
         {d.canEdit && (ACTIONS[d.kind][d.status] ?? []).map((a) => (
           <Button key={a.status} variant={a.primary ? 'primary' : a.danger ? 'danger' : 'secondary'} loading={busy === a.status} disabled={!!busy}
             onClick={() => (a.status === 'void' ? setConfirm('void') : setStatus(a.status))}>{a.label}</Button>
@@ -103,6 +109,7 @@ export function DocumentPage() {
         </Card>
       </>}
       right={<>
+        {d.kind === 'invoice' && d.status !== 'draft' && <PaymentsCard doc={d} onChange={refresh} onRecord={() => setDialog('payment')} />}
         <LineItemsEditor title="Items" items={d.items} currency={d.currency} canEdit={editable}
           onSave={async (items) => { await api.patch(`/documents/${id}`, { items: itemsPayload(items) }); await refresh(); toast.success('Items saved'); }} />
         {d.sourceQuoteId && <p className="text-sm text-muted">Created from <Link className="text-brand-600 hover:underline dark:text-brand-200" to={`/documents/${d.sourceQuoteId}`}>the accepted quote</Link>.</p>}
@@ -110,6 +117,8 @@ export function DocumentPage() {
           description="It hasn’t been sent and has no number yet. This can’t be undone." confirmLabel="Delete draft" onConfirm={remove} />
         <ConfirmDialog open={confirm === 'void'} onOpenChange={(o) => !o && setConfirm(null)} danger title={`Void invoice ${d.number}?`}
           description="The invoice stays on record with its number but no longer counts as owed. This can’t be undone." confirmLabel="Void invoice" onConfirm={() => setStatus('void')} />
+        {dialog === 'email' && <EmailDialog doc={d} open onOpenChange={(o) => !o && setDialog(null)} onSent={refresh} />}
+        {dialog === 'payment' && <PaymentDialog doc={d} open onOpenChange={(o) => !o && setDialog(null)} onSaved={refresh} />}
       </>} />
   );
 }

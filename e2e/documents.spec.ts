@@ -28,7 +28,7 @@ test('quote from a deal → sent → accepted → invoice → paid, with PDF', a
   await page.getByRole('button', { name: 'Mark as sent' }).click();
   await expect(page.getByRole('heading', { name: /Invoice INV-0001/ })).toBeVisible();
   await page.getByRole('button', { name: 'Mark as paid' }).click();
-  await expect(page.getByText('Marked as paid')).toBeVisible();
+  await expect(page.getByText('Marked as paid', { exact: true })).toBeVisible(); // the toast (the payment row also says it)
 
   const [download] = await Promise.all([page.waitForEvent('download'), page.getByRole('link', { name: 'PDF', exact: true }).click()]);
   expect(download.suggestedFilename()).toBe('INV-0001.pdf');

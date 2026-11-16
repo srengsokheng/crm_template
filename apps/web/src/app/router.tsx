@@ -27,6 +27,7 @@ import { RecycleBin } from '../features/settings/RecycleBin.tsx';
 import { AuditLog } from '../features/settings/AuditLog.tsx';
 import { CurrenciesSettings } from '../features/settings/CurrenciesSettings.tsx';
 import { DocumentPage } from '../features/documents/DocumentPage.tsx';
+import { DocumentsPage } from '../features/documents/DocumentsPage.tsx';
 import { DocumentSettings } from '../features/settings/DocumentSettings.tsx';
 import { ImportStart } from '../features/imports/ImportStart.tsx';
 import { ImportDetail } from '../features/imports/ImportDetail.tsx';
@@ -48,6 +49,7 @@ export const router = createBrowserRouter([
       { path: 'leads/:id', element: <LeadDetail /> },
       { path: 'deals', element: <DealsPage /> },
       { path: 'deals/:id', element: <DealDetail /> },
+      { path: 'documents', element: <DocumentsPage /> },
       { path: 'documents/:id', element: <DocumentPage /> },
       { path: 'contacts', element: <ContactsPage /> },
       { path: 'contacts/:id', element: <ContactDetail /> },

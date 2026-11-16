@@ -183,7 +183,16 @@ The research behind every decision is in this folder:
   body) under Email delivery and can **Retry**; entries go with the job clean-up after 14 days. Password-reset mails have
   no workspace and are not listed.
 
-**Quality:** 152 Vitest tests (API against real PostgreSQL), 33 Playwright tests (desktop, tablet, phone), lint and
+- **Invoices: list, payments, email** (migration 0019): sidebar **Invoices** (`/documents`) lists every quote and
+  invoice of deals the user can see, with tabs (Unpaid, Overdue, Paid, Quotes, Drafts), search, and Outstanding /
+  Overdue totals in the base currency (missing exchange rates are named). **Payments** (`document_payments`,
+  `documents.paid_amount`): record partial payments (amount ≤ balance, date, method, note); covered → `paid`, removing
+  a payment reopens it; "Mark as paid" records the remaining balance; invoices with payments can't be voided; the PDF
+  shows Paid / Balance due. **Email**: `POST /documents/:id/email` sends the PDF as an attachment to up to 5 recipients
+  (suggested: the deal's contact/company emails), Reply-To the sender, From the workspace sender name; emailing a draft
+  issues it first. Money arithmetic via `moneyMinus` / `moneyCompare` in shared `money.ts`.
+
+**Quality:** 152 Vitest tests (API against real PostgreSQL), 34 Playwright tests (desktop, tablet, phone), lint and
 typecheck clean, `npm audit` = 0, GitHub Actions CI in `.github/workflows/ci.yml`.
 
 ## 3. Not built yet — suggested next work (in priority order)
@@ -191,12 +200,11 @@ typecheck clean, `npm audit` = 0, GitHub Actions CI in `.github/workflows/ci.yml
 The earlier list is done (see section 2). Known follow-ups, collected from the pull requests' "not verified" notes:
 
 1. PDFs: embed a Unicode font (e.g. Noto Sans Khmer) so non-Latin names print instead of "?".
-2. Invoices: an "all invoices" list with unpaid totals; partial payments; sending a quote/invoice by email from the CRM.
-3. Attachments: virus scanning of uploads; S3-compatible storage behind the existing `FileStore` interface.
-4. Webhooks: pin the checked IP in a custom HTTP agent (closes the DNS-rebinding window); delivery log per rule.
-5. Field permissions: disable locked fields in the "New …" dialogs (the server already refuses them).
-6. Import: products on deals (line items) from a file; adding options to custom select fields during import.
-7. Merge: combine both leads' product lists; an undo for merges.
+2. Attachments: virus scanning of uploads; S3-compatible storage behind the existing `FileStore` interface.
+3. Webhooks: pin the checked IP in a custom HTTP agent (closes the DNS-rebinding window); delivery log per rule.
+4. Field permissions: disable locked fields in the "New …" dialogs (the server already refuses them).
+5. Import: products on deals (line items) from a file; adding options to custom select fields during import.
+6. Merge: combine both leads' product lists; an undo for merges.
 
 Import limits and choices: 5 MB / 10,000 rows / 100 columns per file; lead rows only match *open* leads; list
 values (type, source, industry, size, deal type, category) must already exist unless an admin ticks "Add values that aren't in
