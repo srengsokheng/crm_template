@@ -1,7 +1,7 @@
 export type Scope = 'none' | 'own' | 'team' | 'all';
 export interface Me {
   user: { id: number; name: string; email: string };
-  preferences: { emailReminders: boolean };
+  preferences: { emailReminders: boolean; emailDigest: boolean };
   role: { id: number; name: string; isAdmin: boolean };
   workspace: { id: number; name: string; baseCurrency: string; useLeads: boolean; timezone: string; workingHours: { days: number[]; start: string; end: string } };
   permissions: Record<'lead' | 'deal' | 'contact' | 'company' | 'product' | 'activity', Record<'view' | 'create' | 'edit' | 'delete' | 'export' | 'import', Scope>>;

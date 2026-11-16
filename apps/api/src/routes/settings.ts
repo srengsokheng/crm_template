@@ -2,7 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import {
   dictionaryItemSchema, dictionaryUpdateSchema, fieldCreateSchema, fieldUpdateSchema, inviteSchema, memberUpdateSchema,
   pipelineCreateSchema, pipelineUpdateSchema, reorderSchema, roleCreateSchema, roleUpdateSchema, stageDeleteSchema, stageSchema,
-  stageUpdateSchema, teamSchema, workspaceUpdateSchema, FIELD_ENTITIES, LOCKABLE_FIELDS, type FieldRules,
+  stageUpdateSchema, teamSchema, workspaceUpdateSchema, emailSettingsSchema, FIELD_ENTITIES, LOCKABLE_FIELDS, type FieldRules,
 } from '@crm/shared';
 import { audit } from '../lib/audit.ts';
 import { config } from '../config.ts';
@@ -14,7 +14,7 @@ import { ctxOf } from '../lib/http.ts';
 import { requireAdmin } from '../lib/permissions.ts';
 import { camel, camelAll } from '../lib/records.ts';
 import { parse } from '../lib/validate.ts';
-import { deliver, inviteMail, mailStatus, queueMail, testMail } from '../lib/mailer.ts';
+import { deliver, inviteMail, mailStatus, queueMail, testMail, cleanSenderName, fromHeader, workspaceSender } from '../lib/mailer.ts';
 
 type IdParams = { Params: { id: string } };
 
@@ -250,7 +250,8 @@ export async function settingsRoutes(app: FastifyInstance) {
         ON CONFLICT (workspace_id, user_id) DO UPDATE SET role_id = EXCLUDED.role_id, invite_token_hash = EXCLUDED.invite_token_hash`, db);
       // Queued in the same transaction: the email only goes out if the invitation was saved.
       const ws = await q1<{ name: string }>(sql`SELECT name FROM workspaces WHERE id = ${ctx.workspaceId}`, db);
-      await queueMail(inviteMail({ to: body.email, name: body.name, workspace: ws!.name, inviter: ctx.userName, url: inviteUrl }), db);
+      await queueMail({ ...inviteMail({ to: body.email, name: body.name, workspace: ws!.name, inviter: ctx.userName, url: inviteUrl }), fromName: await workspaceSender(ctx.workspaceId, db) },
+        db, { workspaceId: ctx.workspaceId });
     });
     // The link is a secret: it is returned to the admin (to share by hand if needed) but never written to the log.
     req.log.info({ email: body.email }, 'invitation created');
@@ -290,19 +291,50 @@ export async function settingsRoutes(app: FastifyInstance) {
   });
 
   // ─────────────── Email delivery (status + test) ───────────────
+  const emailView = async (workspaceId: number) => {
+    const senderName = await workspaceSender(workspaceId);
+    const failed = await q1<{ n: number }>(sql`SELECT count(*)::int AS n FROM jobs WHERE type = 'email.send' AND status = 'failed' AND workspace_id = ${workspaceId}`);
+    return { ...mailStatus(), senderName, fromHeader: fromHeader(senderName), failedCount: failed?.n ?? 0 };
+  };
   app.get('/settings/email', async (req) => {
-    requireAdmin(ctxOf(req));
-    return mailStatus();
+    const ctx = ctxOf(req);
+    requireAdmin(ctx);
+    return emailView(ctx.workspaceId);
+  });
+  app.put('/settings/email', async (req) => {
+    const ctx = ctxOf(req);
+    requireAdmin(ctx);
+    const body = parse(emailSettingsSchema, req.body);
+    const name = body.senderName ? cleanSenderName(body.senderName) : '';
+    await q(sql`UPDATE workspaces SET settings = CASE WHEN ${name} = '' THEN settings - 'emailSenderName'
+      ELSE settings || jsonb_build_object('emailSenderName', ${name}::text) END WHERE id = ${ctx.workspaceId}`);
+    return emailView(ctx.workspaceId);
+  });
+  // Failed deliveries of this workspace's emails (kept 14 days), newest first. Recipients and subjects only — never bodies.
+  app.get('/settings/email/failures', async (req) => {
+    const ctx = ctxOf(req);
+    requireAdmin(ctx);
+    const rows = await q(sql`SELECT id, payload->>'to' AS "to", payload->>'subject' AS subject, last_error AS error, attempts, created_at
+      FROM jobs WHERE type = 'email.send' AND status = 'failed' AND workspace_id = ${ctx.workspaceId} ORDER BY id DESC LIMIT 50`);
+    return { data: camelAll(rows) };
+  });
+  app.post<IdParams>('/settings/email/failures/:id/retry', async (req) => {
+    const ctx = ctxOf(req);
+    requireAdmin(ctx);
+    const row = await q1(sql`UPDATE jobs SET status = 'pending', attempts = 0, last_error = NULL, run_at = now(), locked_at = NULL
+      WHERE id = ${Number(req.params.id)} AND type = 'email.send' AND status = 'failed' AND workspace_id = ${ctx.workspaceId} RETURNING id`);
+    if (!row) throw notFound('Failed email');
+    return { ok: true };
   });
   app.post('/settings/email/test', { config: { rateLimit: { max: config.isTest ? 1000 : 5, timeWindow: '1 minute' } } }, async (req) => {
     const ctx = ctxOf(req);
     requireAdmin(ctx);
     const ws = await q1<{ name: string }>(sql`SELECT name FROM workspaces WHERE id = ${ctx.workspaceId}`);
-    try { await deliver(testMail({ to: ctx.email, workspace: ws!.name })); } catch (e) {
+    try { await deliver({ ...testMail({ to: ctx.email, workspace: ws!.name }), fromName: await workspaceSender(ctx.workspaceId) }); } catch (e) {
       req.log.warn({ err: e }, 'test email failed');
       throw new AppError(502, 'EMAIL_FAILED', `The mail server did not accept the message: ${e instanceof Error ? e.message : 'unknown error'}`);
     }
-    return { ...mailStatus(), to: ctx.email };
+    return { ...(await emailView(ctx.workspaceId)), to: ctx.email };
   });
 
   // ─────────────── Roles ───────────────

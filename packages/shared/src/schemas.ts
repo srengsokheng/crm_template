@@ -310,7 +310,9 @@ export const mergeSchema = z.object({
 export type MergeInput = z.infer<typeof mergeSchema>;
 
 // ───────── Personal preferences ─────────
-export const preferencesSchema = z.object({ emailReminders: z.boolean().optional() });
+export const preferencesSchema = z.object({ emailReminders: z.boolean().optional(), emailDigest: z.boolean().optional() });
+/** Settings → Workspace → Email delivery. An empty sender name means "use the default From". */
+export const emailSettingsSchema = z.object({ senderName: z.string().max(60).nullish() });
 
 // ───────── Password reset ─────────
 export const forgotPasswordSchema = z.object({ email: z.email('Invalid email address').max(200) });

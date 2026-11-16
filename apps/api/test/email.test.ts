@@ -87,8 +87,8 @@ describe('email delivery', () => {
     await drain();
     outbox.length = 0;
     expect((await off.c.patch('/auth/preferences', { emailReminders: false })).status).toBe(200);
-    expect((await off.c.get('/auth/me')).body.preferences).toEqual({ emailReminders: false });
-    expect((await rep.c.get('/auth/me')).body.preferences).toEqual({ emailReminders: true });
+    expect((await off.c.get('/auth/me')).body.preferences).toEqual({ emailReminders: false, emailDigest: true });
+    expect((await rep.c.get('/auth/me')).body.preferences).toEqual({ emailReminders: true, emailDigest: true });
     const deal = (await admin.post('/deals', { title: 'Robot order' })).body;
     const dueAt = new Date(Date.now() + 3600_000).toISOString();
     for (const u of [rep, off, gone]) {
@@ -134,7 +134,8 @@ describe('email delivery', () => {
     expect((await rep.c.get('/settings/email')).status).toBe(403);
     expect((await rep.c.post('/settings/email/test')).status).toBe(403);
     const status = (await admin.get('/settings/email')).body;
-    expect(status).toEqual({ transport: 'memory', delivers: false, from: 'Acme CRM <no-reply@localhost>', host: null });
+    expect(status).toEqual({ transport: 'memory', delivers: false, from: 'Acme CRM <no-reply@localhost>', host: null,
+      senderName: null, fromHeader: 'Acme CRM <no-reply@localhost>', failedCount: 0 });
     outbox.length = 0;
     const sent = await admin.post('/settings/email/test');
     expect(sent.status).toBe(200);

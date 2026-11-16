@@ -2,8 +2,7 @@ import { Suspense, useEffect, useState, type ReactNode } from 'react';
 import { Link, NavLink, Navigate, Outlet, useLocation, useNavigate } from 'react-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
-  BarChart3, Bell, BellOff, BellRing, Building2, CheckSquare, Handshake, Home, LogOut, Menu as MenuIcon, Moon, Package, Plus, Search, Settings, Sun, Users, Zap, Monitor, X,
-} from 'lucide-react';
+  BarChart3, Bell, BellOff, BellRing, Building2, CheckSquare, Handshake, Home, LogOut, Menu as MenuIcon, Moon, Package, Plus, Search, Settings, Sun, Users, Zap, Monitor, X, Mail } from 'lucide-react';
 import { toast } from 'sonner';
 import { api, ApiError, errorMessage } from '../lib/api.ts';
 import { cn } from '../lib/cn.ts';
@@ -158,6 +157,14 @@ function TopBar({ onSearch }: { onSearch: () => void }) {
   const logout = async () => { await api.post('/auth/logout', {}); qc.clear(); nav('/login', { replace: true }); };
   const cycleTheme = (t: Theme) => { setTheme(t); applyTheme(t); };
   const reminders = me?.preferences.emailReminders ?? true;
+  const digest = me?.preferences.emailDigest ?? true;
+  const toggleDigest = async () => {
+    try {
+      await api.patch('/auth/preferences', { emailDigest: !digest });
+      await qc.invalidateQueries({ queryKey: ['me'] });
+      toast.success(digest ? 'Daily summary turned off' : 'Daily summary turned on');
+    } catch (e) { toast.error(errorMessage(e)); }
+  };
   const toggleReminders = async () => {
     try {
       await api.patch('/auth/preferences', { emailReminders: !reminders });
@@ -192,6 +199,7 @@ function TopBar({ onSearch }: { onSearch: () => void }) {
           { label: 'System theme', icon: <Monitor className="size-4" />, onSelect: () => cycleTheme('system'), hidden: theme === 'system' },
           'separator',
           { label: reminders ? 'Turn off reminder emails' : 'Turn on reminder emails', icon: reminders ? <BellOff className="size-4" /> : <BellRing className="size-4" />, onSelect: toggleReminders },
+          { label: digest ? 'Turn off daily summary email' : 'Turn on daily summary email', icon: <Mail className="size-4" />, onSelect: toggleDigest },
           'separator',
           { label: 'Sign out', icon: <LogOut className="size-4" />, onSelect: logout },
         ]} />

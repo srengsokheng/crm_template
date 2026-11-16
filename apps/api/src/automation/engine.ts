@@ -10,7 +10,7 @@ import { runChunk } from '../imports/engine.ts';
 import { files } from '../lib/files.ts';
 import { deliverWebhook } from '../lib/webhooks.ts';
 import { config } from '../config.ts';
-import { deliver, queueMail, reminderMail, type Mail } from '../lib/mailer.ts';
+import { deliver, queueMail, reminderMail, type Mail, digestMail, workspaceSender } from '../lib/mailer.ts';
 
 export const MAX_DEPTH = 5;
 const RETENTION_DAYS = 30;
@@ -268,11 +268,60 @@ export async function sendReminders(now = new Date()) {
           WHEN 'contact' THEN (SELECT trim(coalesce(first_name,'') || ' ' || coalesce(last_name,'')) FROM contacts WHERE id = al.entity_id AND deleted_at IS NULL)
           WHEN 'company' THEN (SELECT name FROM companies WHERE id = al.entity_id AND deleted_at IS NULL) END AS title
         FROM activity_links al WHERE al.activity_id = ${a.id}`, db);
-      await queueMail(reminderMail({
-        to: to.email, name: to.name, subject: a.subject, kind: a.kind, due: a.due_at ? formatDue(a.due_at, to.timezone) : null,
-        related: related.map((r) => r.title).filter((t): t is string => !!t), workspace: to.workspace, url: `${config.appUrl}/activities`,
-      }), db);
+      await queueMail({
+        ...reminderMail({
+          to: to.email, name: to.name, subject: a.subject, kind: a.kind, due: a.due_at ? formatDue(a.due_at, to.timezone) : null,
+          related: related.map((r) => r.title).filter((t): t is string => !!t), workspace: to.workspace, url: `${config.appUrl}/activities`,
+        }),
+        fromName: await workspaceSender(a.workspace_id, db),
+      }, db, { workspaceId: a.workspace_id });
     }
+  });
+}
+
+/** Local hour after which the daily digest goes out. */
+export const DIGEST_HOUR = 8;
+
+/**
+ * Daily digest: once per workspace-local day, after DIGEST_HOUR, every active member who wants it gets one email listing
+ * their overdue open activities (nothing is sent when there are none). `digest_sent_on` makes it at-most-once per day.
+ */
+export async function sendDigests(now = new Date()): Promise<number> {
+  return tx(async (db) => {
+    const due = await q<{ workspace_id: number; user_id: number; role_id: number; is_admin: boolean; email: string; name: string; workspace: string; timezone: string }>(sql`
+      UPDATE memberships m SET digest_sent_on = (${now}::timestamptz AT TIME ZONE w.timezone)::date
+      FROM workspaces w, users u, roles r
+      WHERE w.id = m.workspace_id AND u.id = m.user_id AND r.id = m.role_id AND u.is_active AND m.status = 'active' AND m.email_digest
+        AND extract(hour FROM ${now}::timestamptz AT TIME ZONE w.timezone) >= ${DIGEST_HOUR}
+        AND (m.digest_sent_on IS NULL OR m.digest_sent_on < (${now}::timestamptz AT TIME ZONE w.timezone)::date)
+      RETURNING m.workspace_id, m.user_id, m.role_id, r.is_admin, u.email, u.name, w.name AS workspace, w.timezone`, db);
+    let sent = 0;
+    for (const d of due) {
+      const items = await q<{ id: number; subject: string; kind: string; due_at: Date }>(sql`SELECT id, subject, kind, due_at FROM activities
+        WHERE workspace_id = ${d.workspace_id} AND assignee_id = ${d.user_id} AND status = 'open' AND deleted_at IS NULL AND due_at < ${now}
+        ORDER BY due_at, id`, db);
+      if (!items.length) continue;
+      // Titles of deals/leads in pipelines the member may not use are not revealed.
+      const blocked = d.is_admin ? [] : (await q<{ id: number }>(sql`SELECT id FROM pipelines WHERE workspace_id = ${d.workspace_id}
+        AND allowed_role_ids IS NOT NULL AND NOT (${d.role_id}::bigint = ANY(allowed_role_ids))`, db)).map((p) => Number(p.id));
+      const shown = items.slice(0, 10);
+      const links = await q<{ activity_id: number; title: string | null }>(sql`SELECT al.activity_id, CASE al.entity_type
+          WHEN 'deal' THEN (SELECT CASE WHEN pipeline_id = ANY(${blocked}) THEN 'Restricted deal' ELSE title END FROM deals WHERE id = al.entity_id AND deleted_at IS NULL)
+          WHEN 'lead' THEN (SELECT CASE WHEN pipeline_id = ANY(${blocked}) THEN 'Restricted lead' ELSE title END FROM leads WHERE id = al.entity_id AND deleted_at IS NULL)
+          WHEN 'contact' THEN (SELECT trim(coalesce(first_name,'') || ' ' || coalesce(last_name,'')) FROM contacts WHERE id = al.entity_id AND deleted_at IS NULL)
+          WHEN 'company' THEN (SELECT name FROM companies WHERE id = al.entity_id AND deleted_at IS NULL) END AS title
+        FROM activity_links al WHERE al.activity_id = ANY(${shown.map((i) => i.id)})`, db);
+      await queueMail({
+        ...digestMail({
+          to: d.email, name: d.name, workspace: d.workspace, total: items.length, url: `${config.appUrl}/activities?bucket=overdue`,
+          items: shown.map((i) => ({ subject: i.subject, kind: i.kind, due: formatDue(i.due_at, d.timezone),
+            related: links.filter((l) => Number(l.activity_id) === Number(i.id) && l.title).map((l) => l.title!) })),
+        }),
+        fromName: await workspaceSender(d.workspace_id, db),
+      }, db, { workspaceId: d.workspace_id });
+      sent++;
+    }
+    return sent;
   });
 }
 
@@ -310,12 +359,14 @@ export async function purge() {
 export function startWorker(log: (m: string) => void = () => {}): () => void {
   let stopped = false;
   let lastReminder = 0;
+  let lastDigest = 0;
   let lastPurge = 0;
   const tick = async () => {
     if (stopped) return;
     try {
       const now = Date.now();
       if (now - lastReminder > 60_000) { lastReminder = now; await sendReminders(); }
+      if (now - lastDigest > 300_000) { lastDigest = now; const n = await sendDigests(); if (n) log(`queued ${n} daily digest(s)`); }
       if (now - lastPurge > 3_600_000) { lastPurge = now; await purge(); await releaseStuckJobs(); }
       const n = (await processOutbox()) + (await processJobs());
       if (n) log(`worker processed ${n} items`);

@@ -173,20 +173,38 @@ The research behind every decision is in this folder:
   trigram indexes; "Same name" compares the keys, "Similar name" uses `%` at similarity ≥ 0.6 and ranks below shared
   contact details. Field permissions apply to every merged field.
 
-**Quality:** 144 Vitest tests (API against real PostgreSQL), 32 Playwright tests (desktop, tablet, phone), lint and
+- **Email follow-ups** (migration 0018): **sender name** per workspace (Settings → Workspace → Email delivery; stored
+  in `workspaces.settings.emailSenderName`): mails of that workspace go out as `"<name>" <configured address>`, the
+  address never changes (SPF/DKIM stay valid) and the name is cleaned so it can't add headers. **Daily summary**:
+  `sendDigests()` (worker, every 5 minutes) emails each active member, once per workspace-local day after 08:00, the list
+  of their overdue open activities (none → no email); `memberships.digest_sent_on` makes it at-most-once; opt-out in the
+  account menu (`email_digest`); titles of deals/leads in pipelines the member may not use show as "Restricted".
+  **Failed deliveries**: email jobs carry `workspace_id`; admins see failed ones (recipient, subject, error — never the
+  body) under Email delivery and can **Retry**; entries go with the job clean-up after 14 days. Password-reset mails have
+  no workspace and are not listed.
+
+**Quality:** 152 Vitest tests (API against real PostgreSQL), 33 Playwright tests (desktop, tablet, phone), lint and
 typecheck clean, `npm audit` = 0, GitHub Actions CI in `.github/workflows/ci.yml`.
 
 ## 3. Not built yet — suggested next work (in priority order)
 
-1. Email follow-ups: a daily digest of overdue activities; per-workspace sender name; showing
-    failed deliveries to admins (today they are only in the `jobs` table as `failed` with `last_error`).
+The earlier list is done (see section 2). Known follow-ups, collected from the pull requests' "not verified" notes:
+
+1. PDFs: embed a Unicode font (e.g. Noto Sans Khmer) so non-Latin names print instead of "?".
+2. Invoices: an "all invoices" list with unpaid totals; partial payments; sending a quote/invoice by email from the CRM.
+3. Attachments: virus scanning of uploads; S3-compatible storage behind the existing `FileStore` interface.
+4. Webhooks: pin the checked IP in a custom HTTP agent (closes the DNS-rebinding window); delivery log per rule.
+5. Field permissions: disable locked fields in the "New …" dialogs (the server already refuses them).
+6. Import: products on deals (line items) from a file; adding options to custom select fields during import.
+7. Merge: combine both leads' product lists; an undo for merges.
 
 Import limits and choices: 5 MB / 10,000 rows / 100 columns per file; lead rows only match *open* leads; list
 values (type, source, industry, size, deal type, category) must already exist unless an admin ticks "Add values that aren't in
 the lists yet"; deal contacts must already exist; "Undo" does not revert updates; raw cells are kept 30 days.
 
-Email choices: reminder emails use the workspace time zone; a failed delivery is retried twice and then dropped (the
-in-app notification is unaffected); invitation links are never written to the server log.
+Email choices: reminder emails and the daily summary use the workspace time zone; a failed delivery is retried twice,
+then listed for admins under Settings → Workspace → Email delivery (Retry; kept 14 days) — the in-app notification is
+unaffected; invitation links are never written to the server log.
 
 Merge choices: a merge cannot be undone (the merged record's values that lost are only in the audit event); private
 records can be merged only by people who may see both.

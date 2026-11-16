@@ -107,9 +107,9 @@ export async function authRoutes(app: FastifyInstance) {
     const ctx = ctxOf(req);
     const ws = await q1<{ name: string; base_currency: string; timezone: string; settings: Record<string, unknown> }>(
       sql`SELECT name, base_currency, timezone, settings FROM workspaces WHERE id = ${ctx.workspaceId}`);
-    const m = await q1<{ email_reminders: boolean }>(sql`SELECT email_reminders FROM memberships WHERE workspace_id = ${ctx.workspaceId} AND user_id = ${ctx.userId}`);
+    const m = await q1<{ email_reminders: boolean; email_digest: boolean }>(sql`SELECT email_reminders, email_digest FROM memberships WHERE workspace_id = ${ctx.workspaceId} AND user_id = ${ctx.userId}`);
     return {
-      preferences: { emailReminders: m?.email_reminders ?? true },
+      preferences: { emailReminders: m?.email_reminders ?? true, emailDigest: m?.email_digest ?? true },
       user: { id: ctx.userId, name: ctx.userName, email: ctx.email },
       role: { id: ctx.roleId, name: ctx.roleName, isAdmin: ctx.isAdmin },
       workspace: { id: ctx.workspaceId, name: ws!.name, baseCurrency: ws!.base_currency, useLeads: ctx.useLeads, timezone: ws!.timezone,
@@ -126,7 +126,10 @@ export async function authRoutes(app: FastifyInstance) {
     if (body.emailReminders !== undefined) {
       await q(sql`UPDATE memberships SET email_reminders = ${body.emailReminders} WHERE workspace_id = ${ctx.workspaceId} AND user_id = ${ctx.userId}`);
     }
-    return { emailReminders: body.emailReminders };
+    if (body.emailDigest !== undefined) {
+      await q(sql`UPDATE memberships SET email_digest = ${body.emailDigest} WHERE workspace_id = ${ctx.workspaceId} AND user_id = ${ctx.userId}`);
+    }
+    return { emailReminders: body.emailReminders, emailDigest: body.emailDigest };
   });
 
   app.get<{ Params: { token: string } }>('/auth/invite/:token', async (req) => {
