@@ -204,7 +204,12 @@ The research behind every decision is in this folder:
   `webhook_deliveries` (status, error, duration; 30 days) and shown in the rule editor under "Recent deliveries", with a
   **Send test** button that posts a sample record (`*.test` event). Admin only.
 
-**Quality:** 160 Vitest tests (API against real PostgreSQL), 36 Playwright tests (desktop, tablet, phone), lint and
+- **Locked fields in "New …" forms**: the lead, deal, contact and company create forms leave out fields that are
+  read-only (or hidden) for the user's role, including custom fields, so a restricted user is never offered a field the
+  server would refuse; the record is created with those fields empty or at their default (e.g. owner = yourself).
+  Required fields (deal name, company name) always stay.
+
+**Quality:** 160 Vitest tests (API against real PostgreSQL), 37 Playwright tests (desktop, tablet, phone), lint and
 typecheck clean, `npm audit` = 0, GitHub Actions CI in `.github/workflows/ci.yml`.
 
 ## 3. Not built yet — suggested next work (in priority order)
@@ -212,9 +217,8 @@ typecheck clean, `npm audit` = 0, GitHub Actions CI in `.github/workflows/ci.yml
 The earlier list is done (see section 2). Known follow-ups, collected from the pull requests' "not verified" notes:
 
 1. PDFs: embed a Unicode font (e.g. Noto Sans Khmer) so non-Latin names print instead of "?".
-2. Field permissions: disable locked fields in the "New …" dialogs (the server already refuses them).
-3. Import: products on deals (line items) from a file; adding options to custom select fields during import.
-4. Merge: combine both leads' product lists; an undo for merges.
+2. Import: products on deals (line items) from a file; adding options to custom select fields during import.
+3. Merge: combine both leads' product lists; an undo for merges.
 
 Import limits and choices: 5 MB / 10,000 rows / 100 columns per file; lead rows only match *open* leads; list
 values (type, source, industry, size, deal type, category) must already exist unless an admin ticks "Add values that aren't in
