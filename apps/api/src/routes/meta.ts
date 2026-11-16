@@ -2,6 +2,8 @@ import type { FastifyInstance } from 'fastify';
 import { q, q1, sql } from '../db/index.ts';
 import { ctxOf } from '../lib/http.ts';
 import { camelAll } from '../lib/records.ts';
+import { hiddenCustomKeys } from '../lib/fieldAccess.ts';
+import type { FieldEntity } from '@crm/shared';
 
 export async function metaRoutes(app: FastifyInstance) {
   app.get('/health', async () => {
@@ -34,7 +36,8 @@ export async function metaRoutes(app: FastifyInstance) {
       users: camelAll(users),
       pipelines: camelAll<{ id: number }>(pipelines).map((p) => ({ ...p, stages: stageList.filter((s) => s.pipelineId === p.id) })),
       dictionaries: camelAll(dictionaries),
-      fields: camelAll(fields),
+      fields: camelAll<{ entityType: string; key: string }>(fields)
+        .filter((f) => !hiddenCustomKeys(ctx, f.entityType as FieldEntity).includes(f.key)),
       teams: camelAll(teams),
       productCategories: camelAll(categories),
     };

@@ -16,6 +16,7 @@ import { assertOnRecord, requireAny, scopeWhere } from '../lib/permissions.ts';
 import { assertMembers, assertRefs, camel, camelAll, getActive, insertRow, pickColumns, updateRow } from '../lib/records.ts';
 import { getStage, recordStageChange, resolvePipelineStage, stageOfKind, type MoveInput } from '../lib/stages.ts';
 import { parse } from '../lib/validate.ts';
+import { assertCanChange, assertCreateFields, changedCustomKeys, fieldsFromChanges } from '../lib/fieldAccess.ts';
 import { exportCsv } from '../lib/exportList.ts';
 import { inBase } from '../lib/currency.ts';
 import { createDeal, loadLineItems, replaceLineItems } from './deals.ts';
@@ -73,6 +74,7 @@ export async function moveLead(db: Db, ctx: Ctx, id: number, input: MoveInput, o
   const from = await getStage(db, ctx, before.stage_id);
   const defs = await loadDefs(ctx.workspaceId, 'lead', db);
   const custom = mergeCustom(defs, input.custom, before.custom);
+  assertCanChange(ctx, 'lead', changedCustomKeys(before.custom, custom));
   await assertRequired(defs, custom, to.id);
   const row = (await updateRow(db, 'leads', id, ctx.workspaceId, {
     stage_id: to.id, status: to.kind, custom, stage_changed_at: new Date(), stage_changed_by: ctx.roleName === 'system' ? null : ctx.userId,
@@ -91,6 +93,10 @@ export async function createLead(db: Db, ctx: Ctx, body: LeadCreateInput, opts: 
   requireAny(ctx, 'lead', 'create');
   await assertRefs(ctx, [{ table: 'dictionary_items', ids: [body.sourceId], label: 'Source', kind: 'lead_source' }], db);
   await assertMembers(ctx, [body.ownerId], db);
+  {
+    const { pipelineId: _p, stageId: _s, methods: _m, ...fields } = body;
+    assertCreateFields(ctx, 'lead', fields, { ownerId: ctx.userId, visibility: 'shared', currency: ctx.baseCurrency, amount: '0' });
+  }
   const stage = await resolvePipelineStage(db, ctx, 'lead', body.pipelineId, body.stageId);
   if (stage.kind !== 'open') throw badRequest('New leads must start in an open stage', { stageId: 'Choose an open stage' });
   const defs = await loadDefs(ctx.workspaceId, 'lead', db);
@@ -120,6 +126,10 @@ export async function updateLead(db: Db, ctx: Ctx, id: number, body: LeadUpdateI
     await assertRequired(defs, values.custom as Record<string, unknown>, before.stage_id, db);
   }
   const changes: Record<string, unknown> = diff(before, values);
+  const locked = fieldsFromChanges(changes, LEAD_COLS);
+  if (values.custom) locked.push(...changedCustomKeys(before.custom, values.custom as Record<string, unknown>));
+  // An empty title is filled automatically; that isn't the user changing a locked title.
+  assertCanChange(ctx, 'lead', 'title' in body && !body.title ? locked.filter((f) => f !== 'title') : locked);
   let row = (await updateRow(db, 'leads', id, ctx.workspaceId, { ...values, updated_by: ctx.userId }, { version: body.version })) as LeadRow;
   await replaceMethods(db, ctx.workspaceId, 'lead', id, body.methods);
   if (body.methods) changes.methods = [null, body.methods.map((m) => m.value)];
@@ -219,6 +229,7 @@ export async function leadRoutes(app: FastifyInstance) {
     return tx(async (db) => {
       const lead = await getActive<LeadRow>(db, 'leads', id, ctx, 'Lead');
       assertOnRecord(ctx, 'lead', 'edit', lead);
+      assertCanChange(ctx, 'lead', ['amount']);
       await replaceLineItems(db, ctx, 'lead', id, body.items);
       await audit(db, ctx, 'lead', id, 'updated', { lineItems: [null, body.items.length] });
       return { lineItems: await loadLineItems('lead', id, db) };
@@ -298,6 +309,8 @@ export async function leadRoutes(app: FastifyInstance) {
       let dealId: number | null = null;
       if (body.deal.create) {
         requireAny(ctx, 'deal', 'create');
+        // Values typed in the convert dialog are checked; values copied from the lead are not.
+        assertCreateFields(ctx, 'deal', { title: body.deal.title, amount: body.deal.amount, custom: body.deal.custom });
         const items = await q<{ product_id: number | null; name: string; unit_price: string; quantity: string; unit: string; discount_type: 'percent' | 'amount' | null; discount_value: string; tax_rate: string | null; tax_included: boolean }>(
           sql`SELECT product_id, name, unit_price, quantity, unit, discount_type, discount_value, tax_rate, tax_included FROM line_items WHERE parent_type = 'lead' AND parent_id = ${id} ORDER BY sort`, db);
         // Copy custom field values whose keys also exist on deals.
@@ -309,7 +322,7 @@ export async function leadRoutes(app: FastifyInstance) {
           amount: amount ?? undefined, amountMode: items.length && !body.deal.amount ? 'auto' : undefined, currency: lead.currency,
           companyId, contactIds: contactId ? [contactId] : [], sourceId: lead.source_id, ownerId: lead.owner_id,
           description: lead.description, custom: { ...carried, ...(body.deal.custom ?? {}) }, leadId: id,
-        });
+        }, { fieldCheck: false });
         dealId = deal.id;
         if (items.length) {
           await replaceLineItems(db, ctx, 'deal', dealId, items.map((i) => ({

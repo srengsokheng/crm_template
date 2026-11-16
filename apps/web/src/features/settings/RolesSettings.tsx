@@ -6,9 +6,11 @@ import { api, errorMessage } from '../../lib/api.ts';
 import { cn } from '../../lib/cn.ts';
 import type { Scope } from '../../lib/types.ts';
 import { Badge, Button, Card, Input, Select } from '../../components/ui/primitives.tsx';
+import type { FieldRules } from '@crm/shared';
 import { AdminOnly } from './SettingsLayout.tsx';
+import { FieldAccessEditor } from './FieldAccessEditor.tsx';
 
-interface Role { id: number; name: string; isAdmin: boolean; isSystem: boolean; memberCount: number; grants: Record<string, Record<string, Scope>> }
+interface Role { id: number; name: string; isAdmin: boolean; isSystem: boolean; memberCount: number; grants: Record<string, Record<string, Scope>>; fieldRules: FieldRules }
 const ENTITIES = [['lead', 'Leads'], ['deal', 'Deals'], ['contact', 'Contacts'], ['company', 'Companies'], ['product', 'Products'], ['activity', 'Activities']] as const;
 const ACTIONS = [['view', 'View'], ['create', 'Create'], ['edit', 'Edit'], ['delete', 'Delete'], ['export', 'Export'], ['import', 'Import']] as const;
 /** Actions that are a yes/no switch rather than a record scope. */
@@ -24,8 +26,9 @@ export function RolesSettings() {
   const active = list.find((r) => r.id === activeId) ?? list[0];
   const [grants, setGrants] = useState<Role['grants']>({});
   const [name, setName] = useState('');
-  useEffect(() => { if (active) { setGrants(active.grants); setName(active.name); } }, [active?.id, roles.dataUpdatedAt]); // eslint-disable-line react-hooks/exhaustive-deps
-  const call = async (fn: () => Promise<unknown>, ok: string) => { try { await fn(); qc.invalidateQueries({ queryKey: ['roles'] }); qc.invalidateQueries({ queryKey: ['meta'] }); toast.success(ok); } catch (e) { toast.error(errorMessage(e)); } };
+  const [fieldRules, setFieldRules] = useState<FieldRules>({});
+  useEffect(() => { if (active) { setGrants(active.grants); setName(active.name); setFieldRules(active.fieldRules ?? {}); } }, [active?.id, roles.dataUpdatedAt]); // eslint-disable-line react-hooks/exhaustive-deps
+  const call = async (fn: () => Promise<unknown>, ok: string) => { try { await fn(); qc.invalidateQueries({ queryKey: ['roles'] }); qc.invalidateQueries({ queryKey: ['meta'] }); qc.invalidateQueries({ queryKey: ['me'] }); toast.success(ok); } catch (e) { toast.error(errorMessage(e)); } };
   const createRole = async () => {
     try { const r = await api.post<{ id: number }>('/roles', { name: 'New role', grants: {} }); await qc.invalidateQueries({ queryKey: ['roles'] }); setActiveId(r.id); }
     catch (e) { toast.error(errorMessage(e)); }
@@ -69,7 +72,11 @@ export function RolesSettings() {
                   </table>
                 </div>
                 <p className="mt-3 text-xs text-muted">“Own” means records the user owns, “Team” records owned by anyone who shares a team with them, and “All” every record except other people’s private ones. “Import” lets the user upload CSV files; imported rows still need Create, and updating existing records needs Edit on them.</p>
-                <div className="mt-3 flex justify-end"><Button variant="primary" onClick={() => call(() => api.patch(`/roles/${active.id}`, { ...(active.isSystem ? {} : { name }), grants }), 'Role saved')}>Save role</Button></div>
+                <div className="mt-5 border-t border-[var(--border)] pt-4">
+                  <h3 className="mb-2 text-sm font-semibold">Field access</h3>
+                  <FieldAccessEditor value={fieldRules} onChange={setFieldRules} />
+                </div>
+                <div className="mt-3 flex justify-end"><Button variant="primary" onClick={() => call(() => api.patch(`/roles/${active.id}`, { ...(active.isSystem ? {} : { name }), grants, fieldRules }), 'Role saved')}>Save role</Button></div>
               </>
             )}
           </Card>

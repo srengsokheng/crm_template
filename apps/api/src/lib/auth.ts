@@ -56,11 +56,13 @@ export async function buildCtx(row: {
     JOIN teams t ON t.id = tm1.team_id AND t.workspace_id = ${row.workspace_id}
     WHERE tm1.user_id = ${row.user_id}`, db);
   const teamUserIds = Array.from(new Set([row.user_id, ...team.map((t) => t.user_id)]));
+  const rules = row.is_admin ? null : await q1<{ field_rules: Ctx['fieldRules'] }>(sql`SELECT field_rules FROM roles WHERE id = ${row.role_id}`, db);
   const blocked = row.is_admin ? [] : await q<{ id: number }>(sql`SELECT id FROM pipelines WHERE workspace_id = ${row.workspace_id}
     AND allowed_role_ids IS NOT NULL AND NOT (${row.role_id}::bigint = ANY(allowed_role_ids))`, db);
   return {
     userId: row.user_id, workspaceId: row.workspace_id, userName: row.name, email: row.email,
     roleId: row.role_id, roleName: row.role_name, isAdmin: row.is_admin, grants, teamUserIds, blockedPipelineIds: blocked.map((b) => Number(b.id)),
+    fieldRules: rules?.field_rules ?? {},
     baseCurrency: row.base_currency, useLeads: row.settings?.useLeads !== false,
   };
 }

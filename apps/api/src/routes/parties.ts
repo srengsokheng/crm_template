@@ -14,6 +14,7 @@ import { likeTerm, qs, runList, type ListSpec } from '../lib/list.ts';
 import { assertOnRecord, pipelineAllowed, requireAny, scopeWhere } from '../lib/permissions.ts';
 import { assertMembers, assertRefs, camel, camelAll, getActive, insertRow, pickColumns, updateRow } from '../lib/records.ts';
 import { parse } from '../lib/validate.ts';
+import { assertCanChange, assertCreateFields, changedCustomKeys, fieldRule, fieldsFromChanges } from '../lib/fieldAccess.ts';
 import { exportCsv } from '../lib/exportList.ts';
 import { mergedOr404 } from './merge.ts';
 
@@ -59,6 +60,10 @@ export async function createContact(db: Db, ctx: Ctx, body: ContactCreateInput, 
     { table: 'dictionary_items', ids: [body.sourceId], label: 'Source', kind: 'lead_source' },
   ], db);
   await assertMembers(ctx, [body.ownerId], db);
+  {
+    const { methods: _m, companyIds, ...fields } = body;
+    assertCreateFields(ctx, 'contact', { ...fields, primaryCompanyId: fields.primaryCompanyId ?? companyIds?.[0] }, { ownerId: ctx.userId, visibility: 'shared' });
+  }
   const defs = await loadDefs(ctx.workspaceId, 'contact', db);
   const custom = mergeCustom(defs, body.custom);
   await assertRequired(defs, custom, undefined, db);
@@ -87,6 +92,13 @@ export async function updateContact(db: Db, ctx: Ctx, id: number, body: ContactU
     values.custom = mergeCustom(defs, body.custom, before.custom);
     await assertRequired(defs, values.custom as Record<string, unknown>, undefined, db);
   }
+  const lockedC = fieldsFromChanges(diff(before, values), CONTACT_COLS);
+  if (values.custom) lockedC.push(...changedCustomKeys(before.custom, values.custom as Record<string, unknown>));
+  if (body.companyIds !== undefined && fieldRule(ctx, 'contact', 'primaryCompanyId')) {
+    const cur = await q<{ company_id: number }>(sql`SELECT company_id FROM contact_companies WHERE contact_id = ${id}`, db);
+    if (JSON.stringify(cur.map((c) => Number(c.company_id)).sort()) !== JSON.stringify([...new Set(body.companyIds)].sort())) lockedC.push('primaryCompanyId');
+  }
+  assertCanChange(ctx, 'contact', lockedC);
   const merged = { ...before, ...values };
   if (!merged.first_name && !merged.last_name) throw badRequest('Enter a first or last name', { firstName: 'Required' });
   const changes: Record<string, unknown> = diff(before, values);
@@ -102,6 +114,10 @@ export async function createCompany(db: Db, ctx: Ctx, body: CompanyCreateInput, 
   requireAny(ctx, 'company', 'create');
   await assertRefs(ctx, [{ table: 'dictionary_items', ids: [body.typeId, body.industryId, body.sizeId, body.sourceId], label: 'Option' }], db);
   await assertMembers(ctx, [body.ownerId], db);
+  {
+    const { methods: _m, ...fields } = body;
+    assertCreateFields(ctx, 'company', fields, { ownerId: ctx.userId, visibility: 'shared', currency: ctx.baseCurrency });
+  }
   const defs = await loadDefs(ctx.workspaceId, 'company', db);
   const custom = mergeCustom(defs, body.custom);
   await assertRequired(defs, custom, undefined, db);
@@ -126,6 +142,9 @@ export async function updateCompany(db: Db, ctx: Ctx, id: number, body: CompanyU
     await assertRequired(defs, values.custom as Record<string, unknown>, undefined, db);
   }
   const changes: Record<string, unknown> = diff(before, values);
+  const lockedCo = fieldsFromChanges(changes, COMPANY_COLS);
+  if (values.custom) lockedCo.push(...changedCustomKeys(before.custom, values.custom as Record<string, unknown>));
+  assertCanChange(ctx, 'company', lockedCo);
   const row = await updateRow(db, 'companies', id, ctx.workspaceId, { ...values, updated_by: ctx.userId }, { version: body.version }) as PartyRow;
   await replaceMethods(db, ctx.workspaceId, 'company', id, body.methods);
   if (body.methods) changes.methods = [null, body.methods.map((m) => m.value)];

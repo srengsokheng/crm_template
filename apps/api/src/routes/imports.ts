@@ -7,6 +7,7 @@ import { pool, q, q1, raw, sql, tx, type Db } from '../db/index.ts';
 import { audit } from '../lib/audit.ts';
 import type { Ctx } from '../lib/context.ts';
 import { loadDefs } from '../lib/customFields.ts';
+import { hiddenCustomKeys } from '../lib/fieldAccess.ts';
 import { AppError, badRequest, notFound } from '../lib/errors.ts';
 import { ctxOf } from '../lib/http.ts';
 import { canOnRecord, requireAny } from '../lib/permissions.ts';
@@ -53,7 +54,8 @@ async function userName(id: number) {
 async function validateConfig(ctx: Ctx, imp: ImportRow, cfg: ImportConfig): Promise<ImportOptions> {
   const entity = imp.entity_type;
   if (cfg.mapping.length !== imp.headers.length) throw badRequest('The mapping must have one entry per column', { mapping: 'Wrong length' });
-  const defs = await loadDefs(ctx.workspaceId, entity);
+  // Hidden fields count as unknown: they can't be mapped.
+  const defs = (await loadDefs(ctx.workspaceId, entity)).filter((d) => !hiddenCustomKeys(ctx, entity).includes(d.key));
   const errs = mappingErrors(entity, cfg.mapping, defs.map((d) => d.key));
   if (errs.length) throw new AppError(400, 'VALIDATION_FAILED', errs[0], { mapping: errs.join(' · ') }, errs);
   const options = { ...cfg.options };
@@ -100,7 +102,7 @@ export async function importRoutes(app: FastifyInstance) {
       throw badRequest(`The file has ${parsed.rows.length.toLocaleString('en')} rows; the limit is ${IMPORT_LIMITS.maxRows.toLocaleString('en')}. Split it into smaller files.`, { content: 'Too many rows' });
     }
     if (parsed.headers.length > IMPORT_LIMITS.maxColumns) throw badRequest(`The file has more than ${IMPORT_LIMITS.maxColumns} columns`, { content: 'Too many columns' });
-    const defs = await loadDefs(ctx.workspaceId, body.entityType);
+    const defs = (await loadDefs(ctx.workspaceId, body.entityType)).filter((d) => !hiddenCustomKeys(ctx, body.entityType).includes(d.key));
     const mapping = suggestMapping(body.entityType, parsed.headers, defs.map((d) => ({ key: d.key, label: d.label })));
     const options = importConfigSchema.shape.options.parse({ matchBy: [MATCH_KEYS_BY_ENTITY[body.entityType][0]] });
     const imp = await q1<ImportRow>(sql`INSERT INTO imports (workspace_id, entity_type, file_name, headers, rows, row_numbers, row_count, mapping, options, created_by)

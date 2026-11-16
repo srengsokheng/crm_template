@@ -9,6 +9,8 @@ import { and, pool, q, raw, sql } from '../db/index.ts';
 import { audit } from './audit.ts';
 import type { Ctx } from './context.ts';
 import { loadDefs, type FieldDef } from './customFields.ts';
+import { hiddenCustomKeys } from './fieldAccess.ts';
+import type { FieldEntity } from '@crm/shared';
 import { forbidden } from './errors.ts';
 import { parseSort, type ListSpec } from './list.ts';
 import { scopeOf, scopeWhere } from './permissions.ts';
@@ -42,7 +44,8 @@ export async function exportCsv(reply: FastifyReply, ctx: Ctx, entity: Entity, s
   const where = and([...spec.where, scopeWhere(ctx, entity, 'export', alias), query.q ? spec.search?.(query.q) : null]);
   const rows = await q<Record<string, unknown>>(sql`SELECT ${spec.select}, ${raw(`${alias}.custom`)} AS __custom
     FROM ${spec.from} WHERE ${where} ORDER BY ${parseSort(query.sort, spec)} LIMIT ${EXPORT_LIMIT}`);
-  const defs = await loadDefs(ctx.workspaceId, entity);
+  const hidden = hiddenCustomKeys(ctx, entity as FieldEntity);
+  const defs = (await loadDefs(ctx.workspaceId, entity)).filter((d) => !hidden.includes(d.key));
   const users = new Map((await q<{ id: number; name: string }>(sql`SELECT u.id, u.name FROM memberships m JOIN users u ON u.id = m.user_id
     WHERE m.workspace_id = ${ctx.workspaceId}`)).map((u) => [Number(u.id), u.name]));
   const csv = toCsv([

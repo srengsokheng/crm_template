@@ -100,7 +100,8 @@ erDiagram
 emails), PK `(workspace_id, user_id)`.
 
 ### `roles` / `role_grants`
-- `roles`: `id`, `workspace_id`, `name`, `is_admin bool`, `is_system bool`.
+- `roles`: `id`, `workspace_id`, `name`, `is_admin bool`, `is_system bool`, `field_rules jsonb` (migration 0015:
+  `{ "deal": { "amount": "readonly", "custom.margin": "hidden" } }`; ignored for admin roles).
 - `role_grants`: `role_id`, `entity ('lead','deal','contact','company','product','activity','report')`,
   `action ('view','create','edit','delete','export','import')`, `scope ('none','own','team','all')`,
   PK `(role_id, entity, action)`.

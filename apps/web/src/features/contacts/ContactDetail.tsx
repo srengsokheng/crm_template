@@ -4,7 +4,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Combine, MoreHorizontal, Plus, Trash2, Building2 } from 'lucide-react';
 import { api } from '../../lib/api.ts';
 import { date, personName } from '../../lib/format.ts';
-import { useCan, useDictLabel, useUserName } from '../../lib/hooks.ts';
+import { useCan, useDictLabel, useUserName, useFieldLock } from '../../lib/hooks.ts';
 import type { Method } from '../../lib/types.ts';
 import { Button, Card, IconButton, Input, Select, Textarea } from '../../components/ui/primitives.tsx';
 import { Menu } from '../../components/ui/overlays.tsx';
@@ -29,6 +29,7 @@ export function ContactDetail() {
   const nav = useNavigate();
   const qc = useQueryClient();
   const can = useCan();
+  const locked = useFieldLock();
   const create = useCreate();
   const label = useDictLabel();
   const userName = useUserName();
@@ -62,20 +63,20 @@ export function ContactDetail() {
       left={<>
         <Card title="Details">
           <div className="divide-y divide-[var(--border)]">
-            <EditRow label="First name" value={c.firstName ?? ''} canEdit={edit} display={c.firstName ?? <span className="text-muted">—</span>} renderEditor={(v, s) => <Input autoFocus value={v} onChange={(e) => s(e.target.value)} />} onSave={(v) => patch({ firstName: v || null, version: c.version })} />
-            <EditRow label="Last name" value={c.lastName ?? ''} canEdit={edit} display={c.lastName ?? <span className="text-muted">—</span>} renderEditor={(v, s) => <Input autoFocus value={v} onChange={(e) => s(e.target.value)} />} onSave={(v) => patch({ lastName: v || null, version: c.version })} />
-            <EditRow label="Job title" value={c.jobTitle ?? ''} canEdit={edit} display={c.jobTitle ?? <span className="text-muted">—</span>} renderEditor={(v, s) => <Input autoFocus value={v} onChange={(e) => s(e.target.value)} />} onSave={(v) => patch({ jobTitle: v || null })} />
+            <EditRow label="First name" value={c.firstName ?? ''} canEdit={edit} locked={locked('contact', 'firstName')} display={c.firstName ?? <span className="text-muted">—</span>} renderEditor={(v, s) => <Input autoFocus value={v} onChange={(e) => s(e.target.value)} />} onSave={(v) => patch({ firstName: v || null, version: c.version })} />
+            <EditRow label="Last name" value={c.lastName ?? ''} canEdit={edit} locked={locked('contact', 'lastName')} display={c.lastName ?? <span className="text-muted">—</span>} renderEditor={(v, s) => <Input autoFocus value={v} onChange={(e) => s(e.target.value)} />} onSave={(v) => patch({ lastName: v || null, version: c.version })} />
+            <EditRow label="Job title" value={c.jobTitle ?? ''} canEdit={edit} locked={locked('contact', 'jobTitle')} display={c.jobTitle ?? <span className="text-muted">—</span>} renderEditor={(v, s) => <Input autoFocus value={v} onChange={(e) => s(e.target.value)} />} onSave={(v) => patch({ jobTitle: v || null })} />
             <EditRow label="Contact details" value={c.methods} canEdit={edit} display={<MethodsView methods={c.methods} />} renderEditor={(v, s) => <MethodsEditor value={v} onChange={s} kinds={['email', 'phone', 'messenger']} />} onSave={(v) => patch({ methods: methodsPayload(v) })} />
-            <EditRow<PickerItem[]> label="Companies" value={c.companies.map((x) => ({ id: x.id, label: x.name }))} canEdit={edit}
+            <EditRow<PickerItem[]> label="Companies" value={c.companies.map((x) => ({ id: x.id, label: x.name }))} canEdit={edit} locked={locked('contact', 'primaryCompanyId')}
               display={c.companies.length ? <div className="flex flex-wrap gap-x-2">{c.companies.map((x) => <Link key={x.id} className="text-brand-600 hover:underline" to={`/companies/${x.id}`}>{x.name}</Link>)}</div> : <span className="text-muted">—</span>}
               renderEditor={(v, s) => <MultiEntityPicker entity="companies" value={v} onChange={s} placeholder="Add company" />}
               onSave={(v) => patch({ companyIds: v.map((x) => x.id), primaryCompanyId: v[0]?.id ?? null })} />
-            <EditRow label="Type" value={c.typeId} canEdit={edit} display={label(c.typeId)} renderEditor={(v, s) => <DictSelect kind="contact_type" value={v} onChange={s} />} onSave={(v) => patch({ typeId: v })} />
-            <EditRow label="Source" value={c.sourceId} canEdit={edit} display={label(c.sourceId)} renderEditor={(v, s) => <DictSelect kind="lead_source" value={v} onChange={s} />} onSave={(v) => patch({ sourceId: v })} />
-            <EditRow label="Birthday" value={c.birthday ?? ''} canEdit={edit} display={date(c.birthday)} renderEditor={(v, s) => <Input type="date" value={v} onChange={(e) => s(e.target.value)} />} onSave={(v) => patch({ birthday: v || null })} />
-            <EditRow label="Owner" value={c.ownerId} canEdit={edit} display={userName(c.ownerId)} renderEditor={(v, s) => <UserSelect value={v} onChange={(x) => s(x ?? v)} />} onSave={(v) => patch({ ownerId: v })} />
-            <EditRow label="Visibility" value={c.visibility} canEdit={edit} display={c.visibility === 'private' ? 'Private (owner & admins)' : 'Shared'} renderEditor={(v, s) => <Select value={v} onChange={(e) => s(e.target.value)}><option value="shared">Shared</option><option value="private">Private</option></Select>} onSave={(v) => patch({ visibility: v })} />
-            <EditRow label="Notes" value={c.description ?? ''} canEdit={edit} display={c.description ? <span className="whitespace-pre-wrap">{c.description}</span> : <span className="text-muted">—</span>} renderEditor={(v, s) => <Textarea autoFocus value={v} onChange={(e) => s(e.target.value)} />} onSave={(v) => patch({ description: v || null })} />
+            <EditRow label="Type" value={c.typeId} canEdit={edit} locked={locked('contact', 'typeId')} display={label(c.typeId)} renderEditor={(v, s) => <DictSelect kind="contact_type" value={v} onChange={s} />} onSave={(v) => patch({ typeId: v })} />
+            <EditRow label="Source" value={c.sourceId} canEdit={edit} locked={locked('contact', 'sourceId')} display={label(c.sourceId)} renderEditor={(v, s) => <DictSelect kind="lead_source" value={v} onChange={s} />} onSave={(v) => patch({ sourceId: v })} />
+            <EditRow label="Birthday" value={c.birthday ?? ''} canEdit={edit} locked={locked('contact', 'birthday')} display={date(c.birthday)} renderEditor={(v, s) => <Input type="date" value={v} onChange={(e) => s(e.target.value)} />} onSave={(v) => patch({ birthday: v || null })} />
+            <EditRow label="Owner" value={c.ownerId} canEdit={edit} locked={locked('contact', 'ownerId')} display={userName(c.ownerId)} renderEditor={(v, s) => <UserSelect value={v} onChange={(x) => s(x ?? v)} />} onSave={(v) => patch({ ownerId: v })} />
+            <EditRow label="Visibility" value={c.visibility} canEdit={edit} locked={locked('contact', 'visibility')} display={c.visibility === 'private' ? 'Private (owner & admins)' : 'Shared'} renderEditor={(v, s) => <Select value={v} onChange={(e) => s(e.target.value)}><option value="shared">Shared</option><option value="private">Private</option></Select>} onSave={(v) => patch({ visibility: v })} />
+            <EditRow label="Notes" value={c.description ?? ''} canEdit={edit} locked={locked('contact', 'description')} display={c.description ? <span className="whitespace-pre-wrap">{c.description}</span> : <span className="text-muted">—</span>} renderEditor={(v, s) => <Textarea autoFocus value={v} onChange={(e) => s(e.target.value)} />} onSave={(v) => patch({ description: v || null })} />
             <CustomFieldsRows entity="contact" custom={c.custom} canEdit={edit} onSave={(p) => patch({ custom: p })} />
           </div>
         </Card>

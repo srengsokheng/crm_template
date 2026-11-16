@@ -8,6 +8,7 @@ import { ctxOf } from '../lib/http.ts';
 import { likeTerm, qs, runList } from '../lib/list.ts';
 import { assertOnRecord, pipelineAllowed, requireAny, scopeOf, scopeWhere } from '../lib/permissions.ts';
 import { assertMembers, camel, camelAll } from '../lib/records.ts';
+import { redactChanges } from '../lib/fieldAccess.ts';
 import { parse } from '../lib/validate.ts';
 
 type IdParams = { Params: { id: string } };
@@ -72,6 +73,16 @@ function canTouchActivity(ctx: Ctx, action: 'view' | 'edit' | 'delete', row: { a
   if (s === 'team') return people.some((p) => ctx.teamUserIds.includes(p));
   if (s === 'own') return people.includes(ctx.userId);
   return false;
+}
+
+/** Hidden custom field values never appear in history; an update that only touched hidden fields is left out. */
+function redactEvents<T extends Record<string, unknown>>(ctx: Ctx, events: T[]): T[] {
+  return events.flatMap((e) => {
+    const before = e.changes;
+    const changes = redactChanges(ctx, String(e.entityType), before);
+    if (changes !== before && e.action === 'updated' && changes && !Object.keys(changes as object).length) return [];
+    return [{ ...e, changes }];
+  });
 }
 
 export async function activityRoutes(app: FastifyInstance) {
@@ -253,7 +264,7 @@ export async function activityRoutes(app: FastifyInstance) {
     const items = [
       ...camelAll(notes).map((n) => ({ type: 'note', at: (n as { createdAt: Date }).createdAt, data: n })),
       ...camelAll(activities).map((a) => ({ type: 'activity', at: (a as { completedAt?: Date; updatedAt: Date }).completedAt ?? (a as { updatedAt: Date }).updatedAt, data: a })),
-      ...camelAll(events).filter((e) => !String((e as { action: string }).action).startsWith('activity_')).map((e) => ({ type: 'event', at: (e as { createdAt: Date }).createdAt, data: e })),
+      ...redactEvents(ctx, camelAll(events)).filter((e) => !String((e as { action: string }).action).startsWith('activity_')).map((e) => ({ type: 'event', at: (e as { createdAt: Date }).createdAt, data: e })),
     ].sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime());
     return { upcoming: camelAll(upcoming), items };
   });
@@ -268,7 +279,7 @@ export async function activityRoutes(app: FastifyInstance) {
     const rows = await q(sql`SELECT e.id, e.action, e.changes, e.actor_type, e.created_at, u.name AS actor_name FROM audit_events e
       LEFT JOIN users u ON u.id = e.actor_id WHERE e.workspace_id = ${ctx.workspaceId} AND e.entity_type = ${type} AND e.entity_id = ${id}
       ORDER BY e.created_at DESC, e.id DESC LIMIT 500`);
-    return { data: camelAll(rows) };
+    return { data: redactEvents(ctx, camelAll(rows).map((r) => ({ ...r, entityType: type }))) };
   });
 
   // ─────────────── Notifications ───────────────

@@ -28,6 +28,12 @@ export function useCan() {
   };
 }
 
+/** Is a field read-only (or hidden) for the current user's role? "amount", "ownerId", "custom.<key>". */
+export function useFieldLock() {
+  const { data: me } = useMe();
+  return (entity: 'deal' | 'lead' | 'contact' | 'company', field: string): boolean => !!me?.fieldRules?.[entity]?.[field];
+}
+
 export function useDict(kind: string): DictItem[] {
   const { data } = useMeta();
   return (data?.dictionaries ?? []).filter((d) => d.kind === kind && d.isActive);

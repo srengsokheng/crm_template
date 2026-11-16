@@ -17,6 +17,7 @@ import { assertMembers, assertRefs, camel, camelAll, getActive, insertRow, pickC
 import { getStage, recordStageChange, resolvePipelineStage, stageOfKind, type MoveInput, type StageRow } from '../lib/stages.ts';
 import { parse } from '../lib/validate.ts';
 import { exportCsv } from '../lib/exportList.ts';
+import { assertCanChange, assertCreateFields, changedCustomKeys, fieldRule, fieldsFromChanges } from '../lib/fieldAccess.ts';
 import { dealInBase } from '../lib/currency.ts';
 
 type IdParams = { Params: { id: string } };
@@ -41,7 +42,11 @@ async function setDealContacts(db: Db, dealId: number, contactIds: number[] | un
   }
 }
 
-export async function createDeal(db: Db, ctx: Ctx, body: z.output<typeof dealCreateSchema> & { leadId?: number | null }): Promise<DealRow> {
+export async function createDeal(db: Db, ctx: Ctx, body: z.output<typeof dealCreateSchema> & { leadId?: number | null }, opts: { fieldCheck?: boolean } = {}): Promise<DealRow> {
+  if (opts.fieldCheck !== false) {
+    const { leadId: _lead, pipelineId: _p, stageId: _s, amountMode: _m, ...fields } = body;
+    assertCreateFields(ctx, 'deal', fields, { ownerId: ctx.userId, visibility: 'shared', currency: ctx.baseCurrency, amount: '0' });
+  }
   await assertRefs(ctx, [
     { table: 'companies', ids: [body.companyId], label: 'Company' },
     { table: 'contacts', ids: body.contactIds ?? [], label: 'Contact' },
@@ -78,6 +83,7 @@ export async function moveDeal(db: Db, ctx: Ctx, id: number, input: MoveInput, o
   const from = await getStage(db, ctx, before.stage_id);
   const defs = await loadDefs(ctx.workspaceId, 'deal', db);
   const custom = mergeCustom(defs, input.custom, before.custom);
+  assertCanChange(ctx, 'deal', changedCustomKeys(before.custom, custom));
   await assertRequired(defs, custom, to.id);
   if (to.kind === 'lost' && input.lostReasonId) await assertRefs(ctx, [{ table: 'dictionary_items', ids: [input.lostReasonId], label: 'Lost reason', kind: 'lost_reason' }], db);
   if (to.id === before.stage_id) {
@@ -249,6 +255,13 @@ export async function dealRoutes(app: FastifyInstance) {
         await assertRequired(defs, custom, before.stage_id);
         values.custom = custom;
       }
+      const locked = fieldsFromChanges(diff(before, values), DEAL_COLS);
+      if (values.custom) locked.push(...changedCustomKeys(before.custom, values.custom as Record<string, unknown>));
+      if (body.contactIds !== undefined && fieldRule(ctx, 'deal', 'contactIds')) {
+        const cur = await q<{ contact_id: number }>(sql`SELECT contact_id FROM deal_contacts WHERE deal_id = ${id}`, db);
+        if (JSON.stringify(cur.map((c) => Number(c.contact_id)).sort()) !== JSON.stringify([...new Set(body.contactIds)].sort())) locked.push('contactIds');
+      }
+      assertCanChange(ctx, 'deal', locked);
       // Pipeline change: requires a stage in the new pipeline.
       if (body.pipelineId && body.pipelineId !== before.pipeline_id) {
         const s = await resolvePipelineStage(db, ctx, 'deal', body.pipelineId, body.stageId);
@@ -317,6 +330,7 @@ export async function dealRoutes(app: FastifyInstance) {
     return tx(async (db) => {
       const deal = await getActive<DealRow>(db, 'deals', id, ctx, 'Deal');
       assertOnRecord(ctx, 'deal', 'edit', deal);
+      assertCanChange(ctx, 'deal', ['amount']);
       const before = await loadLineItems('deal', id, db);
       await replaceLineItems(db, ctx, 'deal', id, body.items);
       const after = await loadLineItems('deal', id, db);

@@ -224,8 +224,8 @@ export const dictionaryItemSchema = z.object({ kind: z.enum(DICTIONARY_KINDS), l
 export const dictionaryUpdateSchema = z.object({ label: trimmed(100).min(1).optional(), isActive: z.boolean().optional() });
 
 const grantsSchema = z.partialRecord(z.enum(PERMISSION_ENTITIES), z.partialRecord(z.enum(PERMISSION_ACTIONS), z.enum(SCOPES)));
-export const roleCreateSchema = z.object({ name: trimmed(60).min(1, 'Required'), grants: grantsSchema.default({}) });
-export const roleUpdateSchema = z.object({ name: trimmed(60).min(1).optional(), grants: grantsSchema.optional() });
+export const roleCreateSchema = z.object({ name: trimmed(60).min(1, 'Required'), grants: grantsSchema.default({}), fieldRules: z.lazy(() => fieldRulesSchema).optional() });
+export const roleUpdateSchema = z.object({ name: trimmed(60).min(1).optional(), grants: grantsSchema.optional(), fieldRules: z.lazy(() => fieldRulesSchema).optional() });
 export const inviteSchema = z.object({ email: z.email('Invalid email address'), name: trimmed(100).min(1, 'Required'), roleId: idSchema });
 export const memberUpdateSchema = z.object({ roleId: idSchema.optional(), status: z.enum(['active', 'disabled']).optional() });
 export const teamSchema = z.object({ name: trimmed(60).min(1, 'Required'), memberIds: z.array(idSchema).max(500).default([]) });
@@ -362,3 +362,39 @@ export const documentSettingsSchema = z.object({
   quoteValidDays: z.coerce.number().int().min(1).max(365).default(30),
   paymentTermsDays: z.coerce.number().int().min(0).max(365).default(14),
 });
+
+// ───────── Field-level permissions ─────────
+export const FIELD_ENTITIES = ['deal', 'lead', 'contact', 'company'] as const;
+export type FieldEntity = (typeof FIELD_ENTITIES)[number];
+/**
+ * Standard fields a role can lock (make read-only). Standard fields can't be hidden: totals, boards, reports and search
+ * use them. Custom fields (key "custom.<key>") can be read-only or hidden.
+ */
+export const LOCKABLE_FIELDS: Record<FieldEntity, { key: string; label: string }[]> = {
+  deal: [
+    { key: 'title', label: 'Deal name' }, { key: 'amount', label: 'Amount (and products)' }, { key: 'currency', label: 'Currency' },
+    { key: 'probability', label: 'Probability' }, { key: 'expectedCloseDate', label: 'Expected close' }, { key: 'ownerId', label: 'Owner' },
+    { key: 'companyId', label: 'Company' }, { key: 'contactIds', label: 'Contacts' }, { key: 'dealTypeId', label: 'Deal type' },
+    { key: 'sourceId', label: 'Source' }, { key: 'description', label: 'Description' }, { key: 'visibility', label: 'Visibility' },
+  ],
+  lead: [
+    { key: 'title', label: 'Lead name' }, { key: 'amount', label: 'Amount (and products)' }, { key: 'currency', label: 'Currency' },
+    { key: 'ownerId', label: 'Owner' }, { key: 'sourceId', label: 'Source' }, { key: 'companyName', label: 'Company name' },
+    { key: 'description', label: 'Description' }, { key: 'visibility', label: 'Visibility' },
+  ],
+  contact: [
+    { key: 'firstName', label: 'First name' }, { key: 'lastName', label: 'Last name' }, { key: 'jobTitle', label: 'Job title' },
+    { key: 'birthday', label: 'Birthday' }, { key: 'ownerId', label: 'Owner' }, { key: 'typeId', label: 'Contact type' },
+    { key: 'sourceId', label: 'Source' }, { key: 'primaryCompanyId', label: 'Company' }, { key: 'address', label: 'Address' },
+    { key: 'description', label: 'Description' }, { key: 'visibility', label: 'Visibility' },
+  ],
+  company: [
+    { key: 'name', label: 'Company name' }, { key: 'ownerId', label: 'Owner' }, { key: 'typeId', label: 'Company type' },
+    { key: 'industryId', label: 'Industry' }, { key: 'sizeId', label: 'Size' }, { key: 'annualRevenue', label: 'Annual revenue' },
+    { key: 'sourceId', label: 'Source' }, { key: 'address', label: 'Address' }, { key: 'description', label: 'Description' },
+    { key: 'visibility', label: 'Visibility' },
+  ],
+};
+export const fieldRulesSchema = z.partialRecord(z.enum(FIELD_ENTITIES),
+  z.record(z.string().regex(/^(custom\.[a-z0-9_]{1,60}|[a-zA-Z]{1,40})$/), z.enum(['readonly', 'hidden'])));
+export type FieldRules = z.infer<typeof fieldRulesSchema>;

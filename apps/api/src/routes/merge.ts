@@ -13,6 +13,7 @@ import { audit } from '../lib/audit.ts';
 import { loadMethods } from '../lib/contactMethods.ts';
 import type { Ctx } from '../lib/context.ts';
 import { loadDefs } from '../lib/customFields.ts';
+import { fieldRule, hiddenCustomKeys, stripHidden } from '../lib/fieldAccess.ts';
 import { AppError, badRequest, notFound } from '../lib/errors.ts';
 import { ctxOf } from '../lib/http.ts';
 import { assertOnRecord, canOnRecord } from '../lib/permissions.ts';
@@ -97,16 +98,17 @@ export async function mergeRoutes(app: FastifyInstance) {
         if (!r) throw notFound(entity === 'contact' ? 'Contact' : 'Company');
         assertOnRecord(ctx, entity, 'view', r);
         records.push({
-          ...camel(r), title: titleOf(entity, r),
+          ...stripHidden(ctx, entity, camel(r)), title: titleOf(entity, r),
           companyName: entity === 'contact' && r.primary_company_id ? (await q1<{ name: string }>(sql`SELECT name FROM companies WHERE id = ${r.primary_company_id as number}`, db))?.name ?? null : null, methods: camelAll(((await loadMethods(entity, [id], db))[id] ?? []) as unknown as Record<string, unknown>[]), related: await related(db, entity, id),
           canKeep: canOnRecord(ctx, entity, 'edit', r), canRemove: canOnRecord(ctx, entity, 'delete', r),
         });
       }
-      const defs = await loadDefs(ctx.workspaceId, entity, db);
+      const hidden = hiddenCustomKeys(ctx, entity);
+      const defs = (await loadDefs(ctx.workspaceId, entity, db)).filter((d) => !hidden.includes(d.key));
       return {
         records,
-        fields: MERGE_FIELDS[entity].map(({ key, label }) => ({ key, label })),
-        customFields: defs.map((d) => ({ key: d.key, label: d.label, type: d.type, options: d.options })),
+        fields: MERGE_FIELDS[entity].map(({ key, label }) => ({ key, label, locked: key === 'name' ? !!(fieldRule(ctx, entity, 'firstName') || fieldRule(ctx, entity, 'lastName')) : !!fieldRule(ctx, entity, key) })),
+        customFields: defs.map((d) => ({ key: d.key, label: d.label, type: d.type, options: d.options, locked: !!fieldRule(ctx, entity, `custom.${d.key}`) })),
       };
     });
   });
@@ -131,7 +133,9 @@ export async function mergeRoutes(app: FastifyInstance) {
       // ── Field values ──
       const values: Record<string, unknown> = {};
       const changes: Record<string, [unknown, unknown]> = {};
-      const takeMerged = (key: string, a: unknown, b: unknown) => (body.choose[key] ?? (isEmpty(a) && !isEmpty(b) ? 'merged' : 'survivor')) === 'merged';
+      // Locked or hidden fields: the user's choice is ignored; the automatic rule (fill an empty value) still applies.
+      const isLocked = (key: string) => key === 'name' ? !!(fieldRule(ctx, entity, 'firstName') || fieldRule(ctx, entity, 'lastName')) : !!fieldRule(ctx, entity, key);
+      const takeMerged = (key: string, a: unknown, b: unknown) => ((isLocked(key) ? undefined : body.choose[key]) ?? (isEmpty(a) && !isEmpty(b) ? 'merged' : 'survivor')) === 'merged';
       for (const f of MERGE_FIELDS[entity]) {
         const a = f.cols.map((c) => keep[c]);
         const b = f.cols.map((c) => gone[c]);

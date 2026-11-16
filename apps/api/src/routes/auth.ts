@@ -115,6 +115,7 @@ export async function authRoutes(app: FastifyInstance) {
       workspace: { id: ctx.workspaceId, name: ws!.name, baseCurrency: ws!.base_currency, useLeads: ctx.useLeads, timezone: ws!.timezone,
         workingHours: (ws!.settings.workingHours as WorkingHours | undefined) ?? DEFAULT_WORKING_HOURS },
       permissions: permissionSummary(ctx),
+      fieldRules: ctx.isAdmin ? {} : (ctx.fieldRules ?? {}),
     };
   });
 

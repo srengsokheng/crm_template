@@ -2,9 +2,9 @@ import { useState, type ReactNode } from 'react';
 import { Link, useNavigate } from 'react-router';
 import { useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { ArrowLeft, Combine, Pencil } from 'lucide-react';
+import { ArrowLeft, Combine, Pencil, Lock } from 'lucide-react';
 import { api, ApiError, errorMessage } from '../../lib/api.ts';
-import { useFields, useUserName } from '../../lib/hooks.ts';
+import { useFields, useUserName, useFieldLock } from '../../lib/hooks.ts';
 import type { FieldDef } from '../../lib/types.ts';
 import { Button, Card, EmptyState, ErrorState, IconButton, Skeleton } from '../../components/ui/primitives.tsx';
 import { Dialog } from '../../components/ui/overlays.tsx';
@@ -58,9 +58,11 @@ export function RecordError({ error, back }: { error: unknown; back: string }) {
 }
 
 /** Editable row whose draft starts from a given value. */
-export function EditRow<T>({ label, value, display, renderEditor, onSave, canEdit = true, required, hint }: {
+export function EditRow<T>({ label, value, display, renderEditor, onSave, canEdit = true, required, hint, locked }: {
   label: string; value: T; display: ReactNode; renderEditor: (v: T, set: (v: T) => void) => ReactNode;
   onSave: (v: T) => Promise<unknown>; canEdit?: boolean; required?: boolean; hint?: string;
+  /** Read-only for the user's role (field-level permission): shows a lock instead of the edit button. */
+  locked?: boolean;
 }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState<T>(value);
@@ -85,7 +87,12 @@ export function EditRow<T>({ label, value, display, renderEditor, onSave, canEdi
       ) : (
         <div className="flex min-w-0 items-start justify-between gap-2">
           <div className="min-w-0 break-words pt-0.5">{display}{hint && <div className="text-xs text-muted">{hint}</div>}</div>
-          {canEdit && (
+          {canEdit && locked && (
+            <span className="inline-flex size-7 shrink-0 items-center justify-center text-muted" title="Read-only for your role" aria-label={`${label} is read-only for your role`} role="img">
+              <Lock className="size-3.5" />
+            </span>
+          )}
+          {canEdit && !locked && (
             <IconButton size="sm" label={`Edit ${label}`} className="opacity-50 transition-opacity group-hover:opacity-100 focus:opacity-100 max-md:opacity-100" onClick={() => { setDraft(value); setEditing(true); }}>
               <Pencil className="size-3.5" />
             </IconButton>
@@ -102,11 +109,12 @@ export function CustomFieldsRows({ entity, custom, stageId, canEdit, onSave }: {
   const defs = useFields(entity);
   const userName = useUserName();
   const req = useRequiredAt();
+  const locked = useFieldLock();
   if (!defs.length) return null;
   return (
     <>
       {defs.map((d) => (
-        <EditRow<unknown> key={d.id} label={d.label} value={custom?.[d.key] ?? null} canEdit={canEdit} required={req.isRequired(d, stageId)}
+        <EditRow<unknown> key={d.id} label={d.label} value={custom?.[d.key] ?? null} canEdit={canEdit} locked={locked(entity as 'deal', `custom.${d.key}`)} required={req.isRequired(d, stageId)}
           hint={d.required === 'from_stage' && !req.isRequired(d, stageId) ? `Required from ${req.fromLabel(d)}` : d.helpText ?? undefined}
           display={<span className={customDisplay(d, custom?.[d.key], userName) === '—' ? 'text-muted' : ''}>{customDisplay(d, custom?.[d.key], userName)}</span>}
           renderEditor={(v, set) => <CustomFieldInput def={d} value={v} onChange={set} />}

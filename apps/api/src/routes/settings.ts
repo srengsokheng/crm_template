@@ -2,8 +2,9 @@ import type { FastifyInstance } from 'fastify';
 import {
   dictionaryItemSchema, dictionaryUpdateSchema, fieldCreateSchema, fieldUpdateSchema, inviteSchema, memberUpdateSchema,
   pipelineCreateSchema, pipelineUpdateSchema, reorderSchema, roleCreateSchema, roleUpdateSchema, stageDeleteSchema, stageSchema,
-  stageUpdateSchema, teamSchema, workspaceUpdateSchema,
+  stageUpdateSchema, teamSchema, workspaceUpdateSchema, FIELD_ENTITIES, LOCKABLE_FIELDS, type FieldRules,
 } from '@crm/shared';
+import { audit } from '../lib/audit.ts';
 import { config } from '../config.ts';
 import { q, q1, sql, tx } from '../db/index.ts';
 import { newToken, sha256 } from '../lib/auth.ts';
@@ -305,9 +306,22 @@ export async function settingsRoutes(app: FastifyInstance) {
   });
 
   // ─────────────── Roles ───────────────
+  /** Standard fields may only be read-only (hiding them would leak through totals); unknown fields are dropped. */
+  const cleanRules = (rules: FieldRules | undefined): FieldRules => {
+    const out: FieldRules = {};
+    for (const entity of FIELD_ENTITIES) {
+      for (const [field, rule] of Object.entries(rules?.[entity] ?? {})) {
+        const std = LOCKABLE_FIELDS[entity].some((f) => f.key === field);
+        if (!std && !field.startsWith('custom.')) throw badRequest(`Unknown field "${field}"`, { fieldRules: 'Unknown field' });
+        if (std && rule === 'hidden') throw badRequest(`Standard fields can be read-only but not hidden ("${field}")`, { fieldRules: 'Invalid rule' });
+        (out[entity] ??= {})[field] = rule;
+      }
+    }
+    return out;
+  };
   app.get('/roles', async (req) => {
     const ctx = ctxOf(req);
-    const roles = await q<{ id: number }>(sql`SELECT r.id, r.name, r.is_admin, r.is_system,
+    const roles = await q<{ id: number }>(sql`SELECT r.id, r.name, r.is_admin, r.is_system, r.field_rules,
       (SELECT count(*)::int FROM memberships m WHERE m.role_id = r.id) AS member_count FROM roles r WHERE r.workspace_id = ${ctx.workspaceId} ORDER BY r.id`);
     const grants = await q<{ role_id: number; entity: string; action: string; scope: string }>(sql`SELECT g.role_id, g.entity, g.action, g.scope FROM role_grants g
       JOIN roles r ON r.id = g.role_id WHERE r.workspace_id = ${ctx.workspaceId}`);
@@ -324,7 +338,7 @@ export async function settingsRoutes(app: FastifyInstance) {
     requireAdmin(ctx);
     const body = parse(roleCreateSchema, req.body);
     const id = await tx(async (db) => {
-      const r = await q1<{ id: number }>(sql`INSERT INTO roles (workspace_id, name) VALUES (${ctx.workspaceId}, ${body.name}) RETURNING id`, db);
+      const r = await q1<{ id: number }>(sql`INSERT INTO roles (workspace_id, name, field_rules) VALUES (${ctx.workspaceId}, ${body.name}, ${JSON.stringify(cleanRules(body.fieldRules))}::jsonb) RETURNING id`, db);
       await setRoleGrants(db, r!.id, body.grants);
       return r!.id;
     });
@@ -337,10 +351,14 @@ export async function settingsRoutes(app: FastifyInstance) {
     const id = Number(req.params.id);
     const role = await q1<{ is_admin: boolean }>(sql`SELECT is_admin FROM roles WHERE id = ${id} AND workspace_id = ${ctx.workspaceId}`);
     if (!role) throw notFound('Role');
-    if (role.is_admin && body.grants) throw badRequest('The Admin role always has full access');
+    if (role.is_admin && (body.grants || body.fieldRules)) throw badRequest('The Admin role always has full access');
     await tx(async (db) => {
       if (body.name) await q(sql`UPDATE roles SET name = ${body.name} WHERE id = ${id}`, db);
       if (body.grants) await setRoleGrants(db, id, body.grants);
+      if (body.fieldRules) {
+        await q(sql`UPDATE roles SET field_rules = ${JSON.stringify(cleanRules(body.fieldRules))}::jsonb WHERE id = ${id}`, db);
+        await audit(db, ctx, 'role', id, 'field_rules_changed', { fieldRules: body.fieldRules });
+      }
     });
     return { ok: true };
   });
