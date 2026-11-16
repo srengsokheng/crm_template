@@ -138,9 +138,9 @@ The research behind every decision is in this folder:
   (`Q-0001`, `INV-0001`, prefixes in Settings → Quotes & invoices) is taken from `document_counters` when a document is
   first sent, so deleted drafts leave no gaps; sent documents are locked and invoices are voided, never deleted.
   Permissions follow the deal (view to see/download, edit to change), incl. pipeline restrictions; status changes are in
-  the deal history. PDFs come from a small built-in writer (no dependency) using the standard Helvetica fonts:
-  Latin-1 plus € and typographic quotes print; other scripts (e.g. Khmer) print as "?", and currencies whose symbol
-  can't be drawn use the ISO code (VND 1,000). Embedding a Unicode font is the follow-up if non-Latin names matter.
+  the deal history. PDFs come from a small built-in writer using the standard Helvetica fonts for Latin-1, € and
+  typographic quotes, plus an embedded Unicode font for Khmer (see "Khmer in PDFs" below); currencies whose symbol
+  can't be drawn use the ISO code (VND 1,000).
 
 - **Field-level permissions** (migration 0015, `roles.field_rules`, `lib/fieldAccess.ts`): in Settings → Roles → Field
   access an admin sets, per role and record type, standard fields to **Read-only** (`LOCKABLE_FIELDS` in shared) and
@@ -224,14 +224,23 @@ The research behind every decision is in this folder:
   Needs the same rights as merging. Merging leads now adds the other lead's products, except products the kept lead
   already has (same catalogue product or same name).
 
-**Quality:** 166 Vitest tests (API against real PostgreSQL), 40 Playwright tests (desktop, tablet, phone), lint and
+- **Khmer in PDFs** (`lib/pdfFonts.ts`, `apps/api/assets/fonts/`): text Helvetica can't draw is split into runs, shaped
+  with HarfBuzz (`harfbuzzjs`, WebAssembly) and drawn with embedded **Noto Sans Khmer** Regular/Bold (SIL Open Font
+  License, `assets/fonts/OFL.txt`), so subscripts and vowel signs stack and reorder correctly. The font (~68 KB each,
+  compressed) is embedded only in PDFs that use it; Latin-only PDFs are unchanged (~2–3 KB). Copy & search use
+  `/ActualText` with the original text, plus a ToUnicode map. Khmer, written without spaces, wraps at word boundaries
+  (`Intl.Segmenter`). Other scripts (Chinese, Thai, …) still print as "?": add a Noto font for them to `pdfFonts.ts`.
+
+**Quality:** 172 Vitest tests (API against real PostgreSQL), 40 Playwright tests (desktop, tablet, phone), lint and
 typecheck clean, `npm audit` = 0, GitHub Actions CI in `.github/workflows/ci.yml`.
 
 ## 3. Not built yet — suggested next work (in priority order)
 
 The earlier list is done (see section 2). Known follow-ups, collected from the pull requests' "not verified" notes:
 
-1. PDFs: embed a Unicode font (e.g. Noto Sans Khmer) so non-Latin names print instead of "?".
+1. PDFs: fonts for further scripts if needed (Thai, Chinese, …) — the mechanism is in `lib/pdfFonts.ts`.
+2. Copy & paste of Khmer from PDFs: the file carries the exact text (`/ActualText`), but MuPDF's text extraction
+   repeats some fragments where marks step back over a base letter; check in Acrobat / browser viewers.
 
 Import limits and choices: 5 MB / 10,000 rows / 100 columns per file; lead rows only match *open* leads; list
 values (type, source, industry, size, deal type, category) must already exist unless an admin ticks "Add values that aren't in

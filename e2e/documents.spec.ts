@@ -41,3 +41,19 @@ test('quote from a deal → sent → accepted → invoice → paid, with PDF', a
   await expect(card.getByText('Quote Q-0001')).toBeVisible();
   await expect(page.getByText('Invoice INV-0001 paid')).toBeVisible(); // history
 });
+
+test('an invoice for a Khmer-named company downloads with Khmer text, not "?"', async ({ page }) => {
+  await signUp(page);
+  const co = await api(page, 'POST', '/companies', { name: 'ក្រុមហ៊ុន អង្គរ' });
+  const d = await api(page, 'POST', '/deals', { title: 'Website', companyId: co.id });
+  await api(page, 'PUT', `/deals/${d.id}/line-items`, { items: [{ name: 'ការរចនាគេហទំព័រ', unitPrice: '1000', quantity: 1, unit: 'pc' }] });
+  const inv = await api(page, 'POST', `/deals/${d.id}/documents`, { kind: 'invoice' });
+  await page.goto(`/documents/${inv.id}`);
+  await expect(page.getByText('ការរចនាគេហទំព័រ')).toBeVisible();
+  const [download] = await Promise.all([page.waitForEvent('download'), page.getByRole('link', { name: 'PDF', exact: true }).click()]);
+  const pdf = await readFile(await download.path(), 'latin1');
+  expect(pdf).toContain('/BaseFont /NotoSansKhmer-Bold');
+  // The company name, as UTF-16 for copy & search (ក្រុមហ៊ុន).
+  expect(pdf).toContain('/ActualText <FEFF178017d2179a17bb179817a017ca17bb1793>');
+  expect(pdf).not.toMatch(/\(\?+\)/);
+});
