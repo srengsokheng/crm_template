@@ -121,17 +121,27 @@ The research behind every decision is in this folder:
   record history. Merging moves files to the kept record; purging a record deletes its files. Back up `FILES_DIR` with the
   database. The `FileStore` interface is where S3-compatible storage would plug in.
 
-**Quality:** 122 Vitest tests (API against real PostgreSQL), 27 Playwright tests (desktop, tablet, phone), lint and
+- **Webhook action** for automation (migration 0013, `lib/webhooks.ts`): "Call a webhook" POSTs a signed JSON payload
+  (record type, id, title, amount, currency, status, stage, owner, link) when a rule fires. Admins keep an allow-list of
+  hosts and a signing secret in Settings → Automation → Webhooks (`/settings/webhooks`, stored in
+  `workspaces.settings.webhooks`, never returned by other endpoints). Header `X-CRM-Signature: sha256=<HMAC-SHA256(secret,
+  body)>`, plus `X-CRM-Event` and `X-CRM-Delivery` (the run id, for de-duplication). SSRF rules: https only, host on the
+  allow-list, no IP literals or credentials in the URL, every resolved address must be public, no redirects, 10 s timeout.
+  The call runs outside any DB transaction; failures retry through the job queue (3 attempts) and then mark the run
+  failed with the reason. `WEBHOOK_ALLOW_HTTP` / `WEBHOOK_ALLOW_PRIVATE` relax this for local development only and are
+  ignored when `NODE_ENV=production`. Hardening follow-up: pin the checked IP in a custom HTTP agent to close the DNS-rebinding window
+  between the address check and the connection.
+
+**Quality:** 127 Vitest tests (API against real PostgreSQL), 28 Playwright tests (desktop, tablet, phone), lint and
 typecheck clean, `npm audit` = 0, GitHub Actions CI in `.github/workflows/ci.yml`.
 
 ## 3. Not built yet — suggested next work (in priority order)
 
-1. Automation webhook action (POST to an allow-listed URL).
-2. Estimates/quotes and invoices with PDF (see `CRM_FEATURES.md`).
-3. Field-level permissions (hide or lock individual fields per role).
-4. Import follow-ups: deals/products import, "add missing list options" during import.
-5. Merge follow-ups: merge leads; merge more than two at once; fuzzy name matching on the duplicates page.
-6. Email follow-ups: a daily digest of overdue activities; per-workspace sender name; showing
+1. Estimates/quotes and invoices with PDF (see `CRM_FEATURES.md`).
+2. Field-level permissions (hide or lock individual fields per role).
+3. Import follow-ups: deals/products import, "add missing list options" during import.
+4. Merge follow-ups: merge leads; merge more than two at once; fuzzy name matching on the duplicates page.
+5. Email follow-ups: a daily digest of overdue activities; per-workspace sender name; showing
     failed deliveries to admins (today they are only in the `jobs` table as `failed` with `last_error`).
 
 Import limits and choices: 5 MB / 10,000 rows / 100 columns per file; lead rows only match *open* leads; dictionary

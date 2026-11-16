@@ -8,6 +8,7 @@ import { moveDeal } from '../routes/deals.ts';
 import { moveLead } from '../routes/leads.ts';
 import { runChunk } from '../imports/engine.ts';
 import { files } from '../lib/files.ts';
+import { deliverWebhook } from '../lib/webhooks.ts';
 import { config } from '../config.ts';
 import { deliver, queueMail, reminderMail, type Mail } from '../lib/mailer.ts';
 
@@ -154,6 +155,22 @@ export async function runAutomation(p: { runId: number; ruleId: number; entityTy
   const ownerName = owner?.name ?? '';
   const cfg = rule.config ?? {};
   const target = (v: unknown) => (v === 'owner' || v === undefined ? rec.owner_id ?? fallbackUser : Number(v));
+
+  // Webhooks talk to the outside world: no database transaction open while waiting on the network.
+  if (rule.action === 'webhook') {
+    const wsHooks = await q1<{ settings: { webhooks?: { allowedHosts?: string[]; secret?: string } } }>(sql`SELECT settings FROM workspaces WHERE id = ${rec.workspace_id}`);
+    const hooks = wsHooks?.settings.webhooks ?? {};
+    if (!hooks.secret) throw new Error('Webhooks are not set up for this workspace');
+    const stage = await q1<{ name: string }>(sql`SELECT name FROM stages WHERE id = ${rec.stage_id}`);
+    const path = p.entityType === 'deal' ? 'deals' : 'leads';
+    const status = await deliverWebhook(String(cfg.url ?? ''), hooks.allowedHosts ?? [], hooks.secret, `${p.entityType}.automation`, {
+      event: `${p.entityType}.automation`, sentAt: new Date().toISOString(), rule: { id: rule.id, trigger: rule.trigger },
+      record: { type: p.entityType, id: p.entityId, title: rec.title, amount: rec.amount ?? null, currency: rec.currency ?? null,
+        status: rec.status ?? null, stage: stage?.name ?? null, owner: ownerName || null, url: `${config.appUrl}/${path}/${p.entityId}` },
+    }, String(p.runId));
+    await audit(pool, ctx, p.entityType, p.entityId, 'webhook_sent', { url: String(cfg.url), status }, 'automation');
+    return finishRun(p.runId, 'success', `Webhook answered HTTP ${status}`);
+  }
 
   let message = '';
   await tx(async (db) => {

@@ -338,3 +338,6 @@ export const exchangeRateSchema = z.object({
     .refine((v) => /^\d{1,10}(\.\d{1,8})?$/.test(v) && Number(v) > 0, 'Enter a positive rate like 1.0850'),
   validFrom: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Use YYYY-MM-DD'),
 });
+
+// ───────── Webhooks ─────────
+export const webhookSettingsSchema = z.object({ allowedHosts: z.array(z.string().trim().max(200)).max(50) });

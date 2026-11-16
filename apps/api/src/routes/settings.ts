@@ -31,7 +31,7 @@ export async function settingsRoutes(app: FastifyInstance) {
           || CASE WHEN ${body.useLeads ?? null}::boolean IS NULL THEN '{}'::jsonb ELSE jsonb_build_object('useLeads', ${body.useLeads ?? null}::boolean) END
           || CASE WHEN ${body.workingHours ? JSON.stringify(body.workingHours) : null}::jsonb IS NULL THEN '{}'::jsonb
                   ELSE jsonb_build_object('workingHours', ${body.workingHours ? JSON.stringify(body.workingHours) : null}::jsonb) END
-      WHERE id = ${ctx.workspaceId} RETURNING id, name, base_currency, timezone, settings`);
+      WHERE id = ${ctx.workspaceId} RETURNING id, name, base_currency, timezone, settings - 'webhooks' AS settings`); // never echo the webhook secret
     return camel(row);
   });
 

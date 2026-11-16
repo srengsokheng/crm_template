@@ -51,7 +51,7 @@ export const FIELD_ENTITY_TYPES = ['lead', 'deal', 'contact', 'company', 'produc
 export type FieldEntityType = (typeof FIELD_ENTITY_TYPES)[number];
 
 export const AUTOMATION_TRIGGERS = ['stage_entered', 'created', 'field_changed'] as const;
-export const AUTOMATION_ACTIONS = ['create_activity', 'notify', 'add_note', 'update_field', 'assign_owner', 'move_stage'] as const;
+export const AUTOMATION_ACTIONS = ['create_activity', 'notify', 'add_note', 'update_field', 'assign_owner', 'move_stage', 'webhook'] as const;
 export type AutomationAction = (typeof AUTOMATION_ACTIONS)[number];
 
 export const CURRENCIES = ['USD', 'EUR', 'GBP', 'KHR', 'THB', 'SGD', 'JPY', 'CNY', 'AUD', 'CAD'] as const;

@@ -9,13 +9,14 @@ import { Badge, Button, Card, Checkbox, Field, IconButton, Input, Segmented, Sel
 import { Drawer } from '../../components/ui/overlays.tsx';
 import { StageBadge } from '../../components/ui/StageBadge.tsx';
 import { AdminOnly } from './SettingsLayout.tsx';
+import { WebhookSettings } from './WebhookSettings.tsx';
 
 interface Rule {
   id: number; entityType: 'deal' | 'lead'; pipelineId: number; stageId: number | null; trigger: 'stage_entered' | 'created' | 'field_changed'; delayMinutes: number;
   triggerField: string | null; businessHours: boolean;
   conditions: { field: string; op: string; value?: unknown }[]; action: string; config: Record<string, any>; isEnabled: boolean; successCount: number; failedCount: number;
 }
-const ACTIONS: Record<string, string> = { create_activity: 'Create an activity', notify: 'Send a notification', add_note: 'Add a note', update_field: 'Update a field', assign_owner: 'Assign an owner', move_stage: 'Move to another stage' };
+const ACTIONS: Record<string, string> = { create_activity: 'Create an activity', notify: 'Send a notification', add_note: 'Add a note', update_field: 'Update a field', assign_owner: 'Assign an owner', move_stage: 'Move to another stage', webhook: 'Call a webhook' };
 /** Built-in fields that can trigger rules (must match TRIGGER_FIELDS in the API). */
 const TRIGGER_FIELDS: Record<'deal' | 'lead', [string, string][]> = {
   deal: [['amount', 'Amount'], ['title', 'Title'], ['owner_id', 'Owner'], ['expected_close_date', 'Expected close date'], ['probability', 'Probability'],
@@ -38,6 +39,7 @@ function useDescribe() {
       case 'update_field': return `set ${c.field} to “${c.value}”`;
       case 'assign_owner': return c.mode === 'round_robin' ? `assign an owner round-robin in team #${c.teamId}` : `assign to ${user(c.userId)}`;
       case 'move_stage': return `move to ${stage(c.stageId)}`;
+      case 'webhook': return `call ${String(c.url ?? '').replace(/^https?:\/\//, '').slice(0, 60)}`;
       default: return r.action;
     }
   };
@@ -92,6 +94,7 @@ export function AutomationSettings() {
             </Card>
           );
         })}
+        <WebhookSettings />
       </div>
       {editing && pipeline && <RuleForm rule={editing} pipeline={pipeline} onClose={() => setEditing(null)} />}
     </AdminOnly>
@@ -203,6 +206,8 @@ function RuleForm({ rule, pipeline, onClose }: { rule: Partial<Rule>; pipeline: 
             ? <Field label="Team" htmlFor="ro-team"><Select id="ro-team" value={cfg.teamId ?? ''} onChange={(e) => setCfg({ teamId: Number(e.target.value) })}><option value="">Choose…</option>{meta?.teams.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}</Select></Field>
             : <Field label="Person" htmlFor="ro-user"><Select id="ro-user" value={cfg.userId ?? ''} onChange={(e) => setCfg({ userId: Number(e.target.value) })}><option value="">Choose…</option>{users.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}</Select></Field>}
         </>}
+        {r.action === 'webhook' && <Field label="URL" htmlFor="rw-url" hint="Must be https:// and on the allow-list under Webhooks on this page. The record (title, amount, stage, owner, link) is sent as JSON.">
+          <Input id="rw-url" type="url" value={cfg.url ?? ''} onChange={(e) => setCfg({ url: e.target.value })} placeholder="https://hooks.zapier.com/hooks/catch/…" /></Field>}
         {r.action === 'move_stage' && <Field label="Target stage" htmlFor="rm-stage"><Select id="rm-stage" value={cfg.stageId ?? ''} onChange={(e) => setCfg({ stageId: Number(e.target.value) })}><option value="">Choose…</option>
           {pipeline.stages.filter((s) => s.id !== r.stageId && !(r.entityType === 'lead' && s.kind === 'won')).map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}</Select></Field>}
       </div>

@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify';
-import { automationRuleSchema, automationRuleUpdateSchema } from '@crm/shared';
+import { automationRuleSchema, automationRuleUpdateSchema, webhookSettingsSchema } from '@crm/shared';
 import { q, q1, sql } from '../db/index.ts';
 import { badRequest, notFound } from '../lib/errors.ts';
 import { ctxOf } from '../lib/http.ts';
@@ -7,6 +7,7 @@ import type { Ctx } from '../lib/context.ts';
 import { requireAdmin, requireAny } from '../lib/permissions.ts';
 import { camel, camelAll } from '../lib/records.ts';
 import { parse } from '../lib/validate.ts';
+import { checkWebhookUrl, newWebhookSecret, normaliseHost } from '../lib/webhooks.ts';
 
 type IdParams = { Params: { id: string } };
 
@@ -47,6 +48,13 @@ async function validateRule(ctx: Ctx, r: { entityType?: string; pipelineId?: num
     case 'assign_owner':
       if (c.mode === 'round_robin' ? !c.teamId : !c.userId) throw badRequest('Choose who to assign', { 'config.userId': 'Required' });
       break;
+    case 'webhook': {
+      const ws = await q1<{ settings: { webhooks?: { allowedHosts?: string[] } } }>(sql`SELECT settings FROM workspaces WHERE id = ${ctx.workspaceId}`);
+      try { checkWebhookUrl(String(c.url ?? ''), ws?.settings.webhooks?.allowedHosts ?? []); } catch (e) {
+        throw badRequest((e as Error).message, { 'config.url': 'Invalid' });
+      }
+      break;
+    }
     case 'move_stage': {
       const s = await q1(sql`SELECT 1 FROM stages WHERE id = ${Number(c.stageId ?? 0)} AND pipeline_id = ${r.pipelineId ?? 0}`);
       if (!s) throw badRequest('Choose a target stage in this pipeline', { 'config.stageId': 'Required' });
@@ -57,6 +65,43 @@ async function validateRule(ctx: Ctx, r: { entityType?: string; pipelineId?: num
 }
 
 export async function automationRoutes(app: FastifyInstance) {
+  // ── Webhook settings (admins): allow-list of hosts and the signing secret ──
+  const loadHooks = async (workspaceId: number) => {
+    const ws = await q1<{ settings: { webhooks?: { allowedHosts?: string[]; secret?: string } } }>(sql`SELECT settings FROM workspaces WHERE id = ${workspaceId}`);
+    return ws?.settings.webhooks ?? {};
+  };
+  const saveHooks = (workspaceId: number, hooks: { allowedHosts: string[]; secret: string }) =>
+    q(sql`UPDATE workspaces SET settings = settings || jsonb_build_object('webhooks', ${JSON.stringify(hooks)}::jsonb) WHERE id = ${workspaceId}`);
+  app.get('/settings/webhooks', async (req) => {
+    const ctx = ctxOf(req);
+    requireAdmin(ctx);
+    const h = await loadHooks(ctx.workspaceId);
+    if (!h.secret) { h.secret = newWebhookSecret(); await saveHooks(ctx.workspaceId, { allowedHosts: h.allowedHosts ?? [], secret: h.secret }); }
+    return { allowedHosts: h.allowedHosts ?? [], secret: h.secret };
+  });
+  app.put('/settings/webhooks', async (req) => {
+    const ctx = ctxOf(req);
+    requireAdmin(ctx);
+    const body = parse(webhookSettingsSchema, req.body);
+    const hosts: string[] = [];
+    for (const raw of body.allowedHosts.filter((x) => x.trim())) {
+      const h = normaliseHost(raw);
+      if (!h) throw badRequest(`"${raw}" is not a host name (use e.g. hooks.example.com or *.example.com)`, { allowedHosts: 'Invalid host' });
+      if (!hosts.includes(h)) hosts.push(h);
+    }
+    const cur = await loadHooks(ctx.workspaceId);
+    await saveHooks(ctx.workspaceId, { allowedHosts: hosts, secret: cur.secret ?? newWebhookSecret() });
+    return { allowedHosts: hosts };
+  });
+  app.post('/settings/webhooks/rotate-secret', async (req) => {
+    const ctx = ctxOf(req);
+    requireAdmin(ctx);
+    const cur = await loadHooks(ctx.workspaceId);
+    const secret = newWebhookSecret();
+    await saveHooks(ctx.workspaceId, { allowedHosts: cur.allowedHosts ?? [], secret });
+    return { secret };
+  });
+
   app.get('/automation-rules', async (req) => {
     const ctx = ctxOf(req);
     const pipelineId = Number((req.query as { pipelineId?: string }).pipelineId) || undefined;

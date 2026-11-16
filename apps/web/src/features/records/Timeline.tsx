@@ -192,6 +192,7 @@ export function describeEvent(d: Record<string, any>, userName: (id: number) => 
     case 'reopened': return { icon: ArrowRightLeft, text: `Reopened in ${stage?.[1]}` };
     case 'deleted': return { icon: Trash2, text: imp?.undo ? `Moved to recycle bin (import of ${imp.file} undone)` : 'Moved to recycle bin' };
     case 'restored': return { icon: History, text: 'Restored from recycle bin' };
+    case 'webhook_sent': { let host = ''; try { host = new URL(String(ch.url)).host; } catch { /* keep empty */ } return { icon: History, text: `Automation called a webhook${host ? ` on ${host}` : ''} (HTTP ${ch.status ?? '?'})` }; }
     case 'file_added': return { icon: History, text: `Added file ${ch.file?.name ?? ''}` };
     case 'file_removed': return { icon: Trash2, text: `Deleted file ${ch.file?.name ?? ''}` };
     case 'merged_into': return { icon: History, text: `Merged into ${ch.into?.name ?? 'another record'} (#${ch.into?.id})` };
