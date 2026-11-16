@@ -10,8 +10,8 @@ import { EntityPicker } from '../../components/ui/EntityPicker.tsx';
 const blank = (): LineItem => ({ productId: null, name: '', unitPrice: '0', quantity: 1, unit: 'pcs', discountType: null, discountValue: null, taxRate: null, taxIncluded: false });
 
 /** Editable product rows with live totals; the server recomputes and stores the authoritative values. */
-export function LineItemsEditor({ items, currency, canEdit, onSave, amountMode }: {
-  items: LineItem[]; currency: string; canEdit: boolean; onSave: (items: LineItem[]) => Promise<void>; amountMode?: string;
+export function LineItemsEditor({ items, currency, canEdit, onSave, amountMode, title = 'Products' }: {
+  items: LineItem[]; currency: string; canEdit: boolean; onSave: (items: LineItem[]) => Promise<void>; amountMode?: string; title?: string;
 }) {
   const [rows, setRows] = useState<LineItem[]>(items);
   const [editing, setEditing] = useState(false);
@@ -29,7 +29,7 @@ export function LineItemsEditor({ items, currency, canEdit, onSave, amountMode }
     } catch (e) { setError(errorMessage(e)); } finally { setSaving(false); }
   };
   return (
-    <Card title={`Products (${items.length})`} padded={false}
+    <Card title={`${title} (${items.length})`} padded={false}
       actions={canEdit && !editing && <Button size="sm" variant="ghost" icon={<Plus className="size-3.5" />} onClick={() => { setEditing(true); if (!rows.length) setRows([blank()]); }}>{items.length ? 'Edit' : 'Add'}</Button>}>
       {!editing ? (
         items.length ? (
@@ -41,7 +41,7 @@ export function LineItemsEditor({ items, currency, canEdit, onSave, amountMode }
                   <tr key={r.id}>
                     <td className="px-4 py-2"><div className="font-medium">{r.name}</div>
                       <div className="text-xs text-muted">{[r.discountType && Number(r.discountValue) > 0 ? `−${r.discountType === 'percent' ? `${Number(r.discountValue)}%` : money(String(r.discountValue), currency)}` : null, r.taxRate ? `tax ${Number(r.taxRate)}%${r.taxIncluded ? ' incl.' : ''}` : null].filter(Boolean).join(' · ')}</div></td>
-                    <td className="px-2 py-2 text-right tabular">{Number(r.quantity)} {r.unit}</td>
+                    <td className="whitespace-nowrap px-2 py-2 text-right tabular">{Number(r.quantity)} {r.unit}</td>
                     <td className="px-2 py-2 text-right tabular">{money(r.unitPrice, currency)}</td>
                     <td className="px-4 py-2 text-right font-medium tabular">{money(r.lineTotal, currency)}</td>
                   </tr>
@@ -51,7 +51,7 @@ export function LineItemsEditor({ items, currency, canEdit, onSave, amountMode }
             <Totals totals={calcTotals(items.map(norm))} currency={currency} />
             {amountMode === 'manual' && <p className="px-4 pb-3 text-xs text-amber-700 dark:text-amber-300">The deal amount is set manually and doesn’t follow these totals.</p>}
           </div>
-        ) : <div className="flex items-center gap-2 px-4 py-4 text-sm text-muted"><Package className="size-4" />No products added.</div>
+        ) : <div className="flex items-center gap-2 px-4 py-4 text-sm text-muted"><Package className="size-4" />No {title.toLowerCase()} added.</div>
       ) : (
         <div className="space-y-3 p-4">
           {rows.map((r, i) => {
@@ -104,6 +104,7 @@ function Totals({ totals, currency }: { totals: ReturnType<typeof calcTotals>; c
   );
 }
 
+export const itemsPayload = (items: LineItem[]) => items.map((r) => ({ productId: r.productId && r.productId > 0 ? r.productId : null, name: r.name, unitPrice: String(r.unitPrice || 0), quantity: Number(r.quantity), unit: r.unit || 'pcs', discountType: r.discountType, discountValue: r.discountValue === null ? null : Number(r.discountValue), taxRate: r.taxRate === null || r.taxRate === '' ? null : Number(r.taxRate), taxIncluded: !!r.taxIncluded }));
 export async function saveLineItems(path: string, items: LineItem[]) {
-  await api.put(path, { items: items.map((r) => ({ productId: r.productId && r.productId > 0 ? r.productId : null, name: r.name, unitPrice: String(r.unitPrice || 0), quantity: Number(r.quantity), unit: r.unit || 'pcs', discountType: r.discountType, discountValue: r.discountValue === null ? null : Number(r.discountValue), taxRate: r.taxRate === null || r.taxRate === '' ? null : Number(r.taxRate), taxIncluded: !!r.taxIncluded })) });
+  await api.put(path, { items: itemsPayload(items) });
 }

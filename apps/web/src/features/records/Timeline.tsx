@@ -192,6 +192,13 @@ export function describeEvent(d: Record<string, any>, userName: (id: number) => 
     case 'reopened': return { icon: ArrowRightLeft, text: `Reopened in ${stage?.[1]}` };
     case 'deleted': return { icon: Trash2, text: imp?.undo ? `Moved to recycle bin (import of ${imp.file} undone)` : 'Moved to recycle bin' };
     case 'restored': return { icon: History, text: 'Restored from recycle bin' };
+    case 'document_created': return { icon: History, text: `Created a draft ${ch.document?.kind ?? 'document'}` };
+    case 'document_deleted': return { icon: Trash2, text: `Deleted a draft ${ch.document?.kind ?? 'document'}` };
+    case 'quote_sent': case 'quote_accepted': case 'quote_declined': case 'invoice_sent': case 'invoice_paid': case 'invoice_void': {
+      const [kind, st] = String(d.action).split('_');
+      const label = { sent: 'sent', accepted: 'accepted', declined: 'declined', paid: 'paid', void: 'voided' }[st] ?? st;
+      return { icon: History, text: `${kind === 'quote' ? 'Quote' : 'Invoice'} ${ch.document?.number ?? ''} ${label}`, tone: st === 'paid' || st === 'accepted' ? 'text-emerald-600' : undefined };
+    }
     case 'webhook_sent': { let host = ''; try { host = new URL(String(ch.url)).host; } catch { /* keep empty */ } return { icon: History, text: `Automation called a webhook${host ? ` on ${host}` : ''} (HTTP ${ch.status ?? '?'})` }; }
     case 'file_added': return { icon: History, text: `Added file ${ch.file?.name ?? ''}` };
     case 'file_removed': return { icon: Trash2, text: `Deleted file ${ch.file?.name ?? ''}` };

@@ -132,16 +132,26 @@ The research behind every decision is in this folder:
   ignored when `NODE_ENV=production`. Hardening follow-up: pin the checked IP in a custom HTTP agent to close the DNS-rebinding window
   between the address check and the connection.
 
-**Quality:** 127 Vitest tests (API against real PostgreSQL), 28 Playwright tests (desktop, tablet, phone), lint and
+- **Quotes and invoices with PDF** (migration 0014, `routes/documents.ts`, `lib/pdf.ts`, `lib/documentPdf.ts`): a
+  "Quotes & invoices" card on each deal creates a draft from the deal's products (or an invoice from an accepted quote).
+  Drafts are editable (bill-to, valid-until/due date, notes, items; totals computed on the server with `calcTotals`).
+  Statuses: quote draft → sent → accepted/declined (declined → sent again); invoice draft → sent → paid/void. The number
+  (`Q-0001`, `INV-0001`, prefixes in Settings → Quotes & invoices) is taken from `document_counters` when a document is
+  first sent, so deleted drafts leave no gaps; sent documents are locked and invoices are voided, never deleted.
+  Permissions follow the deal (view to see/download, edit to change), incl. pipeline restrictions; status changes are in
+  the deal history. PDFs come from a small built-in writer (no dependency) using the standard Helvetica fonts:
+  Latin-1 plus € and typographic quotes print; other scripts (e.g. Khmer) print as "?", and currencies whose symbol
+  can't be drawn use the ISO code (VND 1,000). Embedding a Unicode font is the follow-up if non-Latin names matter.
+
+**Quality:** 132 Vitest tests (API against real PostgreSQL), 29 Playwright tests (desktop, tablet, phone), lint and
 typecheck clean, `npm audit` = 0, GitHub Actions CI in `.github/workflows/ci.yml`.
 
 ## 3. Not built yet — suggested next work (in priority order)
 
-1. Estimates/quotes and invoices with PDF (see `CRM_FEATURES.md`).
-2. Field-level permissions (hide or lock individual fields per role).
-3. Import follow-ups: deals/products import, "add missing list options" during import.
-4. Merge follow-ups: merge leads; merge more than two at once; fuzzy name matching on the duplicates page.
-5. Email follow-ups: a daily digest of overdue activities; per-workspace sender name; showing
+1. Field-level permissions (hide or lock individual fields per role).
+2. Import follow-ups: deals/products import, "add missing list options" during import.
+3. Merge follow-ups: merge leads; merge more than two at once; fuzzy name matching on the duplicates page.
+4. Email follow-ups: a daily digest of overdue activities; per-workspace sender name; showing
     failed deliveries to admins (today they are only in the `jobs` table as `failed` with `last_error`).
 
 Import limits and choices: 5 MB / 10,000 rows / 100 columns per file; lead rows only match *open* leads; dictionary

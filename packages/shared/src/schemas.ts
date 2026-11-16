@@ -341,3 +341,24 @@ export const exchangeRateSchema = z.object({
 
 // ───────── Webhooks ─────────
 export const webhookSettingsSchema = z.object({ allowedHosts: z.array(z.string().trim().max(200)).max(50) });
+
+// ───────── Quotes & invoices ─────────
+export const DOCUMENT_KINDS = ['quote', 'invoice'] as const;
+export const DOCUMENT_STATUSES = { quote: ['draft', 'sent', 'accepted', 'declined'], invoice: ['draft', 'sent', 'paid', 'void'] } as const;
+export const documentCreateSchema = z.object({ kind: z.enum(DOCUMENT_KINDS), fromQuoteId: optId });
+export const documentUpdateSchema = z.object({
+  billToName: trimmed(200).optional(),
+  billToDetails: z.string().max(2000).optional(),
+  notes: z.string().max(5000).optional(),
+  dueDate: optDate,
+  items: z.array(lineItemSchema).max(200).optional(),
+});
+export const documentStatusSchema = z.object({ status: z.enum(['sent', 'accepted', 'declined', 'paid', 'void']) });
+export const documentSettingsSchema = z.object({
+  companyDetails: z.string().max(2000).default(''),
+  footer: z.string().max(1000).default(''),
+  quotePrefix: trimmed(12).default('Q-'),
+  invoicePrefix: trimmed(12).default('INV-'),
+  quoteValidDays: z.coerce.number().int().min(1).max(365).default(30),
+  paymentTermsDays: z.coerce.number().int().min(0).max(365).default(14),
+});

@@ -437,6 +437,13 @@ import itself is audited as `entity_type = 'import'` (`imported`, `undone`).
 `workspace_id, entity_type (contact|company), a_id < b_id, dismissed_by, created_at`, PK on all four keys. Pairs listed
 here are hidden from the find-duplicates page.
 
+### `documents`, `document_items`, `document_counters` (migration 0014)
+`documents`: `id, workspace_id, deal_id (cascade), kind (quote|invoice), number (set when first sent; unique per workspace
++ kind), status (quote: draft|sent|accepted|declined; invoice: draft|sent|paid|void), currency, issue_date, due_date
+(valid-until for quotes), bill_to_name, bill_to_details, notes, list_total, discount, tax, total, source_quote_id,
+status_changed_at, created_by, created_at, updated_at`. `document_items` has the same columns as `line_items` plus
+`document_id` (cascade). `document_counters(workspace_id, kind, last_no)` hands out numbers under a row lock.
+
 ### `attachments` (migration 0012)
 `id, workspace_id, entity_type (lead|deal|contact|company), entity_id, file_name, content_type, size_bytes, sha256,
 storage_key (server-generated, unique), uploaded_by, created_at`. Bytes live in file storage (`FILES_DIR`).
