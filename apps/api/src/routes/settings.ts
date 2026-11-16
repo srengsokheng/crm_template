@@ -9,6 +9,7 @@ import { config } from '../config.ts';
 import { q, q1, sql, tx } from '../db/index.ts';
 import { newToken, sha256 } from '../lib/auth.ts';
 import { createPipeline, setRoleGrants } from '../lib/bootstrap.ts';
+import { storageStatus } from '../lib/files.ts';
 import { AppError, badRequest, notFound } from '../lib/errors.ts';
 import { ctxOf } from '../lib/http.ts';
 import { requireAdmin } from '../lib/permissions.ts';
@@ -288,6 +289,12 @@ export async function settingsRoutes(app: FastifyInstance) {
     if (!row) throw notFound('User');
     if (body.status === 'disabled') await q(sql`DELETE FROM sessions WHERE user_id = ${userId} AND workspace_id = ${ctx.workspaceId}`);
     return camel(row);
+  });
+
+  // ─────────────── File storage (read-only status; configured by the server administrator) ───────────────
+  app.get('/settings/files', async (req) => {
+    requireAdmin(ctxOf(req));
+    return { ...storageStatus(), maxBytes: config.files.maxBytes };
   });
 
   // ─────────────── Email delivery (status + test) ───────────────

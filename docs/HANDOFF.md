@@ -192,7 +192,14 @@ The research behind every decision is in this folder:
   (suggested: the deal's contact/company emails), Reply-To the sender, From the workspace sender name; emailing a draft
   issues it first. Money arithmetic via `moneyMinus` / `moneyCompare` in shared `money.ts`.
 
-**Quality:** 152 Vitest tests (API against real PostgreSQL), 34 Playwright tests (desktop, tablet, phone), lint and
+- **Attachments: virus scanning and S3 storage** (`lib/virusScan.ts`, `lib/s3.ts`): with `CLAMAV_HOST` set, every upload
+  is streamed to ClamAV (clamd INSTREAM) after the permission check; a flagged file is refused (422, `file_blocked` in the
+  record history) and an unreachable scanner refuses uploads (503, fail closed). `FILES_STORAGE=s3` stores attachments in
+  any S3-compatible service (AWS, MinIO, R2, B2, Spaces) via a small AWS Signature V4 client — no SDK; credentials only
+  from `S3_*` environment variables. Admins see the storage and scanning status under Settings → Workspace → File storage.
+  Moving existing files from disk to S3 is a one-off copy of `FILES_DIR` into the bucket (same keys).
+
+**Quality:** 156 Vitest tests (API against real PostgreSQL), 35 Playwright tests (desktop, tablet, phone), lint and
 typecheck clean, `npm audit` = 0, GitHub Actions CI in `.github/workflows/ci.yml`.
 
 ## 3. Not built yet — suggested next work (in priority order)
@@ -200,11 +207,10 @@ typecheck clean, `npm audit` = 0, GitHub Actions CI in `.github/workflows/ci.yml
 The earlier list is done (see section 2). Known follow-ups, collected from the pull requests' "not verified" notes:
 
 1. PDFs: embed a Unicode font (e.g. Noto Sans Khmer) so non-Latin names print instead of "?".
-2. Attachments: virus scanning of uploads; S3-compatible storage behind the existing `FileStore` interface.
-3. Webhooks: pin the checked IP in a custom HTTP agent (closes the DNS-rebinding window); delivery log per rule.
-4. Field permissions: disable locked fields in the "New …" dialogs (the server already refuses them).
-5. Import: products on deals (line items) from a file; adding options to custom select fields during import.
-6. Merge: combine both leads' product lists; an undo for merges.
+2. Webhooks: pin the checked IP in a custom HTTP agent (closes the DNS-rebinding window); delivery log per rule.
+3. Field permissions: disable locked fields in the "New …" dialogs (the server already refuses them).
+4. Import: products on deals (line items) from a file; adding options to custom select fields during import.
+5. Merge: combine both leads' product lists; an undo for merges.
 
 Import limits and choices: 5 MB / 10,000 rows / 100 columns per file; lead rows only match *open* leads; list
 values (type, source, industry, size, deal type, category) must already exist unless an admin ticks "Add values that aren't in

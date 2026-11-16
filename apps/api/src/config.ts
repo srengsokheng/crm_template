@@ -29,6 +29,15 @@ export const config = {
     dir: env.FILES_DIR ?? fileURLToPath(new URL('../../../data/files/', import.meta.url)),
     maxBytes: Number(env.FILES_MAX_BYTES ?? 10 * 1024 * 1024),
     maxPerRecord: 100,
+    /** "disk" (default) or "s3" (any S3-compatible service). */
+    storage: (env.FILES_STORAGE === 's3' ? 's3' : 'disk') as 'disk' | 's3',
+    s3: {
+      endpoint: env.S3_ENDPOINT ?? '', region: env.S3_REGION ?? 'us-east-1', bucket: env.S3_BUCKET ?? '',
+      accessKeyId: env.S3_ACCESS_KEY_ID ?? '', secretAccessKey: env.S3_SECRET_ACCESS_KEY ?? '',
+      forcePathStyle: env.S3_FORCE_PATH_STYLE === 'true', prefix: env.S3_PREFIX ?? '',
+    },
+    /** ClamAV daemon for scanning uploads (off when CLAMAV_HOST is empty). */
+    clamav: { host: env.CLAMAV_HOST ?? '', port: Number(env.CLAMAV_PORT ?? 3310) },
   },
   webDist: env.WEB_DIST ?? fileURLToPath(new URL('../../web/dist/', import.meta.url)),
 };

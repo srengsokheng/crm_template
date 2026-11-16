@@ -58,6 +58,7 @@ export function WorkspaceSettings() {
         </form>
       </Card>
       <EmailDelivery />
+      <FileStorage />
     </AdminOnly>
   );
 }
@@ -99,6 +100,22 @@ function EmailDelivery() {
           <p className="text-xs text-muted">Server settings: SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS and EMAIL_FROM environment variables. Passwords are never shown here.</p>
           <Button icon={<Send className="size-4" />} loading={test.isPending} onClick={() => test.mutate(undefined)}>Send a test email to me</Button>
           {q.data.failedCount > 0 && <FailedMails />}
+        </div>
+      )}
+    </Card>
+  );
+}
+
+/** Where attachments are kept and whether uploads are virus-scanned (set by the server administrator). */
+function FileStorage() {
+  const q = useQuery({ queryKey: ['settings-files'], queryFn: () => api.get<{ storage: 'disk' | 's3'; location: string; scanning: boolean; maxBytes: number }>('/settings/files') });
+  return (
+    <Card className="mt-4" title="File storage" actions={q.data && <Badge tone={q.data.scanning ? 'green' : 'slate'}>{q.data.scanning ? 'Virus scanning on' : 'No virus scanning'}</Badge>}>
+      {q.isLoading ? <Skeleton className="h-12" /> : q.error || !q.data ? <ErrorState message={errorMessage(q.error)} onRetry={() => q.refetch()} /> : (
+        <div className="max-w-xl space-y-2 text-sm">
+          <p>Attachments are stored {q.data.storage === 's3' ? <>in the S3 bucket <span className="font-medium">{q.data.location}</span></> : <>on the <span className="font-medium">server disk</span></>}, up to {Math.round(q.data.maxBytes / 1024 / 1024)} MB per file.</p>
+          <p>{q.data.scanning ? 'Every upload is checked with ClamAV first; flagged files are refused and noted in the record’s history.' : 'Uploads are not checked for viruses. Ask your server administrator to set CLAMAV_HOST to turn scanning on.'}</p>
+          <p className="text-xs text-muted">Set with FILES_STORAGE, S3_* and CLAMAV_* environment variables. Credentials are never shown here.</p>
         </div>
       )}
     </Card>

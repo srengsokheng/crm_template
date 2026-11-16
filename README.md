@@ -68,6 +68,10 @@ Admins can check the setup in Settings → Workspace → Email delivery ("Send a
 Attachments are stored on disk in `FILES_DIR` (default `./data/files`, never inside the web root). Keep that folder
 on persistent storage and back it up together with the database. `FILES_MAX_BYTES` limits the size of one file (default 10 MB).
 
+To keep files in S3-compatible storage instead (AWS S3, MinIO, Cloudflare R2, Backblaze B2…), set `FILES_STORAGE=s3` and the
+`S3_*` variables listed in `.env.example`. To scan uploads for viruses, run a ClamAV daemon and set `CLAMAV_HOST`
+(and `CLAMAV_PORT`); uploads are then refused while the scanner is unreachable.
+
 ## Checks
 
 ```bash

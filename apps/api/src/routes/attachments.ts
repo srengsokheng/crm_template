@@ -15,6 +15,7 @@ import { audit } from '../lib/audit.ts';
 import type { Ctx } from '../lib/context.ts';
 import { AppError, badRequest, notFound } from '../lib/errors.ts';
 import { files, INLINE_TYPES, newStorageKey } from '../lib/files.ts';
+import { scanBuffer } from '../lib/virusScan.ts';
 import { ctxOf } from '../lib/http.ts';
 import { assertOnRecord } from '../lib/permissions.ts';
 import { camel, camelAll } from '../lib/records.ts';
@@ -65,7 +66,7 @@ export async function attachmentRoutes(app: FastifyInstance) {
     const rows = await q(sql`SELECT a.id, a.file_name, a.content_type, a.size_bytes, a.created_at, u.name AS uploaded_by_name
       FROM attachments a LEFT JOIN users u ON u.id = a.uploaded_by
       WHERE a.workspace_id = ${ctx.workspaceId} AND a.entity_type = ${r.type} AND a.entity_id = ${r.id} ORDER BY a.created_at DESC, a.id DESC`);
-    return { data: camelAll(rows), maxBytes: config.files.maxBytes };
+    return { data: camelAll(rows), maxBytes: config.files.maxBytes, scanned: !!config.files.clamav.host };
   });
 
   app.post('/attachments', { bodyLimit: config.files.maxBytes, config: { rateLimit: { max: config.isTest ? 1000 : 60, timeWindow: '1 minute' } } }, async (req, reply) => {
@@ -77,6 +78,19 @@ export async function attachmentRoutes(app: FastifyInstance) {
     if (data.length === 0) throw badRequest('The file is empty');
     const fileName = cleanFileName(String(query.fileName ?? ''));
     const contentType = cleanType(req.headers['x-file-type']);
+    // Virus scan (when a ClamAV daemon is configured). Permission is checked first so the scanner can't be probed.
+    if (config.files.clamav.host) {
+      await checkRecord(pool, ctx, r.type, r.id, 'edit');
+      let verdict;
+      try { verdict = await scanBuffer(data, config.files.clamav); } catch (e) {
+        req.log.warn({ err: e }, 'virus scan failed');
+        throw new AppError(503, 'SCANNER_UNAVAILABLE', 'Files can’t be checked for viruses right now, so the upload was refused. Please try again later.');
+      }
+      if (!verdict.clean) {
+        await audit(pool, ctx, r.type, r.id, 'file_blocked', { file: { name: fileName, size: data.length }, signature: verdict.signature });
+        throw new AppError(422, 'FILE_INFECTED', `“${fileName}” was flagged by the virus scanner (${verdict.signature}) and was not uploaded.`);
+      }
+    }
     const key = newStorageKey(ctx.workspaceId);
     const row = await tx(async (db) => {
       await checkRecord(db, ctx, r.type, r.id, 'edit');
