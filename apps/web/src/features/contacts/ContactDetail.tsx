@@ -15,6 +15,7 @@ import { CustomFieldsRows, EditRow, RecordError, RecordShell, RecordSkeleton, us
 import { MethodsView } from '../records/MethodsView.tsx';
 import { RelatedDeals, type RelatedDeal } from '../records/RelatedDeals.tsx';
 import { Timeline } from '../records/Timeline.tsx';
+import { Attachments } from '../records/Attachments.tsx';
 import { MergeDialog } from '../records/MergeDialog.tsx';
 
 interface Contact {
@@ -79,6 +80,7 @@ export function ContactDetail() {
           </div>
         </Card>
         <RelatedDeals deals={c.deals} onAdd={can('deal', 'create') ? () => create.open('deal', { contacts: [{ id, label: name }], stay: true }) : undefined} />
+        <Attachments entityType="contact" entityId={id} canEdit={edit} />
       </>}
       right={<Timeline type="contact" id={id} />} />
   );

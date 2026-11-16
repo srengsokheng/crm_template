@@ -24,5 +24,11 @@ export const config = {
       pass: env.SMTP_PASS || undefined,
     },
   },
+  /** Attachments: stored on disk outside the web root. */
+  files: {
+    dir: env.FILES_DIR ?? fileURLToPath(new URL('../../../data/files/', import.meta.url)),
+    maxBytes: Number(env.FILES_MAX_BYTES ?? 10 * 1024 * 1024),
+    maxPerRecord: 100,
+  },
   webDist: env.WEB_DIST ?? fileURLToPath(new URL('../../web/dist/', import.meta.url)),
 };

@@ -1,4 +1,6 @@
 /* Starts the API (serving the built web app) on a fresh e2e database. Used by playwright.config.ts. */
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import pg from 'pg';
 
 const url = process.env.E2E_DATABASE_URL ?? 'postgres://crm:crm@127.0.0.1:5432/crm_e2e';
@@ -9,4 +11,5 @@ await c.end();
 process.env.DATABASE_URL = url;
 process.env.PORT = process.env.E2E_PORT ?? '3200';
 process.env.NODE_ENV = 'test';
+process.env.FILES_DIR ??= join(tmpdir(), 'crm-e2e-files');
 await import('../apps/api/src/server.ts');

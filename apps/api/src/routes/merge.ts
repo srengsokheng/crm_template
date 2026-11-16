@@ -203,6 +203,7 @@ export async function mergeRoutes(app: FastifyInstance) {
         WHERE entity_type = ${entity} AND entity_id = ${M} ON CONFLICT DO NOTHING`, db);
       await q(sql`DELETE FROM activity_links WHERE entity_type = ${entity} AND entity_id = ${M}`, db);
       await q(sql`UPDATE notes SET entity_id = ${S} WHERE workspace_id = ${ctx.workspaceId} AND entity_type = ${entity} AND entity_id = ${M}`, db);
+      await q(sql`UPDATE attachments SET entity_id = ${S} WHERE workspace_id = ${ctx.workspaceId} AND entity_type = ${entity} AND entity_id = ${M}`, db);
       await q(sql`UPDATE notifications SET entity_id = ${S} WHERE workspace_id = ${ctx.workspaceId} AND entity_type = ${entity} AND entity_id = ${M}`, db);
       // History of the merged record continues on the survivor (field changes, creation, imports…).
       // Each moved event remembers which record it came from, so the timeline can say so.

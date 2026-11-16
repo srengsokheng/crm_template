@@ -63,6 +63,11 @@ EMAIL_FROM="Acme CRM <crm@example.com>"
 
 Admins can check the setup in Settings → Workspace → Email delivery ("Send a test email to me").
 
+### Files
+
+Attachments are stored on disk in `FILES_DIR` (default `./data/files`, never inside the web root). Keep that folder
+on persistent storage and back it up together with the database. `FILES_MAX_BYTES` limits the size of one file (default 10 MB).
+
 ## Checks
 
 ```bash

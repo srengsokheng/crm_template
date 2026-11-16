@@ -112,18 +112,26 @@ The research behind every decision is in this folder:
   wrong currency) and the dashboard/reports show which currencies need a rate. Records keep their own currency;
   `lib/currency.ts` (`inBase`, `dealInBase`, `missingRates`) is the only way new sums should be written.
 
-**Quality:** 117 Vitest tests (API against real PostgreSQL), 26 Playwright tests (desktop, tablet, phone), lint and
+- **File attachments** on leads, deals, contacts and companies (migration 0012, `routes/attachments.ts`,
+  `lib/files.ts`): a "Files" card on each record page — add by button or drag-and-drop, download, preview images,
+  delete. Stored on disk under `FILES_DIR` (default `./data/files`, gitignored, outside the web root) with
+  server-generated keys; max `FILES_MAX_BYTES` (10 MB) per file and 100 files per record. Upload/delete need edit rights
+  on the record, viewing needs view rights (pipeline restrictions included). Downloads are always `attachment` with
+  `nosniff` and a sandbox CSP; only PNG/JPEG/GIF/WebP may be shown inline (never SVG/HTML). Added/removed files are in the
+  record history. Merging moves files to the kept record; purging a record deletes its files. Back up `FILES_DIR` with the
+  database. The `FileStore` interface is where S3-compatible storage would plug in.
+
+**Quality:** 122 Vitest tests (API against real PostgreSQL), 27 Playwright tests (desktop, tablet, phone), lint and
 typecheck clean, `npm audit` = 0, GitHub Actions CI in `.github/workflows/ci.yml`.
 
 ## 3. Not built yet — suggested next work (in priority order)
 
 1. Automation webhook action (POST to an allow-listed URL).
 2. Estimates/quotes and invoices with PDF (see `CRM_FEATURES.md`).
-3. File custom fields and attachments (needs object storage).
-4. Field-level permissions (hide or lock individual fields per role).
-5. Import follow-ups: deals/products import, "add missing list options" during import.
-6. Merge follow-ups: merge leads; merge more than two at once; fuzzy name matching on the duplicates page.
-7. Email follow-ups: a daily digest of overdue activities; per-workspace sender name; showing
+3. Field-level permissions (hide or lock individual fields per role).
+4. Import follow-ups: deals/products import, "add missing list options" during import.
+5. Merge follow-ups: merge leads; merge more than two at once; fuzzy name matching on the duplicates page.
+6. Email follow-ups: a daily digest of overdue activities; per-workspace sender name; showing
     failed deliveries to admins (today they are only in the `jobs` table as `failed` with `last_error`).
 
 Import limits and choices: 5 MB / 10,000 rows / 100 columns per file; lead rows only match *open* leads; dictionary

@@ -16,6 +16,10 @@ export interface Client {
   put: <T = any>(url: string, body?: unknown) => Res<T>;
   del: <T = any>(url: string, body?: unknown) => Res<T>;
   raw: (method: string, url: string, opts?: { headers?: Record<string, string>; body?: unknown }) => Res<any>;
+  /** POST raw bytes (file uploads). */
+  upload: (url: string, data: Buffer, headers?: Record<string, string>) => Res<any>;
+  /** GET returning the raw response (bytes + headers). */
+  download: (url: string) => Promise<{ status: number; headers: Record<string, unknown>; body: Buffer }>;
 }
 
 export function client(app: FastifyInstance): Client {
@@ -43,6 +47,16 @@ export function client(app: FastifyInstance): Client {
     put: (u, b) => send('PUT', u, b ?? {}),
     del: (u, b) => send('DELETE', u, b),
     raw: (m, u, o = {}) => send(m, u, o.body, o.headers ?? {}),
+    upload: async (u, data, headers = {}) => {
+      const res = await app.inject({ method: 'POST', url: `/api/v1${u}`, payload: data,
+        headers: { ...(cookie ? { cookie } : {}), 'x-requested-with': 'crm', 'content-type': 'application/octet-stream', ...headers } });
+      let body: unknown = res.body; try { body = JSON.parse(res.body); } catch { /* not JSON */ }
+      return { status: res.statusCode, body: body as any };
+    },
+    download: async (u) => {
+      const res = await app.inject({ method: 'GET', url: `/api/v1${u}`, headers: cookie ? { cookie } : {} });
+      return { status: res.statusCode, headers: res.headers, body: res.rawPayload };
+    },
   };
 }
 

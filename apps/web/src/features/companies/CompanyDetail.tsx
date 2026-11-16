@@ -14,6 +14,7 @@ import { CustomFieldsRows, EditRow, RecordError, RecordShell, RecordSkeleton, us
 import { MethodsView } from '../records/MethodsView.tsx';
 import { RelatedDeals, type RelatedDeal } from '../records/RelatedDeals.tsx';
 import { Timeline } from '../records/Timeline.tsx';
+import { Attachments } from '../records/Attachments.tsx';
 import { MergeDialog } from '../records/MergeDialog.tsx';
 
 interface Company {
@@ -84,6 +85,7 @@ export function CompanyDetail() {
           ) : <p className="px-4 py-4 text-sm text-muted">No people linked yet.</p>}
         </Card>
         <RelatedDeals deals={c.deals} onAdd={can('deal', 'create') ? () => create.open('deal', { company: asPicker, stay: true }) : undefined} />
+        <Attachments entityType="company" entityId={id} canEdit={edit} />
       </>}
       right={<Timeline type="company" id={id} />} />
   );

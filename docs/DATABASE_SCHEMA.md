@@ -437,6 +437,10 @@ import itself is audited as `entity_type = 'import'` (`imported`, `undone`).
 `workspace_id, entity_type (contact|company), a_id < b_id, dismissed_by, created_at`, PK on all four keys. Pairs listed
 here are hidden from the find-duplicates page.
 
+### `attachments` (migration 0012)
+`id, workspace_id, entity_type (lead|deal|contact|company), entity_id, file_name, content_type, size_bytes, sha256,
+storage_key (server-generated, unique), uploaded_by, created_at`. Bytes live in file storage (`FILES_DIR`).
+
 ### `saved_views`
 `id, workspace_id, owner_id (NULL = shared with the workspace), entity_type (lead|deal|contact|company, check added in
 migration 0007), name, query jsonb (the list URL parameters), created_at`. Index `(workspace_id, entity_type, owner_id)`.

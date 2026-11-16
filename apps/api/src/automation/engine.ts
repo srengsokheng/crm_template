@@ -7,6 +7,7 @@ import { createActivity } from '../routes/activities.ts';
 import { moveDeal } from '../routes/deals.ts';
 import { moveLead } from '../routes/leads.ts';
 import { runChunk } from '../imports/engine.ts';
+import { files } from '../lib/files.ts';
 import { config } from '../config.ts';
 import { deliver, queueMail, reminderMail, type Mail } from '../lib/mailer.ts';
 
@@ -264,6 +265,14 @@ function formatDue(d: Date, timeZone: string): string {
 }
 
 export async function purge() {
+  // Files of records that are about to be purged: remove the rows now, the bytes after.
+  const gone = await q<{ storage_key: string }>(sql`DELETE FROM attachments a WHERE
+    (a.entity_type = 'deal' AND EXISTS (SELECT 1 FROM deals x WHERE x.id = a.entity_id AND x.deleted_at < now() - ${RETENTION_DAYS + ' days'}::interval))
+    OR (a.entity_type = 'lead' AND EXISTS (SELECT 1 FROM leads x WHERE x.id = a.entity_id AND x.deleted_at < now() - ${RETENTION_DAYS + ' days'}::interval))
+    OR (a.entity_type = 'contact' AND EXISTS (SELECT 1 FROM contacts x WHERE x.id = a.entity_id AND x.deleted_at < now() - ${RETENTION_DAYS + ' days'}::interval))
+    OR (a.entity_type = 'company' AND EXISTS (SELECT 1 FROM companies x WHERE x.id = a.entity_id AND x.deleted_at < now() - ${RETENTION_DAYS + ' days'}::interval))
+    RETURNING a.storage_key`);
+  for (const g of gone) await files().remove(g.storage_key);
   for (const t of ['deals', 'leads', 'contacts', 'companies', 'products']) {
     await q(sql`DELETE FROM ${raw(t)} WHERE deleted_at < now() - ${RETENTION_DAYS + ' days'}::interval`);
   }

@@ -14,6 +14,7 @@ import { DictSelect, MethodsEditor, methodsPayload, UserSelect } from '../record
 import { CustomFieldsRows, EditRow, RecordError, RecordShell, RecordSkeleton, useDeleteWithUndo } from '../records/record.tsx';
 import { MethodsView } from '../records/MethodsView.tsx';
 import { Timeline } from '../records/Timeline.tsx';
+import { Attachments } from '../records/Attachments.tsx';
 import { LineItemsEditor, saveLineItems } from '../products/LineItemsEditor.tsx';
 import { useStageMove } from '../deals/useStageMove.tsx';
 import { ConvertDialog } from './ConvertDialog.tsx';
@@ -94,6 +95,7 @@ export function LeadDetail() {
         </Card>
         <LineItemsEditor items={l.lineItems} currency={l.currency} canEdit={edit}
           onSave={async (items) => { await saveLineItems(`/leads/${id}/line-items`, items); await refresh(); toast.success('Products saved'); }} />
+        <Attachments entityType="lead" entityId={id} canEdit={edit} />
       </>}
       right={<>{mover.dialogs}{converting && <ConvertDialog leadId={id} open onClose={() => setConverting(false)} />}<Timeline type="lead" id={id} /></>} />
   );

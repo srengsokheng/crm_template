@@ -14,6 +14,7 @@ import { DictSelect, UserSelect } from '../records/form.tsx';
 import { CustomFieldsRows, EditRow, RecordError, RecordShell, RecordSkeleton, useDeleteWithUndo } from '../records/record.tsx';
 import { MethodsView } from '../records/MethodsView.tsx';
 import { Timeline } from '../records/Timeline.tsx';
+import { Attachments } from '../records/Attachments.tsx';
 import { LineItemsEditor, saveLineItems } from '../products/LineItemsEditor.tsx';
 import { useStageMove } from './useStageMove.tsx';
 
@@ -115,6 +116,7 @@ export function DealDetail() {
         </Card>
         <LineItemsEditor items={d.lineItems} currency={d.currency} canEdit={edit} amountMode={d.amountMode}
           onSave={async (items) => { await saveLineItems(`/deals/${id}/line-items`, items); await refresh(); toast.success('Products saved'); }} />
+        <Attachments entityType="deal" entityId={id} canEdit={edit} />
       </>}
       right={<>{mover.dialogs}<Timeline type="deal" id={id} /></>} />
   );

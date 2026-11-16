@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { activityRoutes } from './activities.ts';
+import { attachmentRoutes } from './attachments.ts';
 import { auditRoutes } from './audit.ts';
 import { authRoutes } from './auth.ts';
 import { automationRoutes } from './automation.ts';
@@ -36,5 +37,6 @@ export async function registerRoutes(app: FastifyInstance) {
   await app.register(viewRoutes);
   await app.register(duplicateRoutes);
   await app.register(rateRoutes);
+  await app.register(attachmentRoutes);
   await app.register(recycleRoutes); // generic DELETE /:entity/:id last
 }
