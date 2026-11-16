@@ -6,7 +6,7 @@ import type { Ctx } from '../lib/context.ts';
 import { badRequest, forbidden, notFound } from '../lib/errors.ts';
 import { ctxOf } from '../lib/http.ts';
 import { likeTerm, qs, runList } from '../lib/list.ts';
-import { assertOnRecord, requireAny, scopeOf, scopeWhere } from '../lib/permissions.ts';
+import { assertOnRecord, pipelineAllowed, requireAny, scopeOf, scopeWhere } from '../lib/permissions.ts';
 import { assertMembers, camel, camelAll } from '../lib/records.ts';
 import { parse } from '../lib/validate.ts';
 
@@ -16,18 +16,20 @@ const TABLE: Record<RecordType, string> = { lead: 'leads', deal: 'deals', contac
 /** Load a linked record and check the caller may view it. */
 export async function loadRecordForView(db: Db, ctx: Ctx, type: RecordType, id: number) {
   const row = await q1<{ id: number; owner_id: number; visibility: string }>(
-    sql`SELECT id, owner_id, visibility FROM ${raw(TABLE[type])} WHERE id = ${id} AND workspace_id = ${ctx.workspaceId} AND deleted_at IS NULL`, db);
+    sql`SELECT id, owner_id, visibility${type === 'deal' || type === 'lead' ? sql`, pipeline_id` : sql``} FROM ${raw(TABLE[type])}
+      WHERE id = ${id} AND workspace_id = ${ctx.workspaceId} AND deleted_at IS NULL`, db);
   if (!row) throw notFound(type[0].toUpperCase() + type.slice(1));
   assertOnRecord(ctx, type, 'view', row);
   return row;
 }
 
-const ACTIVITY_SELECT = sql`a.id, a.kind, a.subject, a.description, a.due_at, a.duration_minutes, a.priority, a.assignee_id, a.status,
+/** Activity columns plus its links; titles of deals/leads in pipelines the user can't access are hidden. */
+const activitySelect = (ctx: Ctx) => sql`a.id, a.kind, a.subject, a.description, a.due_at, a.duration_minutes, a.priority, a.assignee_id, a.status,
   a.completed_at, a.reminder_at, a.direction, a.outcome, a.location, a.created_by, a.created_at, a.updated_at, u.name AS assignee_name,
   coalesce((SELECT json_agg(json_build_object('entityType', al.entity_type, 'entityId', al.entity_id,
     'title', CASE al.entity_type
-      WHEN 'deal' THEN (SELECT title FROM deals WHERE id = al.entity_id)
-      WHEN 'lead' THEN (SELECT title FROM leads WHERE id = al.entity_id)
+      WHEN 'deal' THEN (SELECT CASE WHEN pipeline_id = ANY(${ctx.blockedPipelineIds}) THEN 'Restricted deal' ELSE title END FROM deals WHERE id = al.entity_id)
+      WHEN 'lead' THEN (SELECT CASE WHEN pipeline_id = ANY(${ctx.blockedPipelineIds}) THEN 'Restricted lead' ELSE title END FROM leads WHERE id = al.entity_id)
       WHEN 'company' THEN (SELECT name FROM companies WHERE id = al.entity_id)
       ELSE (SELECT trim(coalesce(first_name,'') || ' ' || coalesce(last_name,'')) FROM contacts WHERE id = al.entity_id) END))
     FROM activity_links al WHERE al.activity_id = a.id), '[]') AS links`;
@@ -56,7 +58,7 @@ export async function createActivity(db: Db, ctx: Ctx, body: ReturnType<typeof a
 }
 
 export async function getActivity(db: Db, ctx: Ctx, id: number) {
-  const row = await q1(sql`SELECT ${ACTIVITY_SELECT} FROM activities a LEFT JOIN users u ON u.id = a.assignee_id
+  const row = await q1(sql`SELECT ${activitySelect(ctx)} FROM activities a LEFT JOIN users u ON u.id = a.assignee_id
     WHERE a.id = ${id} AND a.workspace_id = ${ctx.workspaceId} AND a.deleted_at IS NULL`, db);
   if (!row) throw notFound('Activity');
   return camel(row);
@@ -81,7 +83,7 @@ export async function activityRoutes(app: FastifyInstance) {
     const assignee = query.assigneeId === 'me' || query.assigneeId === undefined ? ctx.userId : qs.id(query.assigneeId);
     const bucket = qs.str(query.bucket); // overdue | today | upcoming | nodate | done
     const r = await runList({
-      select: ACTIVITY_SELECT,
+      select: activitySelect(ctx),
       from: sql`activities a LEFT JOIN users u ON u.id = a.assignee_id`,
       where: [
         sql`a.workspace_id = ${ctx.workspaceId}`, sql`a.deleted_at IS NULL`, scopeWhere(ctx, 'activity', 'view', 'a', 'assignee_id'),
@@ -219,13 +221,14 @@ export async function activityRoutes(app: FastifyInstance) {
     // Related records whose history also shows here (customer 360°).
     const related: { type: string; id: number }[] = [{ type, id }];
     if (type === 'contact') {
-      for (const r of await q<{ id: number }>(sql`SELECT deal_id AS id FROM deal_contacts WHERE contact_id = ${id}`)) related.push({ type: 'deal', id: r.id });
-      for (const r of await q<{ id: number }>(sql`SELECT id FROM leads WHERE converted_contact_id = ${id}`)) related.push({ type: 'lead', id: r.id });
+      for (const r of await q<{ id: number }>(sql`SELECT dc.deal_id AS id FROM deal_contacts dc JOIN deals d ON d.id = dc.deal_id
+          WHERE dc.contact_id = ${id} AND ${pipelineAllowed(ctx, 'd')}`)) related.push({ type: 'deal', id: r.id });
+      for (const r of await q<{ id: number }>(sql`SELECT l.id FROM leads l WHERE l.converted_contact_id = ${id} AND ${pipelineAllowed(ctx, 'l')}`)) related.push({ type: 'lead', id: r.id });
     } else if (type === 'company') {
-      for (const r of await q<{ id: number }>(sql`SELECT id FROM deals WHERE company_id = ${id} AND deleted_at IS NULL`)) related.push({ type: 'deal', id: r.id });
-      for (const r of await q<{ id: number }>(sql`SELECT id FROM leads WHERE converted_company_id = ${id}`)) related.push({ type: 'lead', id: r.id });
+      for (const r of await q<{ id: number }>(sql`SELECT d.id FROM deals d WHERE d.company_id = ${id} AND d.deleted_at IS NULL AND ${pipelineAllowed(ctx, 'd')}`)) related.push({ type: 'deal', id: r.id });
+      for (const r of await q<{ id: number }>(sql`SELECT l.id FROM leads l WHERE l.converted_company_id = ${id} AND ${pipelineAllowed(ctx, 'l')}`)) related.push({ type: 'lead', id: r.id });
     } else if (type === 'deal') {
-      const lead = await q1<{ lead_id: number | null }>(sql`SELECT lead_id FROM deals WHERE id = ${id}`);
+      const lead = await q1<{ lead_id: number | null }>(sql`SELECT d.lead_id FROM deals d JOIN leads l ON l.id = d.lead_id WHERE d.id = ${id} AND ${pipelineAllowed(ctx, 'l')}`);
       if (lead?.lead_id) related.push({ type: 'lead', id: lead.lead_id });
     }
     const relTypes = related.map((r) => r.type);
@@ -235,7 +238,7 @@ export async function activityRoutes(app: FastifyInstance) {
     const [notes, activities, events, upcoming] = await Promise.all([
       q(sql`SELECT n.id, n.entity_type, n.entity_id, n.body, n.is_pinned, n.author_type, n.author_id, n.created_at, n.updated_at, u.name AS author_name
             FROM notes n LEFT JOIN users u ON u.id = n.author_id WHERE ${relMatch('n')} AND n.deleted_at IS NULL ORDER BY n.created_at DESC LIMIT 200`),
-      q(sql`SELECT ${ACTIVITY_SELECT} FROM activities a LEFT JOIN users u ON u.id = a.assignee_id
+      q(sql`SELECT ${activitySelect(ctx)} FROM activities a LEFT JOIN users u ON u.id = a.assignee_id
             WHERE a.deleted_at IS NULL AND a.status <> 'open' AND EXISTS (SELECT 1 FROM activity_links al WHERE al.activity_id = a.id AND ${relMatch('al')})
             ORDER BY coalesce(a.completed_at, a.updated_at) DESC LIMIT 200`),
       q(sql`SELECT e.id, e.entity_type, e.entity_id, e.action, e.changes, e.actor_type, e.actor_id, e.created_at, u.name AS actor_name
@@ -243,7 +246,7 @@ export async function activityRoutes(app: FastifyInstance) {
             WHERE e.workspace_id = ${ctx.workspaceId} AND ${relMatch('e')}
               AND (e.entity_type = ${type} AND e.entity_id = ${id} OR e.action IN ('created','won','lost','converted','disqualified'))
             ORDER BY e.created_at DESC LIMIT 300`),
-      q(sql`SELECT ${ACTIVITY_SELECT} FROM activities a LEFT JOIN users u ON u.id = a.assignee_id
+      q(sql`SELECT ${activitySelect(ctx)} FROM activities a LEFT JOIN users u ON u.id = a.assignee_id
             WHERE a.deleted_at IS NULL AND a.status = 'open' AND EXISTS (SELECT 1 FROM activity_links al WHERE al.activity_id = a.id AND al.entity_type = ${type} AND al.entity_id = ${id})
             ORDER BY a.due_at NULLS LAST, a.id`),
     ]);

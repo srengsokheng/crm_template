@@ -57,7 +57,14 @@ export async function settingsRoutes(app: FastifyInstance) {
       const p = await q1<{ entity_type: string }>(sql`SELECT entity_type FROM pipelines WHERE id = ${id} AND workspace_id = ${ctx.workspaceId}`, db);
       if (!p) throw notFound('Pipeline');
       if (body.isDefault) await q(sql`UPDATE pipelines SET is_default = false WHERE workspace_id = ${ctx.workspaceId} AND entity_type = ${p.entity_type}`, db);
-      const row = await q1(sql`UPDATE pipelines SET name = coalesce(${body.name ?? null}, name),
+      if (body.allowedRoleIds) {
+        const ids = [...new Set(body.allowedRoleIds)];
+        const ok = await q(sql`SELECT id FROM roles WHERE workspace_id = ${ctx.workspaceId} AND id = ANY(${ids})`, db);
+        if (ok.length !== ids.length) throw badRequest('Role not found', { allowedRoleIds: 'Unknown role' });
+      }
+      const access = body.allowedRoleIds === undefined ? sql`allowed_role_ids`
+        : body.allowedRoleIds === null ? sql`NULL` : sql`${[...new Set(body.allowedRoleIds)]}::bigint[]`;
+      const row = await q1(sql`UPDATE pipelines SET name = coalesce(${body.name ?? null}, name), allowed_role_ids = ${access},
         is_default = CASE WHEN ${body.isDefault ?? null}::boolean THEN true ELSE is_default END WHERE id = ${id} RETURNING *`, db);
       return camel(row);
     });

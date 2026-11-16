@@ -7,7 +7,7 @@ export interface Me {
   permissions: Record<'lead' | 'deal' | 'contact' | 'company' | 'product' | 'activity', Record<'view' | 'create' | 'edit' | 'delete' | 'export' | 'import', Scope>>;
 }
 export interface Stage { id: number; pipelineId: number; name: string; color: string; sort: number; kind: 'open' | 'won' | 'lost'; probability: number | null; rotDays: number | null }
-export interface Pipeline { id: number; entityType: 'lead' | 'deal'; name: string; sort: number; isDefault: boolean; stages: Stage[] }
+export interface Pipeline { id: number; entityType: 'lead' | 'deal'; name: string; sort: number; isDefault: boolean; stages: Stage[]; allowedRoleIds?: number[] | null }
 export interface DictItem { id: number; kind: string; label: string; sort: number; isActive: boolean }
 export interface FieldOption { id: string; label: string }
 export interface FieldDef {

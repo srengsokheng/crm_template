@@ -25,7 +25,8 @@ export async function recycleRoutes(app: FastifyInstance) {
     const id = Number(req.params.id);
     if (!Number.isInteger(id)) throw badRequest('Invalid id');
     await tx(async (db) => {
-      const row = await q1<{ owner_id?: number; visibility?: string; title: string }>(sql`SELECT ${raw(e.owner ? 'owner_id, visibility,' : '')} ${raw(e.title)} AS title
+      const row = await q1<{ owner_id?: number; visibility?: string; pipeline_id?: number; title: string }>(sql`SELECT ${raw(e.owner ? 'owner_id, visibility,' : '')}
+        ${raw(e.table === 'deals' || e.table === 'leads' ? 'pipeline_id,' : '')} ${raw(e.title)} AS title
         FROM ${raw(e.table)} WHERE id = ${id} AND workspace_id = ${ctx.workspaceId} AND deleted_at IS NULL`, db);
       if (!row) throw notFound();
       if (e.owner) assertOnRecord(ctx, e.perm, 'delete', row);
@@ -43,7 +44,8 @@ export async function recycleRoutes(app: FastifyInstance) {
     if (!e) return reply.callNotFound();
     const id = Number(req.params.id);
     await tx(async (db) => {
-      const row = await q1<{ owner_id?: number; visibility?: string; merged_into_id?: number | null }>(sql`SELECT ${raw(e.owner ? 'owner_id, visibility' : 'id')}
+      const row = await q1<{ owner_id?: number; visibility?: string; pipeline_id?: number; merged_into_id?: number | null }>(sql`SELECT ${raw(e.owner ? 'owner_id, visibility' : 'id')}
+        ${raw(e.table === 'deals' || e.table === 'leads' ? ', pipeline_id' : '')}
         ${e.table === 'contacts' || e.table === 'companies' ? sql`, merged_into_id` : sql``}
         FROM ${raw(e.table)} WHERE id = ${id} AND workspace_id = ${ctx.workspaceId} AND deleted_at IS NOT NULL`, db);
       if (!row) throw notFound('Deleted record');

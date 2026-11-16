@@ -165,7 +165,7 @@ export async function importRoutes(app: FastifyInstance) {
       const ids = (imp.results as RowResult[]).filter((r) => r.action === 'created' && r.id).map((r) => r.id!);
       const table = raw(TABLE[imp.entity_type]);
       const rows = ids.length
-        ? await q<{ id: number; owner_id: number; visibility: string }>(sql`SELECT id, owner_id, visibility FROM ${table}
+        ? await q<{ id: number; owner_id: number; visibility: string; pipeline_id?: number }>(sql`SELECT id, owner_id, visibility${imp.entity_type === 'lead' ? sql`, pipeline_id` : sql``} FROM ${table}
             WHERE id = ANY(${ids}) AND workspace_id = ${ctx.workspaceId} AND deleted_at IS NULL`, db)
         : [];
       const allowed = rows.filter((r) => canOnRecord(ctx, imp.entity_type, 'delete', r)).map((r) => Number(r.id));

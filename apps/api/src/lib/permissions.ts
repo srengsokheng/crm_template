@@ -23,6 +23,18 @@ export function requireAdmin(ctx: Ctx): void {
  * own → owner is me; team → owner in my teams; all → everything except other people's private records.
  */
 export function scopeWhere(ctx: Ctx, entity: PermissionEntity, action: PermissionAction, alias: string, ownerCol = 'owner_id'): Fragment {
+  const base = ownerScopeWhere(ctx, entity, action, alias, ownerCol);
+  if ((entity === 'deal' || entity === 'lead') && ctx.blockedPipelineIds?.length) return sql`(${base} AND ${pipelineAllowed(ctx, alias)})`;
+  return base;
+}
+
+/** SQL: the record (alias) is not in a pipeline the user's role is blocked from. */
+export function pipelineAllowed(ctx: Ctx, alias: string): Fragment {
+  if (!ctx.blockedPipelineIds?.length) return sql`TRUE`;
+  return sql`NOT (${raw(`${alias}.pipeline_id`)} = ANY(${ctx.blockedPipelineIds}))`;
+}
+
+function ownerScopeWhere(ctx: Ctx, entity: PermissionEntity, action: PermissionAction, alias: string, ownerCol: string): Fragment {
   const s = scopeOf(ctx, entity, action);
   const owner = raw(`${alias}.${ownerCol}`);
   const vis = raw(`${alias}.visibility`);
@@ -35,8 +47,9 @@ export function scopeWhere(ctx: Ctx, entity: PermissionEntity, action: Permissio
   }
 }
 
-export function canOnRecord(ctx: Ctx, entity: PermissionEntity, action: PermissionAction, row: { owner_id?: number | null; visibility?: string }): boolean {
+export function canOnRecord(ctx: Ctx, entity: PermissionEntity, action: PermissionAction, row: { owner_id?: number | null; visibility?: string; pipeline_id?: number | null }): boolean {
   if (ctx.isAdmin) return true;
+  if ((entity === 'deal' || entity === 'lead') && row.pipeline_id != null && ctx.blockedPipelineIds?.includes(Number(row.pipeline_id))) return false;
   const s = scopeOf(ctx, entity, action);
   const owner = row.owner_id ?? null;
   if (s === 'all') return row.visibility !== 'private' || owner === ctx.userId;
@@ -45,8 +58,13 @@ export function canOnRecord(ctx: Ctx, entity: PermissionEntity, action: Permissi
   return false;
 }
 
-export function assertOnRecord(ctx: Ctx, entity: PermissionEntity, action: PermissionAction, row: { owner_id?: number | null; visibility?: string }): void {
+export function assertOnRecord(ctx: Ctx, entity: PermissionEntity, action: PermissionAction, row: { owner_id?: number | null; visibility?: string; pipeline_id?: number | null }): void {
   if (!canOnRecord(ctx, entity, action, row)) throw forbidden();
+}
+
+/** Throws when the user's role may not use this pipeline. */
+export function assertPipelineAllowed(ctx: Ctx, pipelineId: number): void {
+  if (ctx.blockedPipelineIds?.includes(Number(pipelineId))) throw forbidden('Your role does not have access to this pipeline');
 }
 
 /** Grants summary sent to the web app so it can hide actions the user cannot take. */

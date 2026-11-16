@@ -10,6 +10,8 @@ export interface Ctx {
   isAdmin: boolean;
   grants: Partial<Record<PermissionEntity, Partial<Record<PermissionAction, Scope>>>>;
   teamUserIds: number[];
+  /** Pipelines this user's role may not use (restricted to other roles). Empty for admins and automation. */
+  blockedPipelineIds: number[];
   baseCurrency: string;
   useLeads: boolean;
   /** Automation nesting depth (loop guard). */
@@ -20,6 +22,6 @@ export interface Ctx {
 export function systemCtx(workspaceId: number, userId: number, baseCurrency = 'USD'): Ctx {
   return {
     userId, workspaceId, userName: 'Automation', email: '', roleId: 0, roleName: 'system', isAdmin: true,
-    grants: {}, teamUserIds: [userId], baseCurrency, useLeads: true, depth: 0,
+    grants: {}, teamUserIds: [userId], blockedPipelineIds: [], baseCurrency, useLeads: true, depth: 0,
   };
 }

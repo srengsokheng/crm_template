@@ -188,7 +188,12 @@ export const noteUpdateSchema = z.object({ body: trimmed(10000).min(1).optional(
 
 // ───────── Settings ─────────
 export const pipelineCreateSchema = z.object({ entityType: z.enum(['lead', 'deal']), name: trimmed(100).min(1, 'Required') });
-export const pipelineUpdateSchema = z.object({ name: trimmed(100).min(1).optional(), isDefault: z.boolean().optional() });
+export const pipelineUpdateSchema = z.object({
+  name: trimmed(100).min(1).optional(),
+  isDefault: z.boolean().optional(),
+  /** null = every role may use the pipeline; otherwise only these roles (admins always can). */
+  allowedRoleIds: z.array(idSchema).max(100).nullable().optional(),
+});
 export const stageSchema = z.object({
   name: trimmed(60).min(1, 'Required'),
   color: z.enum(STAGE_COLORS).default('slate'),

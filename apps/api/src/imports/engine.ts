@@ -293,7 +293,8 @@ async function loadOwners(db: Db, entity: ImportEntity, index: MatchIndex, rows:
   const ids = [...new Set(rows.flatMap((r) => index.find(r.keys, matchBy)).filter((x): x is number => typeof x === 'number'))];
   const out = new Map<number, { owner_id: number; visibility: string }>();
   if (!ids.length) return out;
-  for (const r of await q<{ id: number; owner_id: number; visibility: string }>(sql`SELECT id, owner_id, visibility FROM ${raw(TABLE[entity])} WHERE id = ANY(${ids})`, db)) {
+  for (const r of await q<{ id: number; owner_id: number; visibility: string; pipeline_id?: number }>(sql`SELECT id, owner_id, visibility${entity === 'lead' ? sql`, pipeline_id` : sql``}
+    FROM ${raw(TABLE[entity])} WHERE id = ANY(${ids})`, db)) {
     out.set(Number(r.id), r);
   }
   return out;

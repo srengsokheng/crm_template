@@ -97,7 +97,15 @@ The research behind every decision is in this folder:
   zone and working days/hours set in Settings → Workspace (`addBusinessMinutes` in packages/shared handles weekends,
   time zones and daylight saving).
 
-**Quality:** 110 Vitest tests (API against real PostgreSQL), 24 Playwright tests (desktop, tablet, phone), lint and
+- **Pipeline permissions** (migration 0010, `pipelines.allowed_role_ids`; NULL = everyone): an admin can limit a deal
+  pipeline (or the lead pipeline) to chosen roles in Settings → Pipelines ("Who can use it"). The user context carries
+  `blockedPipelineIds`; `scopeWhere` and `canOnRecord` exclude those pipelines, so lists, boards, search, reports, the
+  dashboard and exports follow automatically. Explicit filters were added where queries bypass them (activity link titles
+  show "Restricted deal", related deals on contact/company pages and timelines, the default-pipeline choice), and
+  creating, moving or editing into a blocked pipeline is refused. Admins and automation always have access.
+  Every permission check on deals/leads must load `pipeline_id` with the row (see tests in `pipeline-access.test.ts`).
+
+**Quality:** 114 Vitest tests (API against real PostgreSQL), 25 Playwright tests (desktop, tablet, phone), lint and
 typecheck clean, `npm audit` = 0, GitHub Actions CI in `.github/workflows/ci.yml`.
 
 ## 3. Not built yet — suggested next work (in priority order)
@@ -105,7 +113,7 @@ typecheck clean, `npm audit` = 0, GitHub Actions CI in `.github/workflows/ci.yml
 1. Automation webhook action (POST to an allow-listed URL).
 2. Estimates/quotes and invoices with PDF (see `CRM_FEATURES.md`).
 3. File custom fields and attachments (needs object storage).
-4. Pipeline-level and field-level permissions.
+4. Field-level permissions (hide or lock individual fields per role).
 5. Multi-currency reporting with exchange rates.
 6. Import follow-ups: deals/products import, "add missing list options" during import.
 7. Merge follow-ups: merge leads; merge more than two at once; fuzzy name matching on the duplicates page.

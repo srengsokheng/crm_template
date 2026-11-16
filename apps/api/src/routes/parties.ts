@@ -11,7 +11,7 @@ import { findDuplicates, loadMethods, replaceMethods } from '../lib/contactMetho
 import { loadDefs, mergeCustom, assertRequired } from '../lib/customFields.ts';
 import { ctxOf } from '../lib/http.ts';
 import { likeTerm, qs, runList, type ListSpec } from '../lib/list.ts';
-import { assertOnRecord, requireAny, scopeWhere } from '../lib/permissions.ts';
+import { assertOnRecord, pipelineAllowed, requireAny, scopeWhere } from '../lib/permissions.ts';
 import { assertMembers, assertRefs, camel, camelAll, getActive, insertRow, pickColumns, updateRow } from '../lib/records.ts';
 import { parse } from '../lib/validate.ts';
 import { exportCsv } from '../lib/exportList.ts';
@@ -182,7 +182,7 @@ export async function partyRoutes(app: FastifyInstance) {
             WHERE cc.contact_id = ${id} AND co.deleted_at IS NULL ORDER BY co.name`),
       q(sql`SELECT d.id, d.title, d.amount, d.currency, d.status, s.name AS stage_name, s.color AS stage_color
             FROM deal_contacts dc JOIN deals d ON d.id = dc.deal_id JOIN stages s ON s.id = d.stage_id
-            WHERE dc.contact_id = ${id} AND d.deleted_at IS NULL ORDER BY d.created_at DESC LIMIT 50`),
+            WHERE dc.contact_id = ${id} AND d.deleted_at IS NULL AND ${pipelineAllowed(ctx, 'd')} ORDER BY d.created_at DESC LIMIT 50`),
       q1(sql`SELECT id, name FROM users WHERE id = ${row.owner_id}`),
     ]);
     return { ...camel(row), methods: camelAll((methods[id] ?? []) as unknown as Record<string, unknown>[]), companies: camelAll(companies), deals: camelAll(deals), owner: camel(owner) };
@@ -212,7 +212,7 @@ export async function partyRoutes(app: FastifyInstance) {
         ${primaryMethod('company', 'co', 'email')} AS email, ${primaryMethod('company', 'co', 'phone')} AS phone,
         ${primaryMethod('company', 'co', 'website')} AS website,
         (SELECT count(*)::int FROM contact_companies cc JOIN contacts c ON c.id = cc.contact_id AND c.deleted_at IS NULL WHERE cc.company_id = co.id) AS contacts_count,
-        (SELECT count(*)::int FROM deals d WHERE d.company_id = co.id AND d.deleted_at IS NULL AND d.status = 'open') AS open_deals_count`,
+        (SELECT count(*)::int FROM deals d WHERE d.company_id = co.id AND d.deleted_at IS NULL AND d.status = 'open' AND ${pipelineAllowed(ctx, 'd')}) AS open_deals_count`,
       from: sql`companies co LEFT JOIN users u ON u.id = co.owner_id`,
       where: [
         sql`co.workspace_id = ${ctx.workspaceId}`, sql`co.deleted_at IS NULL`, scopeWhere(ctx, 'company', 'view', 'co'),
@@ -245,7 +245,7 @@ export async function partyRoutes(app: FastifyInstance) {
       q(sql`SELECT c.id, c.first_name, c.last_name, c.job_title FROM contact_companies cc JOIN contacts c ON c.id = cc.contact_id
             WHERE cc.company_id = ${id} AND c.deleted_at IS NULL ORDER BY c.first_name, c.last_name`),
       q(sql`SELECT d.id, d.title, d.amount, d.currency, d.status, s.name AS stage_name, s.color AS stage_color FROM deals d
-            JOIN stages s ON s.id = d.stage_id WHERE d.company_id = ${id} AND d.deleted_at IS NULL ORDER BY d.created_at DESC LIMIT 50`),
+            JOIN stages s ON s.id = d.stage_id WHERE d.company_id = ${id} AND d.deleted_at IS NULL AND ${pipelineAllowed(ctx, 'd')} ORDER BY d.created_at DESC LIMIT 50`),
       q1(sql`SELECT id, name FROM users WHERE id = ${row.owner_id}`),
     ]);
     return { ...camel(row), methods: camelAll((methods[id] ?? []) as unknown as Record<string, unknown>[]), contacts: camelAll(contacts), deals: camelAll(deals), owner: camel(owner) };
