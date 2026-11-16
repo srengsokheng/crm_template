@@ -129,8 +129,7 @@ The research behind every decision is in this folder:
   allow-list, no IP literals or credentials in the URL, every resolved address must be public, no redirects, 10 s timeout.
   The call runs outside any DB transaction; failures retry through the job queue (3 attempts) and then mark the run
   failed with the reason. `WEBHOOK_ALLOW_HTTP` / `WEBHOOK_ALLOW_PRIVATE` relax this for local development only and are
-  ignored when `NODE_ENV=production`. Hardening follow-up: pin the checked IP in a custom HTTP agent to close the DNS-rebinding window
-  between the address check and the connection.
+  ignored when `NODE_ENV=production`. The connection is pinned to the checked addresses (see "Webhook hardening").
 
 - **Quotes and invoices with PDF** (migration 0014, `routes/documents.ts`, `lib/pdf.ts`, `lib/documentPdf.ts`): a
   "Quotes & invoices" card on each deal creates a draft from the deal's products (or an invoice from an accepted quote).
@@ -199,7 +198,13 @@ The research behind every decision is in this folder:
   from `S3_*` environment variables. Admins see the storage and scanning status under Settings → Workspace → File storage.
   Moving existing files from disk to S3 is a one-off copy of `FILES_DIR` into the bucket (same keys).
 
-**Quality:** 156 Vitest tests (API against real PostgreSQL), 35 Playwright tests (desktop, tablet, phone), lint and
+- **Webhook hardening** (migration 0020): the host is resolved once, every address checked, and the connection is made
+  only to those checked addresses (custom `lookup` on Node's http/https request; TLS still verifies the host name) — the
+  DNS-rebinding window is closed. Every attempt (automation run, each retry, test send) is logged in
+  `webhook_deliveries` (status, error, duration; 30 days) and shown in the rule editor under "Recent deliveries", with a
+  **Send test** button that posts a sample record (`*.test` event). Admin only.
+
+**Quality:** 160 Vitest tests (API against real PostgreSQL), 36 Playwright tests (desktop, tablet, phone), lint and
 typecheck clean, `npm audit` = 0, GitHub Actions CI in `.github/workflows/ci.yml`.
 
 ## 3. Not built yet — suggested next work (in priority order)
@@ -207,10 +212,9 @@ typecheck clean, `npm audit` = 0, GitHub Actions CI in `.github/workflows/ci.yml
 The earlier list is done (see section 2). Known follow-ups, collected from the pull requests' "not verified" notes:
 
 1. PDFs: embed a Unicode font (e.g. Noto Sans Khmer) so non-Latin names print instead of "?".
-2. Webhooks: pin the checked IP in a custom HTTP agent (closes the DNS-rebinding window); delivery log per rule.
-3. Field permissions: disable locked fields in the "New …" dialogs (the server already refuses them).
-4. Import: products on deals (line items) from a file; adding options to custom select fields during import.
-5. Merge: combine both leads' product lists; an undo for merges.
+2. Field permissions: disable locked fields in the "New …" dialogs (the server already refuses them).
+3. Import: products on deals (line items) from a file; adding options to custom select fields during import.
+4. Merge: combine both leads' product lists; an undo for merges.
 
 Import limits and choices: 5 MB / 10,000 rows / 100 columns per file; lead rows only match *open* leads; list
 values (type, source, industry, size, deal type, category) must already exist unless an admin ticks "Add values that aren't in

@@ -8,7 +8,7 @@ import { moveDeal } from '../routes/deals.ts';
 import { moveLead } from '../routes/leads.ts';
 import { runChunk } from '../imports/engine.ts';
 import { files } from '../lib/files.ts';
-import { deliverWebhook } from '../lib/webhooks.ts';
+import { deliverWebhook, type Delivery } from '../lib/webhooks.ts';
 import { config } from '../config.ts';
 import { deliver, queueMail, reminderMail, type Mail, digestMail, workspaceSender } from '../lib/mailer.ts';
 
@@ -167,7 +167,7 @@ export async function runAutomation(p: { runId: number; ruleId: number; entityTy
       event: `${p.entityType}.automation`, sentAt: new Date().toISOString(), rule: { id: rule.id, trigger: rule.trigger },
       record: { type: p.entityType, id: p.entityId, title: rec.title, amount: rec.amount ?? null, currency: rec.currency ?? null,
         status: rec.status ?? null, stage: stage?.name ?? null, owner: ownerName || null, url: `${config.appUrl}/${path}/${p.entityId}` },
-    }, String(p.runId));
+    }, String(p.runId), (d) => logDelivery({ workspaceId: rec.workspace_id, ruleId: rule.id, runId: p.runId, url: String(cfg.url ?? ''), event: `${p.entityType}.automation`, ...d }));
     await audit(pool, ctx, p.entityType, p.entityId, 'webhook_sent', { url: String(cfg.url), status }, 'automation');
     return finishRun(p.runId, 'success', `Webhook answered HTTP ${status}`);
   }
@@ -279,6 +279,12 @@ export async function sendReminders(now = new Date()) {
   });
 }
 
+/** One row per webhook delivery attempt (shown per rule in Settings → Automation). */
+export async function logDelivery(d: { workspaceId: number; ruleId: number | null; runId: number | null; url: string; event: string; isTest?: boolean } & Delivery) {
+  await q(sql`INSERT INTO webhook_deliveries (workspace_id, rule_id, run_id, url, event, is_test, status_code, ok, error, duration_ms)
+    VALUES (${d.workspaceId}, ${d.ruleId}, ${d.runId}, ${d.url}, ${d.event}, ${d.isTest ?? false}, ${d.statusCode}, ${d.ok}, ${d.error?.slice(0, 500) ?? null}, ${d.durationMs})`);
+}
+
 /** Local hour after which the daily digest goes out. */
 export const DIGEST_HOUR = 8;
 
@@ -353,6 +359,7 @@ export async function purge() {
   await q(sql`DELETE FROM imports WHERE status = 'draft' AND created_at < now() - interval '7 days'`);
   await q(sql`DELETE FROM jobs WHERE status IN ('done','failed') AND created_at < now() - interval '14 days'`);
   await q(sql`DELETE FROM outbox_events WHERE processed_at < now() - interval '14 days'`);
+  await q(sql`DELETE FROM webhook_deliveries WHERE created_at < now() - interval '30 days'`);
 }
 
 /** Long-running loop used by the API process (inline) or the dedicated worker. */

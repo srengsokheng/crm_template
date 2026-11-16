@@ -7,7 +7,9 @@ import type { Ctx } from '../lib/context.ts';
 import { requireAdmin, requireAny } from '../lib/permissions.ts';
 import { camel, camelAll } from '../lib/records.ts';
 import { parse } from '../lib/validate.ts';
-import { checkWebhookUrl, newWebhookSecret, normaliseHost } from '../lib/webhooks.ts';
+import { checkWebhookUrl, deliverWebhook, newWebhookSecret, normaliseHost, type Delivery } from '../lib/webhooks.ts';
+import { logDelivery } from '../automation/engine.ts';
+import { config } from '../config.ts';
 
 type IdParams = { Params: { id: string } };
 
@@ -148,6 +150,39 @@ export async function automationRoutes(app: FastifyInstance) {
     requireAdmin(ctx);
     await q(sql`DELETE FROM automation_rules WHERE id = ${Number(req.params.id)} AND workspace_id = ${ctx.workspaceId}`);
     return reply.code(204).send();
+  });
+
+  // ── Webhook rules: recent deliveries, and a test send with a sample payload ──
+  const webhookRule = async (ctx: Ctx, id: number) => {
+    const r = await q1<{ id: number; action: string; entity_type: string; config: { url?: string } }>(sql`SELECT id, action, entity_type, config FROM automation_rules
+      WHERE id = ${id} AND workspace_id = ${ctx.workspaceId}`);
+    if (!r) throw notFound('Rule');
+    if (r.action !== 'webhook') throw badRequest('This rule does not call a webhook');
+    return r;
+  };
+  app.get<IdParams>('/automation-rules/:id/deliveries', async (req) => {
+    const ctx = ctxOf(req);
+    requireAdmin(ctx);
+    const r = await webhookRule(ctx, Number(req.params.id));
+    const rows = await q(sql`SELECT id, run_id, url, event, is_test, status_code, ok, error, duration_ms, created_at FROM webhook_deliveries
+      WHERE workspace_id = ${ctx.workspaceId} AND rule_id = ${r.id} ORDER BY id DESC LIMIT 50`);
+    return { data: camelAll(rows) };
+  });
+  app.post<IdParams>('/automation-rules/:id/test-webhook', { config: { rateLimit: { max: config.isTest ? 1000 : 10, timeWindow: '1 minute' } } }, async (req) => {
+    const ctx = ctxOf(req);
+    requireAdmin(ctx);
+    const r = await webhookRule(ctx, Number(req.params.id));
+    const hooks = (await q1<{ settings: { webhooks?: { allowedHosts?: string[]; secret?: string } } }>(sql`SELECT settings FROM workspaces WHERE id = ${ctx.workspaceId}`))?.settings.webhooks ?? {};
+    if (!hooks.secret) throw badRequest('Open the Webhooks settings once to create the signing secret');
+    const event = `${r.entity_type}.test`;
+    let result: Delivery | null = null;
+    try {
+      await deliverWebhook(String(r.config.url ?? ''), hooks.allowedHosts ?? [], hooks.secret, event, {
+        event, sentAt: new Date().toISOString(), test: true, rule: { id: r.id },
+        record: { type: r.entity_type, id: 0, title: 'Test record', amount: '1000.00', currency: ctx.baseCurrency, status: 'open', stage: null, owner: ctx.userName, url: config.appUrl },
+      }, `test-${r.id}-${Date.now()}`, async (d) => { result = d; await logDelivery({ workspaceId: ctx.workspaceId, ruleId: r.id, runId: null, url: String(r.config.url ?? ''), event, isTest: true, ...d }); });
+    } catch { /* the outcome is in `result` and the delivery log */ }
+    return result;
   });
 
   app.get<{ Params: { type: string; id: string } }>('/automation-runs/:type/:id', async (req) => {

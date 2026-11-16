@@ -9,7 +9,7 @@ import { Badge, Button, Card, Checkbox, Field, IconButton, Input, Segmented, Sel
 import { Drawer } from '../../components/ui/overlays.tsx';
 import { StageBadge } from '../../components/ui/StageBadge.tsx';
 import { AdminOnly } from './SettingsLayout.tsx';
-import { WebhookSettings } from './WebhookSettings.tsx';
+import { WebhookDeliveries, WebhookSettings } from './WebhookSettings.tsx';
 
 interface Rule {
   id: number; entityType: 'deal' | 'lead'; pipelineId: number; stageId: number | null; trigger: 'stage_entered' | 'created' | 'field_changed'; delayMinutes: number;
@@ -208,6 +208,7 @@ function RuleForm({ rule, pipeline, onClose }: { rule: Partial<Rule>; pipeline: 
         </>}
         {r.action === 'webhook' && <Field label="URL" htmlFor="rw-url" hint="Must be https:// and on the allow-list under Webhooks on this page. The record (title, amount, stage, owner, link) is sent as JSON.">
           <Input id="rw-url" type="url" value={cfg.url ?? ''} onChange={(e) => setCfg({ url: e.target.value })} placeholder="https://hooks.zapier.com/hooks/catch/…" /></Field>}
+        {r.action === 'webhook' && rule.id && rule.action === 'webhook' && <WebhookDeliveries ruleId={rule.id} />}
         {r.action === 'move_stage' && <Field label="Target stage" htmlFor="rm-stage"><Select id="rm-stage" value={cfg.stageId ?? ''} onChange={(e) => setCfg({ stageId: Number(e.target.value) })}><option value="">Choose…</option>
           {pipeline.stages.filter((s) => s.id !== r.stageId && !(r.entityType === 'lead' && s.kind === 'won')).map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}</Select></Field>}
       </div>

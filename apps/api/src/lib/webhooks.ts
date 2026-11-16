@@ -12,12 +12,16 @@
  */
 import { createHmac, randomBytes } from 'node:crypto';
 import { lookup } from 'node:dns/promises';
+import http from 'node:http';
+import https from 'node:https';
 import { isIP } from 'node:net';
 
 export const policy = {
   allowHttp: process.env.WEBHOOK_ALLOW_HTTP === 'true' && process.env.NODE_ENV !== 'production',
   allowPrivate: process.env.WEBHOOK_ALLOW_PRIVATE === 'true' && process.env.NODE_ENV !== 'production',
   timeoutMs: 10_000,
+  /** Host name → addresses (replaceable in tests). */
+  resolve: (host: string): Promise<{ address: string; family: number }[]> => lookup(host, { all: true }),
 };
 
 export const newWebhookSecret = () => `whsec_${randomBytes(24).toString('base64url')}`;
@@ -62,25 +66,53 @@ export function isPrivateAddress(ip: string): boolean {
 
 export const sign = (secret: string, body: string) => `sha256=${createHmac('sha256', secret).update(body).digest('hex')}`;
 
-/** POST the payload. Resolves on 2xx; throws with a short reason otherwise (the job queue retries). */
-export async function deliverWebhook(rawUrl: string, allowed: string[], secret: string, event: string, payload: unknown, deliveryId: string): Promise<number> {
-  const url = checkWebhookUrl(rawUrl, allowed);
-  if (!policy.allowPrivate) {
-    const addrs = await lookup(url.hostname, { all: true }).catch(() => { throw new Error(`Can’t resolve ${url.hostname}`); });
-    if (!addrs.length || addrs.some((a) => isPrivateAddress(a.address))) throw new Error(`${url.hostname} resolves to a private address; refusing to call it`);
-  }
-  const body = JSON.stringify(payload);
-  let res: Response;
+export interface Delivery { statusCode: number | null; ok: boolean; error: string | null; durationMs: number }
+
+/**
+ * POST the payload. Resolves with the HTTP status on 2xx; throws with a short reason otherwise (the job queue retries).
+ * The host is resolved ONCE, every address is checked, and the connection is made to that checked address (custom
+ * `lookup`), so DNS can't be switched to a private address between the check and the request (DNS rebinding).
+ * TLS still verifies the certificate against the host name. `onAttempt` receives every outcome (delivery log).
+ */
+export async function deliverWebhook(rawUrl: string, allowed: string[], secret: string, event: string, payload: unknown, deliveryId: string,
+  onAttempt?: (d: Delivery) => Promise<void> | void): Promise<number> {
+  const started = Date.now();
+  const report = async (d: Omit<Delivery, 'durationMs'>) => { await onAttempt?.({ ...d, durationMs: Date.now() - started }); };
   try {
-    res = await fetch(url, {
-      method: 'POST', body, redirect: 'manual', signal: AbortSignal.timeout(policy.timeoutMs),
-      headers: { 'content-type': 'application/json', 'user-agent': 'AcmeCRM-Webhook/1', 'x-crm-event': event, 'x-crm-delivery': deliveryId, 'x-crm-signature': sign(secret, body) },
+    const url = checkWebhookUrl(rawUrl, allowed);
+    const addrs = await policy.resolve(url.hostname).catch(() => { throw new Error(`Can’t resolve ${url.hostname}`); });
+    if (!addrs.length) throw new Error(`Can’t resolve ${url.hostname}`);
+    if (!policy.allowPrivate && addrs.some((a) => isPrivateAddress(a.address))) throw new Error(`${url.hostname} resolves to a private address; refusing to call it`);
+    // Only these checked addresses may be connected to (IPv4 first, then the others as the resolver returned them).
+    const pinned = [...addrs.filter((a) => a.family === 4), ...addrs.filter((a) => a.family !== 4)];
+    const body = JSON.stringify(payload);
+    const status = await new Promise<number>((resolve, reject) => {
+      const mod = url.protocol === 'https:' ? https : http;
+      const req = mod.request({
+        protocol: url.protocol, hostname: url.hostname, port: url.port || undefined, path: `${url.pathname}${url.search}`, method: 'POST',
+        servername: url.hostname, // TLS: certificate is checked against the host name, not the pinned IP
+        lookup: (_host, opts, cb) => {
+          // Never resolves again: answers with the addresses checked above. With `all` (Node's dual-stack fallback)
+          // it may try each of them; every one passed the private-address check.
+          if ((opts as { all?: boolean }).all) (cb as unknown as (e: null, a: { address: string; family: number }[]) => void)(null, pinned);
+          else cb(null, pinned[0].address, pinned[0].family);
+        },
+        headers: {
+          'content-type': 'application/json', 'content-length': Buffer.byteLength(body), 'user-agent': 'AcmeCRM-Webhook/1',
+          'x-crm-event': event, 'x-crm-delivery': deliveryId, 'x-crm-signature': sign(secret, body),
+        },
+        timeout: policy.timeoutMs,
+      }, (res) => { res.resume(); res.on('end', () => resolve(res.statusCode ?? 0)); res.on('error', reject); });
+      req.on('timeout', () => req.destroy(Object.assign(new Error('timeout'), { name: 'TimeoutError' })));
+      req.on('error', (e) => reject(e.name === 'TimeoutError' ? new Error('The webhook did not answer within 10 seconds') : new Error(`Could not reach ${url.hostname}`, { cause: e })));
+      req.end(body);
     });
+    if (status >= 300 && status < 400) throw Object.assign(new Error(`The webhook answered with a redirect (HTTP ${status}); redirects are not followed`), { statusCode: status });
+    if (status < 200 || status >= 300) throw Object.assign(new Error(`The webhook answered HTTP ${status}`), { statusCode: status });
+    await report({ statusCode: status, ok: true, error: null });
+    return status;
   } catch (e) {
-    throw new Error(e instanceof Error && e.name === 'TimeoutError' ? 'The webhook did not answer within 10 seconds' : `Could not reach ${url.hostname}`, { cause: e });
+    await report({ statusCode: (e as { statusCode?: number }).statusCode ?? null, ok: false, error: e instanceof Error ? e.message : String(e) });
+    throw e;
   }
-  await res.arrayBuffer().catch(() => undefined); // drain
-  if (res.status >= 300 && res.status < 400) throw new Error(`The webhook answered with a redirect (HTTP ${res.status}); redirects are not followed`);
-  if (!res.ok) throw new Error(`The webhook answered HTTP ${res.status}`);
-  return res.status;
 }
