@@ -3,7 +3,7 @@ import { q, q1, sql, type Db } from '../db/index.ts';
 import { notifyInbox } from './events.ts';
 
 export interface ChannelRow {
-  id: number; workspace_id: number; kind: 'webchat' | 'telegram_bot' | 'messenger' | 'instagram' | 'whatsapp'; name: string; public_key: string;
+  id: number; workspace_id: number; kind: 'webchat' | 'telegram_bot' | 'messenger' | 'instagram' | 'whatsapp' | 'telegram_user'; name: string; public_key: string;
   config: Record<string, unknown>; secret: string | null; webhook_secret: string | null; status: string; last_error?: string | null;
 }
 

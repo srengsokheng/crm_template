@@ -8,13 +8,14 @@ import type { ChannelRow } from './store.ts';
 import { sendTelegram, TelegramError } from './telegram.ts';
 import { isMetaKind } from '@crm/shared';
 import { MetaError, refusalText, sendMeta } from './meta.ts';
+import { sendTgUser, tgUserRefusal } from './telegramUser.ts';
 
 const CAPTION_MAX = 1024; // Telegram's caption limit; longer text is sent as its own message after the file
 
 /** Delivers one pending outgoing message. Permanent refusals (bot blocked, removed from the group) fail at once. */
 export async function deliverMessage(messageId: number): Promise<void> {
-  const m = await q1<{ id: number; body: string; status: string; chat_id: string; channel_id: number; conversation_id: number }>(sql`
-    SELECT m.id, m.body, m.status, c.external_id AS chat_id, c.channel_id, m.conversation_id
+  const m = await q1<{ id: number; body: string; status: string; chat_id: string; channel_id: number; conversation_id: number; platform_ref: string | null }>(sql`
+    SELECT m.id, m.body, m.status, c.external_id AS chat_id, c.channel_id, m.conversation_id, c.platform_ref
     FROM messages m JOIN conversations c ON c.id = m.conversation_id WHERE m.id = ${messageId}`);
   if (!m || m.status !== 'pending') return;
   const ch = await q1<ChannelRow>(sql`SELECT * FROM channels WHERE id = ${m.channel_id}`);
@@ -35,6 +36,21 @@ export async function deliverMessage(messageId: number): Promise<void> {
       if (e instanceof MetaError && e.code === 190) {
         await q(sql`UPDATE channels SET status = 'error', last_error = 'Meta no longer accepts the access token. Update it with a new long-lived token.' WHERE id = ${ch.id}`);
       }
+      return markFailed(messageId, why);
+    }
+  }
+  if (ch.kind === 'telegram_user') {
+    if (!m.platform_ref) return markFailed(messageId, 'Telegram can’t find this chat any more.');
+    try {
+      const data = file ? await files().get(file.storage_key) : null;
+      if (file && !data) return markFailed(messageId, 'The file is missing from storage.');
+      const externalId = await sendTgUser(ch, m.platform_ref, m.body, file && data ? { ...file, data } : null);
+      await q(sql`UPDATE messages SET status = 'sent', external_id = ${externalId}, error = NULL WHERE id = ${messageId}`);
+      await notifyInbox(pool, m.conversation_id);
+      return;
+    } catch (e) {
+      const why = tgUserRefusal(e);
+      if (!why) throw e; // flood wait or network: the jobs queue retries
       return markFailed(messageId, why);
     }
   }

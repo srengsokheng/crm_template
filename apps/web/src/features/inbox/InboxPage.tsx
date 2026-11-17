@@ -30,7 +30,7 @@ interface ConversationDetail extends ConversationItem {
   canEdit: boolean; canReply: boolean; messages: Message[]; hasOlder: boolean;
 }
 
-const CHANNEL_ICONS: Record<ChannelKind, typeof Globe> = { webchat: Globe, telegram_bot: Send, messenger: MessageCircle, instagram: Camera, whatsapp: Phone };
+const CHANNEL_ICONS: Record<ChannelKind, typeof Globe> = { webchat: Globe, telegram_bot: Send, messenger: MessageCircle, instagram: Camera, whatsapp: Phone, telegram_user: Send };
 /** The channel's icon; labelled for screen readers unless `decorative` (next to text that already names it). */
 export function ChannelIcon({ kind, className, decorative }: { kind: ChannelKind; className?: string; decorative?: boolean }) {
   const Icon = CHANNEL_ICONS[kind] ?? Globe;

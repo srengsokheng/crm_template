@@ -12,4 +12,8 @@ process.env.DATABASE_URL = url;
 process.env.PORT = process.env.E2E_PORT ?? '3200';
 process.env.NODE_ENV = 'test';
 process.env.FILES_DIR ??= join(tmpdir(), 'crm-e2e-files');
+// No real Telegram in tests: a fake user API that greets with a customer message after sign-in.
+const { setTgUserDriver } = await import('../apps/api/src/inbox/telegramUser.ts');
+const { fakeTelegramUser, incoming } = await import('../apps/api/test/fakes/telegramUser.ts');
+setTgUserDriver(fakeTelegramUser({ greetAfterLogin: incoming({ messageId: '1', body: 'Hi! Is the X2 arm still available?' }) }).driver);
 await import('../apps/api/src/server.ts');

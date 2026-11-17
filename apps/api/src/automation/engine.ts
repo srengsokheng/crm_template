@@ -10,6 +10,7 @@ import { runChunk } from '../imports/engine.ts';
 import { deliverMessage, markFailed } from '../inbox/send.ts';
 import { fetchIncomingFile, setStatus as setFileStatus } from '../inbox/files.ts';
 import { pollTelegram } from '../inbox/telegram.ts';
+import { stopTelegramUsers, syncTelegramUsers } from '../inbox/telegramUser.ts';
 import { files } from '../lib/files.ts';
 import { deliverWebhook, type Delivery } from '../lib/webhooks.ts';
 import { config } from '../config.ts';
@@ -381,6 +382,7 @@ export function startWorker(log: (m: string) => void = () => {}): () => void {
   let lastDigest = 0;
   let lastPurge = 0;
   let lastPoll = 0;
+  let lastTgUser = 0;
   const tick = async () => {
     if (stopped) return;
     try {
@@ -389,6 +391,7 @@ export function startWorker(log: (m: string) => void = () => {}): () => void {
       if (now - lastDigest > 300_000) { lastDigest = now; const n = await sendDigests(); if (n) log(`queued ${n} daily digest(s)`); }
       if (now - lastPurge > 3_600_000) { lastPurge = now; await purge(); await releaseStuckJobs(); }
       if (now - lastPoll > 3_000) { lastPoll = now; const m = await pollTelegram(); if (m) log(`stored ${m} Telegram message(s)`); }
+      if (now - lastTgUser > 5_000) { lastTgUser = now; const m = await syncTelegramUsers(log); if (m) log(`caught up ${m} Telegram account message(s)`); }
       const n = (await processOutbox()) + (await processJobs());
       if (n) log(`worker processed ${n} items`);
     } catch (e) {
@@ -397,5 +400,5 @@ export function startWorker(log: (m: string) => void = () => {}): () => void {
     if (!stopped) setTimeout(tick, 1500);
   };
   setTimeout(tick, 500);
-  return () => { stopped = true; };
+  return () => { stopped = true; void stopTelegramUsers(); };
 }

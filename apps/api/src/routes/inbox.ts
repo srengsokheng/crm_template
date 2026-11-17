@@ -19,6 +19,7 @@ import { enqueue } from '../automation/engine.ts';
 import { notifyInbox, notifyTyping, stopListening, subscribe } from '../inbox/events.ts';
 import { showTelegramTyping } from '../inbox/telegram.ts';
 import { showMetaTyping } from '../inbox/meta.ts';
+import { showTgUserTyping } from '../inbox/telegramUser.ts';
 import { preview } from '../inbox/store.ts';
 import { createContact } from './parties.ts';
 
@@ -109,6 +110,7 @@ export async function inboxRoutes(app: FastifyInstance) {
     if (c.channel_status === 'active') {
       if (c.channel_kind === 'telegram_bot') showTelegramTyping(c.channel_id, c.id);
       else if (c.channel_kind === 'messenger' || c.channel_kind === 'instagram') showMetaTyping(c.channel_id, c.id);
+      else if (c.channel_kind === 'telegram_user') showTgUserTyping(c.channel_id, c.id);
     }
     return reply.code(204).send();
   });

@@ -5,16 +5,18 @@ import { AlertTriangle, Copy, Plus } from 'lucide-react';
 import { CHANNEL_LABELS, isMetaKind, META_ACCOUNT_LABELS, type ChannelKind, type MetaKind } from '@crm/shared';
 import { ChannelIcon } from '../inbox/InboxPage.tsx';
 import { api, errorMessage } from '../../lib/api.ts';
-import { Badge, Button, Card, EmptyState, ErrorState, Field, Input, Skeleton, Textarea } from '../../components/ui/primitives.tsx';
+import { Badge, Button, Card, Checkbox, EmptyState, ErrorState, Field, Input, Skeleton, Textarea } from '../../components/ui/primitives.tsx';
+import { UserSelect } from '../records/form.tsx';
 import { ConfirmDialog, Dialog } from '../../components/ui/overlays.tsx';
 import { AdminOnly } from './SettingsLayout.tsx';
 
 interface Channel {
-  id: number; kind: ChannelKind; name: string; status: 'active' | 'disabled' | 'error'; lastError: string | null; publicKey: string;
+  id: number; kind: ChannelKind; name: string; status: 'active' | 'disabled' | 'error' | 'pending'; lastError: string | null; publicKey: string;
   conversationCount: number;
   config: {
     greeting?: string; color?: string; allowedOrigins?: string[]; username?: string; botName?: string; mode?: 'webhook' | 'polling';
     accountId?: string; accountName?: string; webhookUrl?: string; verifyToken?: string; httpsReady?: boolean;
+    displayName?: string; phone?: string; includeGroups?: boolean; ownerId?: number | null; loginStep?: 'code' | 'password' | null;
   };
 }
 
@@ -30,7 +32,7 @@ export function ChannelsSettings() {
         <Card title="Channels">
           <p className="text-sm text-muted">Messages people send through these channels arrive in the Inbox, where your team replies. Add one:</p>
           <div className="mt-3 flex flex-wrap gap-2">
-            {(['webchat', 'telegram_bot', 'messenger', 'instagram', 'whatsapp'] as const).map((k) => (
+            {(['webchat', 'telegram_bot', 'telegram_user', 'messenger', 'instagram', 'whatsapp'] as const).map((k) => (
               <Button key={k} size="sm" icon={<ChannelIcon kind={k} decorative />} onClick={() => setAdding(k)}>{CHANNEL_LABELS[k]}</Button>
             ))}
           </div>
@@ -41,6 +43,7 @@ export function ChannelsSettings() {
       </div>
       <AddWebchat open={adding === 'webchat'} onOpenChange={(v) => setAdding(v ? 'webchat' : null)} onAdded={refresh} />
       <AddTelegram open={adding === 'telegram_bot'} onOpenChange={(v) => setAdding(v ? 'telegram_bot' : null)} onAdded={refresh} />
+      <AddTelegramUser open={adding === 'telegram_user'} onOpenChange={(v) => setAdding(v ? 'telegram_user' : null)} onAdded={refresh} />
       {adding && isMetaKind(adding) && <AddMeta kind={adding} open onOpenChange={(v) => { if (!v) setAdding(null); }} onAdded={refresh} />}
     </AdminOnly>
   );
@@ -53,11 +56,12 @@ function ChannelCard({ c, onChange }: { c: Channel; onChange: () => void }) {
     setBusy(true);
     try { await api.patch(`/channels/${c.id}`, body); onChange(); toast.success(ok); } catch (e) { toast.error(errorMessage(e)); } finally { setBusy(false); }
   };
-  const status = c.status === 'active' ? <Badge tone="green">Active</Badge> : c.status === 'error' ? <Badge tone="red">Needs attention</Badge> : <Badge>Disabled</Badge>;
+  const status = c.status === 'active' ? <Badge tone="green">Active</Badge> : c.status === 'error' ? <Badge tone="red">Needs attention</Badge>
+    : c.status === 'pending' ? <Badge tone="amber">Signing in</Badge> : <Badge>Disabled</Badge>;
   return (
     <Card title={<span className="flex min-w-0 items-center gap-2"><ChannelIcon kind={c.kind} className="size-4 shrink-0" decorative /><span className="truncate">{c.name}</span>{status}</span>}
       actions={<div className="flex gap-2">
-        {c.status === 'active'
+        {c.status === 'pending' ? null : c.status === 'active'
           ? <Button size="sm" disabled={busy} onClick={() => patch({ status: 'disabled' }, 'Channel disabled')}>Disable</Button>
           : <Button size="sm" disabled={busy} onClick={() => patch({ status: 'active' }, 'Channel enabled')}>{c.status === 'error' ? 'Reconnect' : 'Enable'}</Button>}
         <Button size="sm" variant="ghost" onClick={() => setConfirm(true)}>Delete</Button>
@@ -65,7 +69,8 @@ function ChannelCard({ c, onChange }: { c: Channel; onChange: () => void }) {
       {c.lastError && <p className="mb-3 rounded-md bg-rose-50 px-3 py-2 text-sm text-rose-700 dark:bg-rose-500/10 dark:text-rose-300" role="alert">{c.lastError}</p>}
       <p className="mb-3 text-xs text-muted">{CHANNEL_LABELS[c.kind]} · {c.conversationCount} conversation{c.conversationCount === 1 ? '' : 's'}</p>
       {c.kind === 'webchat' ? <WebchatDetails c={c} save={(b) => patch(b, 'Chat settings saved')} busy={busy} />
-        : isMetaKind(c.kind) ? <MetaDetails c={c} kind={c.kind} onChange={onChange} /> : <TelegramDetails c={c} />}
+        : isMetaKind(c.kind) ? <MetaDetails c={c} kind={c.kind} onChange={onChange} />
+        : c.kind === 'telegram_user' ? <TelegramUserDetails c={c} onChange={onChange} save={(b, ok) => patch(b, ok)} busy={busy} /> : <TelegramDetails c={c} />}
       <ConfirmDialog open={confirm} onOpenChange={setConfirm} danger confirmLabel="Delete channel" title={`Delete “${c.name}”?`}
         description={`This also deletes its ${c.conversationCount} conversation${c.conversationCount === 1 ? '' : 's'} and all their messages. It can’t be undone. To stop new messages but keep the history, disable the channel instead.`}
         onConfirm={async () => { try { await api.del(`/channels/${c.id}`); setConfirm(false); onChange(); toast.success('Channel deleted'); } catch (e) { toast.error(errorMessage(e)); } }} />
@@ -263,6 +268,91 @@ function MetaDetails({ c, kind, onChange }: { c: Channel; kind: MetaKind; onChan
           </div>
         </div>
       ) : <Button size="sm" onClick={() => setEditing(true)}>Update access token</Button>}
+    </div>
+  );
+}
+
+function AddTelegramUser({ open, onOpenChange, onAdded }: { open: boolean; onOpenChange: (v: boolean) => void; onAdded: () => void }) {
+  const [apiId, setApiId] = useState('');
+  const [apiHash, setApiHash] = useState('');
+  const [phone, setPhone] = useState('');
+  const [groups, setGroups] = useState(false);
+  const [ownerId, setOwnerId] = useState<number | null>(null);
+  const [saving, setSaving] = useState(false);
+  useEffect(() => { if (open) { setApiId(''); setApiHash(''); setPhone(''); setGroups(false); setOwnerId(null); } }, [open]);
+  const save = async () => {
+    setSaving(true);
+    try {
+      await api.post('/channels', { kind: 'telegram_user', apiId: apiId.trim(), apiHash: apiHash.trim(), phone: phone.trim(), includeGroups: groups, ...(ownerId ? { ownerId } : {}) });
+      onAdded(); onOpenChange(false); toast.success('Telegram sent a code to the account — enter it on the channel');
+    } catch (e) { toast.error(errorMessage(e)); } finally { setSaving(false); }
+  };
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange} title="Connect a Telegram account"
+      description="Messages people send to this account arrive in the Inbox, and replies are sent as the account. The account’s owner must agree: they’ll get a login code."
+      footer={<><Button onClick={() => onOpenChange(false)}>Cancel</Button><Button variant="primary" disabled={!apiId.trim() || !apiHash.trim() || !phone.trim() || saving} onClick={save}>{saving ? 'Sending code…' : 'Send login code'}</Button></>}>
+      <ol className="mb-4 list-decimal space-y-1 pl-5 text-sm text-muted">
+        <li>Sign in at <a className="text-brand-600 hover:underline dark:text-brand-200" href="https://my.telegram.org" target="_blank" rel="noreferrer">my.telegram.org</a> with the account’s phone number and open “API development tools”.</li>
+        <li>Create an app (any name) and copy its api_id and api_hash.</li>
+      </ol>
+      <div className="space-y-3">
+        <div className="grid gap-3 sm:grid-cols-[10rem_minmax(0,1fr)]">
+          <Field label="api_id" htmlFor="tgu-id" required><Input id="tgu-id" inputMode="numeric" autoComplete="off" value={apiId} onChange={(e) => setApiId(e.target.value)} /></Field>
+          <Field label="api_hash" htmlFor="tgu-hash" required><Input id="tgu-hash" type="password" autoComplete="off" spellCheck={false} value={apiHash} onChange={(e) => setApiHash(e.target.value)} /></Field>
+        </div>
+        <Field label="Phone number" htmlFor="tgu-phone" required hint="With the country code, like +855 12 345 678.">
+          <Input id="tgu-phone" type="tel" autoComplete="off" value={phone} onChange={(e) => setPhone(e.target.value)} />
+        </Field>
+        <Field label="Whose account is it?" htmlFor="tgu-owner" hint="New conversations are assigned to them, so only people who may see their conversations see these.">
+          <UserSelect id="tgu-owner" value={ownerId} onChange={setOwnerId} allowEmpty emptyLabel="Me" />
+        </Field>
+        <Checkbox checked={groups} onChange={setGroups} label="Also take in group chats (off: private chats only)" />
+      </div>
+    </Dialog>
+  );
+}
+
+function TelegramUserDetails({ c, onChange, save, busy }: { c: Channel; onChange: () => void; save: (b: Record<string, unknown>, ok: string) => void; busy: boolean }) {
+  const [code, setCode] = useState('');
+  const [password, setPassword] = useState('');
+  const [sending, setSending] = useState(false);
+  const step = c.status === 'pending' ? c.config.loginStep : null;
+  useEffect(() => { setCode(''); setPassword(''); }, [step]);
+  const login = async (body: Record<string, unknown>, ok?: string) => {
+    setSending(true);
+    try {
+      const r = await api.post<Channel>(`/channels/${c.id}/login`, body);
+      onChange();
+      if (ok) toast.success(ok); else if (r.status === 'active') toast.success('Telegram account connected');
+    } catch (e) { toast.error(errorMessage(e)); } finally { setSending(false); }
+  };
+  if (step === 'code' || step === 'password') {
+    return (
+      <form className="max-w-sm space-y-3 text-sm" onSubmit={(e) => { e.preventDefault(); void login(step === 'code' ? { code: code.trim() } : { password }); }}>
+        {step === 'code' ? (
+          <Field label="Login code" htmlFor={`tc${c.id}`} hint={`Telegram sent it to ${c.config.phone ?? 'the account'} (in the Telegram app, from “Telegram”).`}>
+            <Input id={`tc${c.id}`} inputMode="numeric" autoComplete="one-time-code" maxLength={8} value={code} onChange={(e) => setCode(e.target.value)} />
+          </Field>
+        ) : (
+          <Field label="Two-step verification password" htmlFor={`tp${c.id}`} hint="This account has a cloud password. It’s used once to sign in and never stored.">
+            <Input id={`tp${c.id}`} type="password" autoComplete="off" value={password} onChange={(e) => setPassword(e.target.value)} />
+          </Field>
+        )}
+        <div className="flex flex-wrap gap-2">
+          <Button type="submit" variant="primary" disabled={sending || (step === 'code' ? !code.trim() : !password)}>{sending ? 'Signing in…' : 'Sign in'}</Button>
+          {step === 'code' && <Button disabled={sending} onClick={() => login({ resend: true }, 'A new code was sent')}>Send a new code</Button>}
+        </div>
+      </form>
+    );
+  }
+  return (
+    <div className="space-y-3 text-sm">
+      <p>{c.config.username ? <>Signed in as <span className="font-medium">@{c.config.username}</span></> : <>Signed in as <span className="font-medium">{c.config.displayName ?? c.name}</span></>}{c.config.phone ? <span className="text-muted"> · {c.config.phone}</span> : null}</p>
+      <Field label="Assign new conversations to" htmlFor={`to${c.id}`}>
+        <div className="max-w-xs"><UserSelect id={`to${c.id}`} value={c.config.ownerId ?? null} onChange={(v) => { if (v) save({ ownerId: v }, 'Saved'); }} /></div>
+      </Field>
+      <Checkbox checked={!!c.config.includeGroups} disabled={busy} onChange={(v) => save({ includeGroups: v }, v ? 'Group chats will be taken in' : 'Only private chats from now on')} label="Also take in group chats" />
+      <p className="text-muted">Only messages people send to the account are taken in; what the owner writes from their phone stays in Telegram. To stop, disable the channel, or end the “CRM Inbox” session in Telegram → Settings → Devices.</p>
     </div>
   );
 }

@@ -1,7 +1,9 @@
 /** Settings → Channels (admins): connect website chat, Telegram bots, Facebook Messenger, Instagram and WhatsApp. */
 import { randomBytes } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
-import { channelCreateSchema, channelUpdateSchema, isMetaKind, type MetaKind } from '@crm/shared';
+import { channelCreateSchema, channelUpdateSchema, isMetaKind, telegramLoginSchema, type MetaKind } from '@crm/shared';
+import { assertMembers } from '../lib/records.ts';
+import { loginStep, logOutTgUser, openTgUser, sealTgUser, startLogin } from '../inbox/telegramUser.ts';
 import { config } from '../config.ts';
 import { credentialsOf, metaWebhookUrl, newVerifyToken, sealCredentials, verifyMetaAccount } from '../inbox/meta.ts';
 import { q, q1, sql, tx } from '../db/index.ts';
@@ -28,7 +30,9 @@ function publicChannel(c: ChannelRow & { conversation_count?: number; created_at
       : isMetaKind(c.kind)
         // What the admin pastes into the Meta app's webhook settings (the verify token only proves the URL is ours).
         ? { accountId: cfg.accountId, accountName: cfg.accountName, webhookUrl: metaWebhookUrl(c), verifyToken: c.webhook_secret, httpsReady: config.appUrl.startsWith('https://') }
-        : { username: cfg.username, botName: cfg.botName, mode: cfg.mode },
+        : c.kind === 'telegram_user'
+          ? { username: cfg.username, displayName: cfg.displayName, phone: cfg.phone, includeGroups: cfg.includeGroups === true, ownerId: cfg.ownerId ?? null, loginStep: cfg.loginStep ?? null }
+          : { username: cfg.username, botName: cfg.botName, mode: cfg.mode },
   });
 }
 
@@ -71,6 +75,23 @@ export async function channelRoutes(app: FastifyInstance) {
       });
       return reply.code(201).send(publicChannel(row));
     }
+    if (body.kind === 'telegram_user') {
+      const ownerId = body.ownerId ?? ctx.userId;
+      await assertMembers(ctx, [ownerId]);
+      const phone = `+${body.phone.replace(/\D/g, '')}`;
+      sealTgUser({ apiId: body.apiId, apiHash: body.apiHash, session: '', phone }); // fails early (503) without SECRETS_KEY
+      const login = await startLogin(body.apiId, body.apiHash, phone);
+      const row = await tx(async (db) => {
+        const r = await q1<ChannelRow>(sql`INSERT INTO channels (workspace_id, kind, name, public_key, config, secret, status, created_by)
+          VALUES (${ctx.workspaceId}, 'telegram_user', ${body.name || phone}, ${publicKey},
+            ${JSON.stringify({ phone, includeGroups: body.includeGroups, ownerId, loginStep: 'code' })},
+            ${sealTgUser({ apiId: body.apiId, apiHash: body.apiHash, session: login.session, phone, phoneCodeHash: login.phoneCodeHash })}, 'pending', ${ctx.userId})
+          RETURNING *`, db);
+        await audit(db, ctx, 'channel', r!.id, 'created', { kind: 'telegram_user', name: r!.name });
+        return r!;
+      });
+      return reply.code(201).send(publicChannel(row));
+    }
     const sealed = sealSecret(body.token); // fails early (503) when the server can't store credentials
     const botId = body.token.split(':')[0];
     const dup = await q1(sql`SELECT 1 FROM channels WHERE workspace_id = ${ctx.workspaceId} AND kind = 'telegram_bot' AND config->>'botId' = ${botId}`);
@@ -107,6 +128,19 @@ export async function channelRoutes(app: FastifyInstance) {
         if (creds) secret = sealCredentials(creds);
         if (body.status !== 'disabled' && (c.status !== 'disabled' || body.status === 'active')) status = 'active';
       }
+    } else if (c.kind === 'telegram_user') {
+      if (body.includeGroups !== undefined) cfg.includeGroups = body.includeGroups;
+      if (body.ownerId !== undefined) { await assertMembers(ctx, [body.ownerId]); cfg.ownerId = body.ownerId; }
+      if (body.status === 'active' && (c.status === 'error' || c.status === 'pending')) {
+        // The session ended (or sign-in was left halfway): sign in again with a new code.
+        const s = openTgUser(c);
+        const login = await startLogin(s.apiId, s.apiHash, s.phone);
+        secret = sealTgUser({ apiId: s.apiId, apiHash: s.apiHash, session: login.session, phone: s.phone, phoneCodeHash: login.phoneCodeHash });
+        cfg.loginStep = 'code';
+        status = 'pending';
+      } else if (c.status === 'pending' && body.status !== 'disabled') {
+        status = 'pending';
+      }
     } else if (c.kind === 'webchat') {
       if (body.greeting !== undefined) cfg.greeting = body.greeting;
       if (body.color !== undefined) cfg.color = body.color;
@@ -132,6 +166,48 @@ export async function channelRoutes(app: FastifyInstance) {
     });
   });
 
+  /**
+   * Signing in a Telegram account: the code Telegram sent, then the two-step verification password if the account has
+   * one (used once, never stored), or { resend: true } for a new code.
+   */
+  // Limited per channel (guessing a code), not per address.
+  app.post<{ Params: { id: string } }>('/channels/:id/login', { config: { rateLimit: { max: 10, timeWindow: '1 minute', keyGenerator: (r) => `tglogin:${(r.params as { id?: string }).id ?? ''}` } } }, async (req) => {
+    const ctx = ctxOf(req);
+    requireAdmin(ctx);
+    const body = parse(telegramLoginSchema, req.body);
+    const c = await q1<ChannelRow>(sql`SELECT * FROM channels WHERE id = ${Number(req.params.id)} AND workspace_id = ${ctx.workspaceId} AND kind = 'telegram_user'`);
+    if (!c) throw notFound('Channel');
+    if (c.status !== 'pending') throw conflict('This account is already signed in');
+    const stored = openTgUser(c);
+    if ('resend' in body) {
+      const login = await startLogin(stored.apiId, stored.apiHash, stored.phone);
+      const r = await q1<ChannelRow>(sql`UPDATE channels SET secret = ${sealTgUser({ ...stored, session: login.session, phoneCodeHash: login.phoneCodeHash })},
+        config = config || '{"loginStep":"code"}'::jsonb WHERE id = ${c.id} RETURNING *`);
+      return publicChannel(r!);
+    }
+    const step = c.config.loginStep;
+    if ('code' in body && step !== 'code') throw conflict('Enter the two-step verification password');
+    if ('password' in body && step !== 'password') throw conflict('Enter the code from Telegram first');
+    const r = await loginStep(stored, body);
+    if (r.result === 'password') {
+      const row = await q1<ChannelRow>(sql`UPDATE channels SET secret = ${sealTgUser({ ...stored, session: r.session })},
+        config = config || '{"loginStep":"password"}'::jsonb WHERE id = ${c.id} RETURNING *`);
+      return publicChannel(row!);
+    }
+    const me = r.me!;
+    const dup = await q1(sql`SELECT 1 FROM channels WHERE workspace_id = ${ctx.workspaceId} AND kind = 'telegram_user' AND config->>'userId' = ${me.id} AND id <> ${c.id}`);
+    if (dup) throw conflict('This Telegram account is already connected');
+    return tx(async (db) => {
+      const row = await q1<ChannelRow>(sql`UPDATE channels SET status = 'active', last_error = NULL,
+          name = CASE WHEN name = ${stored.phone} THEN ${me.username ? `@${me.username}` : me.name || stored.phone} ELSE name END,
+          secret = ${sealTgUser({ apiId: stored.apiId, apiHash: stored.apiHash, session: r.session, phone: stored.phone })},
+          config = config || ${JSON.stringify({ userId: me.id, username: me.username, displayName: me.name, loginStep: null })}::jsonb
+        WHERE id = ${c.id} RETURNING *`, db);
+      await audit(db, ctx, 'channel', c.id, 'updated', { status: ['pending', 'active'], via: 'telegram sign-in' });
+      return publicChannel(row!);
+    });
+  });
+
   /** Deletes the channel and all its conversations and messages. */
   app.delete<{ Params: { id: string } }>('/channels/:id', async (req, reply) => {
     const ctx = ctxOf(req);
@@ -139,6 +215,7 @@ export async function channelRoutes(app: FastifyInstance) {
     const c = await q1<ChannelRow>(sql`SELECT * FROM channels WHERE id = ${Number(req.params.id)} AND workspace_id = ${ctx.workspaceId}`);
     if (!c) throw notFound('Channel');
     if (c.kind === 'telegram_bot') await disconnectBot(c);
+    if (c.kind === 'telegram_user') await logOutTgUser(c);
     const keys = await tx(async (db) => {
       const k = await channelStorageKeys(db, c.id);
       await q(sql`DELETE FROM channels WHERE id = ${c.id}`, db);

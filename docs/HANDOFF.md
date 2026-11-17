@@ -357,8 +357,25 @@ The research behind every decision is in this folder:
     the message "failed". An expired token marks the channel "Needs attention". Messenger/Instagram show "typing…".
   - Meta only calls https addresses: on a server whose APP_URL isn't https, the channel says so.
   - `META_GRAPH_URL` (default `https://graph.facebook.com/v21.0`) is only changed for tests.
+- **Telegram personal account** (Telegram's user API / MTProto through GramJS `telegram@2.26.22`; `inbox/telegramUser.ts`):
+  - **Sign in** (Settings → Channels → Telegram account, admins): api_id/api_hash from my.telegram.org and the phone
+    number → Telegram sends a code to the account → enter it on the channel → the 2FA password if the account has one
+    (used once, **never stored**). "Send a new code" if it expired. Each step is stored (channel status `pending`), so it
+    works across API processes. The session, api_id/api_hash are encrypted (SECRETS_KEY), never returned or audited.
+    Login attempts are limited to 10 a minute per channel.
+  - **Privacy defaults:** private chats only (groups are an opt-in setting, enforced by the CRM, not only the driver);
+    new conversations are **assigned to the account's owner** (chosen when connecting). Bots, channels and the owner's
+    own messages are skipped; what the owner writes from their phone stays on Telegram.
+  - **Live connection:** the worker keeps one connection per account (Postgres advisory lock, so only one process
+    holds it) and on (re)connect fetches unread messages of the 50 latest chats. Files are downloaded by the job queue.
+  - **Replies** as the account (plain text, no Markdown; files; "typing…" while the live connection is up). Refusals
+    are explained (blocked, privacy settings, deleted account). If the session ends (terminated on the phone under
+    Settings → Devices), the channel shows "Needs attention"; **Reconnect** starts a new sign-in. Deleting the channel
+    logs the session out on Telegram.
+  - The MTProto client sits behind `TgUserDriver` (`telegramUserGram.ts`); tests and the e2e server use the fake in
+    `apps/api/test/fakes/telegramUser.ts`.
 
-**Quality:** 220 Vitest tests (API against real PostgreSQL), 61 Playwright tests (desktop, tablet, phone), lint and
+**Quality:** 223 Vitest tests (API against real PostgreSQL), 62 Playwright tests (desktop, tablet, phone), lint and
 typecheck clean, `npm audit` = 0, GitHub Actions CI in `.github/workflows/ci.yml`.
 
 ## 3. Not built yet — suggested next work (in priority order)
@@ -370,9 +387,9 @@ The earlier list is done (see section 2). Known follow-ups, collected from the p
    (subsetting already exists). Other scripts with TrueType Noto fonts are one line in `SCRIPTS` (`lib/pdfFonts.ts`).
 2. Copy & paste of Khmer from PDFs: the file carries the exact text (`/ActualText`), but MuPDF's text extraction
    repeats some fragments where marks step back over a base letter; check in Acrobat / browser viewers.
-3. Inbox: a **Telegram personal account** (MTProto user login, e.g. GramJS; the account owner logs in with their phone
-   code — needs `api_id`/`api_hash` from my.telegram.org). Unofficial WhatsApp-Web libraries break WhatsApp's terms
-   and get numbers banned; Meta has no API for personal Messenger/Instagram inboxes.
+3. Inbox, Telegram account: try it with a real account (only the fake driver has run; the GramJS driver is
+   type-checked against GramJS). Unofficial WhatsApp-Web libraries break WhatsApp's terms and get numbers banned; Meta
+   has no API for personal Messenger/Instagram inboxes, so those stay out.
 4. Inbox, Meta: WhatsApp template messages (to write after the 24-hour window), and testing against Meta itself with a
    real app (only a fake Graph API has been used so far).
 

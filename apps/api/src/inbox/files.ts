@@ -12,6 +12,7 @@ import { scanBuffer } from '../lib/virusScan.ts';
 import type { ChannelRow } from './store.ts';
 import { tg, TelegramError, type TgMessage } from './telegram.ts';
 import { fetchMetaFile } from './meta.ts';
+import { fetchTgUserFile, TgUserError } from './telegramUser.ts';
 import { isMetaKind } from '@crm/shared';
 
 export const BOT_DOWNLOAD_LIMIT = 20 * 1024 * 1024;
@@ -52,6 +53,15 @@ export async function fetchIncomingFile(fileRowId: number): Promise<void> {
   const ch = await q1<ChannelRow>(sql`SELECT * FROM channels WHERE id = ${f.channel_id}`);
   if (!ch?.secret) return setStatus(f.id, 'failed');
   if (isMetaKind(ch.kind)) return fetchMetaFile(f.id, ch, f.platform_file_id);
+  if (ch.kind === 'telegram_user') {
+    const conv = await q1<{ platform_ref: string | null }>(sql`SELECT cv.platform_ref FROM message_files mf JOIN messages m ON m.id = mf.message_id
+      JOIN conversations cv ON cv.id = m.conversation_id WHERE mf.id = ${f.id}`);
+    let data: Buffer | null;
+    try { data = await fetchTgUserFile(f.id, ch, f.platform_file_id, conv?.platform_ref ?? null); }
+    catch (e) { if (e instanceof TgUserError && e.code !== 'FLOOD_WAIT') return setStatus(f.id, 'failed'); throw e; }
+    if (!data) return setStatus(f.id, 'failed');
+    return storeIncoming(f.id, f.workspace_id, data);
+  }
   const token = openSecret(ch.secret);
   let path: string;
   try {
@@ -65,18 +75,22 @@ export async function fetchIncomingFile(fileRowId: number): Promise<void> {
   }
   const res = await fetch(`${config.telegram.apiUrl}/file/bot${token}/${path}`, { signal: AbortSignal.timeout(60_000) });
   if (!res.ok) throw new Error(`Telegram file download answered ${res.status}`);
-  const data = Buffer.from(await res.arrayBuffer());
-  if (data.length > maxFileBytes()) return setStatus(f.id, 'too_large', data.length);
+  return storeIncoming(f.id, f.workspace_id, Buffer.from(await res.arrayBuffer()));
+}
+
+/** Size check, virus scan, storage; then the message shows the file. */
+async function storeIncoming(fileId: number, workspaceId: number, data: Buffer): Promise<void> {
+  if (data.length > maxFileBytes()) return setStatus(fileId, 'too_large', data.length);
   if (config.files.clamav.host) {
     const verdict = await scanBuffer(data, config.files.clamav); // scanner down → throw → retried later
-    if (!verdict.clean) return setStatus(f.id, 'blocked', data.length);
+    if (!verdict.clean) return setStatus(fileId, 'blocked', data.length);
   }
-  const key = newStorageKey(f.workspace_id);
+  const key = newStorageKey(workspaceId);
   await files().put(key, data);
   const done = await q1(sql`UPDATE message_files SET status = 'stored', storage_key = ${key}, size_bytes = ${data.length}
-    WHERE id = ${f.id} AND status = 'pending' RETURNING id`);
+    WHERE id = ${fileId} AND status = 'pending' RETURNING id`);
   if (!done) return files().remove(key); // handled concurrently: keep the first copy
-  await notifyFile(f.id);
+  await notifyFile(fileId);
 }
 
 export async function setStatus(id: number, status: 'too_large' | 'blocked' | 'failed', size?: number): Promise<void> {

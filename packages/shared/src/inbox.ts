@@ -1,10 +1,11 @@
 import { z } from 'zod';
 
 /** Messaging channels the Inbox can receive from. */
-export const CHANNEL_KINDS = ['webchat', 'telegram_bot', 'messenger', 'instagram', 'whatsapp'] as const;
+export const CHANNEL_KINDS = ['webchat', 'telegram_bot', 'messenger', 'instagram', 'whatsapp', 'telegram_user'] as const;
 export type ChannelKind = (typeof CHANNEL_KINDS)[number];
 export const CHANNEL_LABELS: Record<ChannelKind, string> = {
   webchat: 'Website chat', telegram_bot: 'Telegram bot', messenger: 'Facebook Messenger', instagram: 'Instagram', whatsapp: 'WhatsApp',
+  telegram_user: 'Telegram account',
 };
 /** Channels connected through Meta's official APIs (one webhook design, a 24-hour reply window). */
 export const META_KINDS = ['messenger', 'instagram', 'whatsapp'] as const;
@@ -46,6 +47,18 @@ export const channelCreateSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('messenger'), name: text(80).optional(), accountId: metaAccountId, ...metaCredentials }),
   z.object({ kind: z.literal('instagram'), name: text(80).optional(), accountId: metaAccountId, ...metaCredentials }),
   z.object({ kind: z.literal('whatsapp'), name: text(80).optional(), accountId: metaAccountId, ...metaCredentials }),
+  z.object({
+    kind: z.literal('telegram_user'),
+    name: text(80).optional(),
+    /** From my.telegram.org → API development tools. */
+    apiId: z.coerce.number().int().positive('Use the number shown as App api_id').max(2_147_483_647),
+    apiHash: z.string().trim().regex(/^[0-9a-f]{32}$/i, 'The api_hash is 32 letters and digits'),
+    phone: z.string().trim().regex(/^\+?[\d\s().-]{7,20}$/, 'Use the full number with the country code, like +855 12 345 678'),
+    /** Group chats are only taken in when asked (personal accounts are in many groups). */
+    includeGroups: z.boolean().default(false),
+    /** Whose account it is: new conversations are assigned to them. */
+    ownerId: id.optional(),
+  }),
 ]);
 
 export const channelUpdateSchema = z.object({
@@ -57,7 +70,17 @@ export const channelUpdateSchema = z.object({
   /** Meta channels: replace the credentials (e.g. after the token expired); both together. */
   accessToken: metaCredentials.accessToken.optional(),
   appSecret: metaCredentials.appSecret.optional(),
+  /** Telegram account: take in group chats too; whose account it is. */
+  includeGroups: z.boolean().optional(),
+  ownerId: id.optional(),
 }).refine((v) => (v.accessToken === undefined) === (v.appSecret === undefined), { message: 'Enter the access token and the app secret', path: ['appSecret'] });
+
+/** Signing in a Telegram account: the code Telegram sent, then the 2FA password if asked; or ask for a new code. */
+export const telegramLoginSchema = z.union([
+  z.object({ code: z.string().trim().regex(/^\d{4,8}$/, 'Enter the code from Telegram (digits only)') }),
+  z.object({ password: z.string().min(1, 'Enter the password').max(256) }),
+  z.object({ resend: z.literal(true) }),
+]);
 
 export const conversationListSchema = z.object({
   status: z.enum(['open', 'closed', 'all']).default('open'),
