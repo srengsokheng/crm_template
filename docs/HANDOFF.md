@@ -332,8 +332,15 @@ The research behind every decision is in this folder:
   one line; phone: shorter Inbox reply placeholder. A click-through in real Chrome then fixed: the "Sign-in email" card no longer
   gets the saved login autofilled into "New email" (hidden username field, like the password card); empty values show
   one muted "—" on every detail page; report tables keep each cell on one line.
+- **Live website chat and typing indicators:** the widget keeps a live connection while open
+  (`GET /public/webchat/:key/events?token=`, server-sent events: "messages" → it refetches, "typing" → "Sreng is
+  typing…"), polling only every 30 s as a safety net (4 s if the connection fails). Typing is sent at most every 4 s:
+  visitors `POST /public/webchat/:key/typing`, the team `POST /inbox/conversations/:id/typing` (needs reply rights).
+  The team sees "Grace is typing…" or "Dara is also writing a reply…" under the messages; on Telegram, the bot shows
+  "typing…" in the chat. Typing is never stored; it travels on the same `pg_notify('inbox')` channel. Visitor streams are
+  capped (5 per conversation, 2,000 per process) and only ever carry the visitor's own conversation.
 
-**Quality:** 214 Vitest tests (API against real PostgreSQL), 59 Playwright tests (desktop, tablet, phone), lint and
+**Quality:** 215 Vitest tests (API against real PostgreSQL), 60 Playwright tests (desktop, tablet, phone), lint and
 typecheck clean, `npm audit` = 0, GitHub Actions CI in `.github/workflows/ci.yml`.
 
 ## 3. Not built yet — suggested next work (in priority order)
@@ -350,7 +357,6 @@ The earlier list is done (see section 2). Known follow-ups, collected from the p
    (Cloud API), and a **Telegram personal account** (MTProto user login, e.g. GramJS; the account owner logs in with
    their phone code — needs `api_id`/`api_hash` from my.telegram.org). Unofficial WhatsApp-Web libraries break
    WhatsApp's terms and get numbers banned; Meta has no API for personal Messenger/Instagram inboxes.
-4. Inbox: live updates for the visitor's widget (it polls every 4 s while open); typing indicators.
 
 Import limits and choices: 5 MB / 10,000 rows / 100 columns per file; lead rows only match *open* leads; list
 values (type, source, industry, size, deal type, category) must already exist unless an admin ticks "Add values that aren't in

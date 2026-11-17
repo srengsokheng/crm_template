@@ -15,6 +15,23 @@ const subscribe = (l: () => void) => { listeners.add(l); return () => { listener
 /** True while the event stream is open. */
 export const useInboxLive = () => useSyncExternalStore(subscribe, () => connected, () => false);
 
+/** Who is typing in which conversation (from "typing" events; each entry expires after a few seconds). */
+const TYPING_MS = 6000;
+let typing: Record<number, { name: string; side: 'customer' | 'team' } | undefined> = {};
+const typingTimers = new Map<number, ReturnType<typeof setTimeout>>();
+const typingListeners = new Set<() => void>();
+const emitTyping = () => typingListeners.forEach((l) => l());
+export function setTyping(conversationId: number, who: { name: string; side: 'customer' | 'team' } | null) {
+  clearTimeout(typingTimers.get(conversationId));
+  typing = { ...typing, [conversationId]: who ?? undefined };
+  if (who) typingTimers.set(conversationId, setTimeout(() => setTyping(conversationId, null), TYPING_MS));
+  emitTyping();
+}
+const subscribeTyping = (l: () => void) => { typingListeners.add(l); return () => { typingListeners.delete(l); }; };
+/** "Grace is typing…" for a conversation, or undefined. */
+export const useTyping = (conversationId: number) =>
+  useSyncExternalStore(subscribeTyping, () => typing[conversationId], () => undefined);
+
 /** Polling interval for inbox queries: slow while live, fast otherwise. */
 export const usePollInterval = (fallbackMs: number) => (useInboxLive() ? 60_000 : fallbackMs);
 
@@ -31,7 +48,16 @@ export function useInboxEvents(enabled: boolean) {
       qc.invalidateQueries({ queryKey: ['inbox'] });
       qc.invalidateQueries({ queryKey: ['inbox-summary'] });
       qc.invalidateQueries({ queryKey: ['notifications'] });
-      if (id) qc.invalidateQueries({ queryKey: ['conversation', id] });
+      if (id) {
+        setTyping(id, null); // a new message ends "typing…"
+        qc.invalidateQueries({ queryKey: ['conversation', id] });
+      }
+    });
+    es.addEventListener('typing', (e) => {
+      try {
+        const t = JSON.parse((e as MessageEvent<string>).data) as { conversationId: number; name: string; side: 'customer' | 'team' };
+        if (t.conversationId) setTyping(t.conversationId, { name: t.name, side: t.side });
+      } catch { /* ignore malformed */ }
     });
     return () => { es.close(); setConnected(false); };
   }, [enabled, qc]);

@@ -16,7 +16,8 @@ import { assertMembers, camel, camelAll } from '../lib/records.ts';
 import { parse } from '../lib/validate.ts';
 import type { ServerResponse } from 'node:http';
 import { enqueue } from '../automation/engine.ts';
-import { notifyInbox, stopListening, subscribe } from '../inbox/events.ts';
+import { notifyInbox, notifyTyping, stopListening, subscribe } from '../inbox/events.ts';
+import { showTelegramTyping } from '../inbox/telegram.ts';
 import { preview } from '../inbox/store.ts';
 import { createContact } from './parties.ts';
 
@@ -81,7 +82,11 @@ export async function inboxRoutes(app: FastifyInstance) {
     const ctx = ctxOf(req);
     requireAny(ctx, 'conversation', 'view');
     const res = reply.raw;
-    const unsubscribe = await subscribe(ctx, (id) => { res.write(`event: conversation\ndata: {"conversationId":${id}}\n\n`); });
+    const unsubscribe = await subscribe(ctx, (e) => {
+      res.write(e.event === 'conversation'
+        ? `event: conversation\ndata: ${JSON.stringify({ conversationId: e.conversationId })}\n\n`
+        : `event: typing\ndata: ${JSON.stringify({ conversationId: e.conversationId, name: e.name, side: e.side })}\n\n`);
+    });
     reply.hijack();
     res.writeHead(200, { 'content-type': 'text/event-stream; charset=utf-8', 'cache-control': 'no-cache, no-transform', connection: 'keep-alive', 'x-accel-buffering': 'no' });
     res.write('retry: 5000\n\n: connected\n\n');
@@ -89,6 +94,19 @@ export async function inboxRoutes(app: FastifyInstance) {
     const ping = setInterval(() => res.write(': ping\n\n'), 25_000);
     const expire = setTimeout(() => res.end(), 30 * 60_000);
     res.on('close', () => { clearInterval(ping); clearTimeout(expire); unsubscribe(); streams.delete(res); });
+  });
+
+  /**
+   * "I'm typing a reply" (the browser sends it at most every few seconds while the reply box has text). Colleagues who
+   * can see the conversation and a website visitor see it for a few seconds; Telegram shows the bot as "typing…".
+   */
+  app.post<IdParams>('/inbox/conversations/:id/typing', { config: { rateLimit: { max: 40, timeWindow: '1 minute' } } }, async (req, reply) => {
+    const ctx = ctxOf(req);
+    const c = await loadConversation(pool, ctx, Number(req.params.id), 'edit');
+    const me = await q1<{ name: string }>(sql`SELECT name FROM users WHERE id = ${ctx.userId}`);
+    await notifyTyping(c.id, 'team', (me?.name ?? '').split(' ')[0], ctx.userId);
+    if (c.channel_kind === 'telegram_bot' && c.channel_status === 'active') showTelegramTyping(c.channel_id, c.id);
+    return reply.code(204).send();
   });
 
   app.get('/inbox/conversations', async (req) => {

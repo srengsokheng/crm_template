@@ -10,7 +10,7 @@ import { dateTime, relative } from '../../lib/format.ts';
 import { useCan, useDebounced, useMe, useMediaQuery, useMeta } from '../../lib/hooks.ts';
 import { Avatar, Badge, Button, EmptyState, ErrorState, IconButton, Input, Segmented, Select, Spinner, Textarea } from '../../components/ui/primitives.tsx';
 import { Dialog } from '../../components/ui/overlays.tsx';
-import { usePollInterval } from './live.ts';
+import { usePollInterval, useTyping } from './live.ts';
 import { FeedList, useFeed } from '../../components/ui/FeedList.tsx';
 import { SavedRepliesMenu } from './SavedReplies.tsx';
 import { EntityPicker, type PickerItem } from '../../components/ui/EntityPicker.tsx';
@@ -211,6 +211,7 @@ function Thread({ id }: { id: number }) {
         )}
         <div ref={bottom} />
       </div>
+      <TypingLine conversationId={id} />
       <Composer conversationId={id} canReply={d.canReply} reason={!d.canEdit ? 'You can read this conversation but your role can’t reply.' : d.channelStatus !== 'active' ? 'This channel is disabled or disconnected, so replies can’t be sent.' : ''} onSent={refresh} customerName={d.profile.name || d.title} />
       <LinkDialog open={linkOpen} onOpenChange={setLinkOpen} conversationId={id} onLinked={refresh} />
     </>
@@ -267,12 +268,23 @@ async function uploadReply(conversationId: number, file: File, caption: string) 
   }
 }
 
+/** "Grace is typing…" under the messages (customer, or a colleague replying at the same time). */
+function TypingLine({ conversationId }: { conversationId: number }) {
+  const t = useTyping(conversationId);
+  return (
+    <p className="h-5 shrink-0 truncate px-4 text-xs text-muted md:px-6" aria-live="polite">
+      {t ? (t.side === 'team' ? `${t.name || 'A colleague'} is also writing a reply…` : `${t.name || 'The customer'} is typing…`) : ''}
+    </p>
+  );
+}
+
 function Composer({ conversationId, canReply, reason, onSent, customerName }: { conversationId: number; canReply: boolean; reason: string; onSent: () => void; customerName: string }) {
   const [body, setBody] = useState('');
   const [file, setFile] = useState<File | null>(null);
   const [sending, setSending] = useState(false);
   const picker = useRef<HTMLInputElement>(null);
   const wide = useMediaQuery('(min-width: 768px)');
+  const lastTyping = useRef(0);
   if (!canReply) return <p className="border-t border-base px-4 py-3 text-sm text-muted">{reason}</p>;
   const send = async (e?: FormEvent) => {
     e?.preventDefault();
@@ -287,6 +299,13 @@ function Composer({ conversationId, canReply, reason, onSent, customerName }: { 
     catch (err) { toast.error(errorMessage(err)); }
     finally { setSending(false); }
   };
+  /** Tells the customer and colleagues "typing…" (at most every 4 seconds; failures don't matter). */
+  const typed = (text: string) => {
+    const now = Date.now();
+    if (!text.trim() || now - lastTyping.current < 4000) return;
+    lastTyping.current = now;
+    api.post(`/inbox/conversations/${conversationId}/typing`).catch(() => {});
+  };
   const onKey = (e: KeyboardEvent<HTMLTextAreaElement>) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } };
   return (
     <form onSubmit={send} className="flex flex-wrap items-end gap-2 border-t border-base p-3">
@@ -300,7 +319,7 @@ function Composer({ conversationId, canReply, reason, onSent, customerName }: { 
       <IconButton label="Attach a file" onClick={() => picker.current?.click()}><Paperclip className="size-4" /></IconButton>
       <SavedRepliesMenu name={customerName} onInsert={(t) => setBody((b) => (b.trim() ? `${b.trimEnd()}\n${t}` : t))} />
       <Textarea aria-label="Reply" rows={2} maxLength={4000} placeholder={file ? 'Add a caption (optional)' : wide ? 'Write a reply… (Enter to send, Shift+Enter for a new line)' : 'Write a reply…'} value={body}
-        onChange={(e) => setBody(e.target.value)} onKeyDown={onKey} className="min-h-[2.75rem] min-w-0 flex-1 resize-none" />
+        onChange={(e) => { setBody(e.target.value); typed(e.target.value); }} onKeyDown={onKey} className="min-h-[2.75rem] min-w-0 flex-1 resize-none" />
       <Button type="submit" variant="primary" disabled={(!body.trim() && !file) || sending} icon={sending ? <Spinner className="size-4 text-white" /> : <Send className="size-4" />}>Send</Button>
     </form>
   );

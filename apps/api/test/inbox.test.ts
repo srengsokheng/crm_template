@@ -14,7 +14,7 @@ import { getApp, inviteUser, signup } from './helpers.ts';
  */
 const TOKEN = '7000001:AAFakeTokenForTestsOnly_0123456789';
 const TOKEN2 = '7000002:AAAnotherFakeTokenForTests_98765432';
-const fake = { updates: new Map<string, any[]>(), sent: [] as any[], webhooks: [] as any[], calls: [] as string[], nextMessageId: 500 };
+const fake = { updates: new Map<string, any[]>(), sent: [] as any[], webhooks: [] as any[], calls: [] as string[], actions: [] as any[], nextMessageId: 500 };
 let server: Server;
 
 beforeAll(async () => {
@@ -31,6 +31,7 @@ beforeAll(async () => {
       if (method === 'getMe') return reply(200, { ok: true, result: { id: Number(token.split(':')[0]), is_bot: true, first_name: 'Acme Bot', username: `acme_${token.slice(4, 7)}_bot` } });
       if (method === 'setWebhook') { fake.webhooks.push(p); return reply(200, { ok: true, result: true }); }
       if (method === 'deleteWebhook') return reply(200, { ok: true, result: true });
+      if (method === 'sendChatAction') { fake.actions.push(p); return reply(200, { ok: true, result: true }); }
       if (method === 'getUpdates') return reply(200, { ok: true, result: (fake.updates.get(token) ?? []).filter((u) => u.update_id >= (p.offset ?? 0)) });
       if (method === 'sendMessage') {
         if (String(p.chat_id) === '403') return reply(403, { ok: false, error_code: 403, description: 'Forbidden: bot was blocked by the user' });
@@ -163,6 +164,12 @@ describe('inbox: Telegram', () => {
     const convs = (await c.get('/inbox/conversations')).body.data;
     const adaConv = convs.find((x: any) => x.title === 'Ada');
     const blocker = convs.find((x: any) => x.title === 'Blocker');
+
+    // Typing a reply shows "typing…" in the Telegram chat, at most once every 4 seconds.
+    expect((await c.post(`/inbox/conversations/${adaConv.id}/typing`)).status).toBe(204);
+    expect((await c.post(`/inbox/conversations/${adaConv.id}/typing`)).status).toBe(204);
+    await new Promise((r) => setTimeout(r, 300));
+    expect(fake.actions).toEqual([{ chat_id: '111', action: 'typing' }]);
 
     const r = await c.post(`/inbox/conversations/${adaConv.id}/messages`, { body: 'Yes, we deliver nationwide.' });
     expect(r.status).toBe(201);

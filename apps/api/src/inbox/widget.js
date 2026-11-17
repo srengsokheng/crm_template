@@ -1,7 +1,8 @@
 /*
  * Acme CRM website chat. Add to any page:
  *   <script src="https://YOUR-CRM/widget.js" data-key="CHANNEL_KEY" async></script>
- * Messages go to the CRM Inbox; replies appear here (checked every few seconds while the chat is open).
+ * Messages go to the CRM Inbox; replies appear here as they're sent (a live connection while the chat is open, with
+ * polling as a fallback), and the visitor sees when the team is typing.
  * Everything lives in a shadow root, so the page's CSS can't break it and it can't break the page.
  */
 (function () {
@@ -46,13 +47,13 @@
       '.who{font-size:11px;color:var(--muted);margin:2px 4px -4px}.form{border-top:1px solid var(--line);padding:10px;display:flex;flex-direction:column;gap:6px}' +
       '.row{display:flex;gap:6px}input,textarea{width:100%;font-size:14px;padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--fg);resize:none}' +
       '.send{border:0;border-radius:8px;background:' + color + ';color:#fff;padding:0 14px;font-weight:600;cursor:pointer}.send:disabled{opacity:.5;cursor:default}' +
-      '.err{color:#dc2626;font-size:12px;min-height:0}' +
+      '.err{color:#dc2626;font-size:12px;min-height:0}.typing{font-size:12px;color:var(--muted);padding:0 16px 6px;min-height:18px}' +
       '.att{border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--muted);padding:0 9px;cursor:pointer}.att:disabled{opacity:.5;cursor:default}' +
       '.f{display:block;max-width:80%;font-size:14px;color:var(--fg);text-decoration:none;word-break:break-all;border:1px solid var(--line);border-radius:12px;padding:8px 12px;background:var(--bg)}.f:hover{background:var(--bubble)}.f.in{align-self:flex-end}.f.out{align-self:flex-start}.f:has(img){padding:0;border:0;background:none}' +
       '.f img{display:block;max-width:100%;max-height:200px;border-radius:12px;border:1px solid var(--line)}' +
       '</style>' +
       '<div class="panel" role="dialog" aria-label="Chat"><div class="head"><span class="title"></span><button class="x" type="button" aria-label="Close chat">×</button></div>' +
-      '<div class="list" aria-live="polite"></div>' +
+      '<div class="list" aria-live="polite"></div><div class="typing" aria-live="polite"></div>' +
       '<form class="form"><div class="row id"><input name="name" placeholder="Your name (optional)" autocomplete="name" maxlength="100"><input name="email" type="email" placeholder="Email (optional)" autocomplete="email" maxlength="200"></div>' +
       '<div class="row"><button class="att" type="button" aria-label="Attach a photo or PDF" title="Attach a photo or PDF"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg></button><input type="file" class="file" hidden accept="image/png,image/jpeg,image/gif,image/webp,application/pdf" aria-label="Photo or PDF to send"><textarea name="body" rows="2" placeholder="Write a message…" aria-label="Message" maxlength="4000" required></textarea><button class="send" type="submit">Send</button></div><div class="err" role="alert"></div></form></div>' +
       '<button class="btn" type="button" aria-label="Open chat" aria-expanded="false"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></button>';
@@ -63,7 +64,24 @@
     var nameIn = $('input[name=name]'), emailIn = $('input[name=email]'), bodyIn = $('textarea');
     $('.title').textContent = settings.name;
     if (token) $('.id').style.display = 'none';
-    var timer = null;
+    var timer = null, live = null, typingTimer = null, lastTyping = 0;
+    var typingEl = $('.typing');
+    function showTyping(name) {
+      typingEl.textContent = (name || 'Someone') + ' is typing…';
+      clearTimeout(typingTimer);
+      typingTimer = setTimeout(function () { typingEl.textContent = ''; }, 6000);
+    }
+    // Live connection for the open chat; while it's up, polling slows to a safety net (30 s instead of 4 s).
+    function poll(ms) { if (timer) clearInterval(timer); timer = setInterval(refresh, ms); }
+    function connect() {
+      if (live || !token || typeof window.EventSource === 'undefined') return;
+      live = new window.EventSource(api + '/events?token=' + encodeURIComponent(token));
+      live.onopen = function () { poll(30000); };
+      live.onerror = function () { poll(4000); if (live && live.readyState === 2) { live = null; } };
+      live.addEventListener('messages', function () { typingEl.textContent = ''; refresh(); });
+      live.addEventListener('typing', function (e) { try { showTyping(JSON.parse(e.data).name); } catch { /* ignore */ } });
+    }
+    function disconnect() { if (live) { live.close(); live = null; } }
 
     function render(messages) {
       list.textContent = '';
@@ -109,10 +127,18 @@
       btn.setAttribute('aria-expanded', String(open));
       btn.setAttribute('aria-label', open ? 'Close chat' : 'Open chat');
       if (timer) { clearInterval(timer); timer = null; }
-      if (open) { refresh(); timer = setInterval(refresh, 4000); bodyIn.focus(); }
+      disconnect();
+      if (open) { refresh(); poll(4000); connect(); bodyIn.focus(); }
     }
     btn.addEventListener('click', function () { toggle(!panel.classList.contains('open')); });
     $('.x').addEventListener('click', function () { toggle(false); btn.focus(); });
+    // Let the team see the visitor typing (at most every 4 seconds, only once the conversation exists).
+    bodyIn.addEventListener('input', function () {
+      var now = Date.now();
+      if (!token || !bodyIn.value.trim() || now - lastTyping < 4000) return;
+      lastTyping = now;
+      request('POST', '/typing', { token: token }).catch(function () {});
+    });
     bodyIn.addEventListener('keydown', function (e) {
       if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); form.requestSubmit(); }
     });
@@ -131,7 +157,9 @@
         try { localStorage.setItem(store, token); } catch { /* not persisted */ }
         $('.id').style.display = 'none';
         bodyIn.value = '';
+        lastTyping = 0;
         render(r.messages);
+        connect();
       }, function (x) {
         err.textContent = x.message === '429' ? 'Too many messages — please wait a minute.' : 'Your message could not be sent. Please try again.';
       }).then(function () { send.disabled = false; });
@@ -155,6 +183,7 @@
           try { localStorage.setItem(store, token); } catch { /* not persisted */ }
           $('.id').style.display = 'none';
           render(r.messages);
+          connect();
         }, function (x) {
           err.textContent = x.message === '415' ? 'Only photos (PNG, JPEG, GIF, WebP) and PDF files can be sent.'
             : x.message === '429' ? 'Too many files — please wait and try again later.'

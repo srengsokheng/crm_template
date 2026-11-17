@@ -10,7 +10,7 @@
  */
 import { randomBytes } from 'node:crypto';
 import { config } from '../config.ts';
-import { pool, q, sql, tx, type Db } from '../db/index.ts';
+import { pool, q, q1, sql, tx, type Db } from '../db/index.ts';
 import { AppError } from '../lib/errors.ts';
 import { openSecret } from '../lib/secrets.ts';
 import { recordInbound, type ChannelRow } from './store.ts';
@@ -19,6 +19,23 @@ import { fileRefOf, queueIncomingFile } from './files.ts';
 export class TelegramError extends Error {
   status: number;
   constructor(status: number, message: string) { super(message); this.status = status; }
+}
+
+const typingShown = new Map<number, number>();
+/**
+ * Shows "typing…" in the Telegram chat (Telegram keeps it for about 5 seconds). At most once every 4 seconds per
+ * conversation; fire-and-forget, failures are ignored (it's only a hint).
+ */
+export function showTelegramTyping(channelId: number, conversationId: number): void {
+  const now = Date.now();
+  if ((typingShown.get(conversationId) ?? 0) > now - 4000) return;
+  typingShown.set(conversationId, now);
+  if (typingShown.size > 5000) for (const [k, t] of typingShown) if (t < now - 10_000) typingShown.delete(k);
+  void (async () => {
+    const c = await q1<{ secret: string | null; external_id: string }>(sql`SELECT ch.secret, cv.external_id FROM channels ch
+      JOIN conversations cv ON cv.channel_id = ch.id WHERE ch.id = ${channelId} AND cv.id = ${conversationId}`);
+    if (c?.secret) await tg(openSecret(c.secret), 'sendChatAction', { chat_id: c.external_id, action: 'typing' });
+  })().catch(() => {});
 }
 
 /** Calls a Bot API method. Throws TelegramError with Telegram's description on failure. */

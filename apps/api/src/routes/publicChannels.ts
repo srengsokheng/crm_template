@@ -16,9 +16,19 @@ import { files } from '../lib/files.ts';
 import { cleanFileName, cleanType, sendStoredFile } from './attachments.ts';
 import { recordInbound, type ChannelRow } from '../inbox/store.ts';
 import { channelByKey, ingestUpdate, type TgUpdate } from '../inbox/telegram.ts';
+import { notifyTyping, subscribeVisitor } from '../inbox/events.ts';
+import type { ServerResponse } from 'node:http';
 
 type KeyParams = { Params: { key: string } };
 const hashToken = (t: string) => createHash('sha256').update(t).digest('hex');
+const TOKEN = /^[A-Za-z0-9_-]{32,64}$/;
+
+/** The visitor's conversation, from the token kept in their browser. */
+async function visitorConversation(c: ChannelRow, token: unknown): Promise<{ id: number; title: string } | null> {
+  const t = String(token ?? '');
+  if (!TOKEN.test(t)) return null;
+  return (await q1<{ id: number; title: string }>(sql`SELECT id, title FROM conversations WHERE channel_id = ${c.id} AND external_id = ${hashToken(t)}`)) ?? null;
+}
 
 /** CORS for the widget. When the channel lists allowed websites, other origins are refused. */
 function cors(req: FastifyRequest, reply: FastifyReply, c: ChannelRow | null) {
@@ -74,6 +84,44 @@ export async function publicChannelRoutes(app: FastifyInstance) {
   app.options<KeyParams>('/public/webchat/:key', async (req, reply) => { cors(req, reply, await channelByKey(req.params.key)); return reply.code(204).send(); });
   app.options<KeyParams>('/public/webchat/:key/messages', async (req, reply) => { cors(req, reply, await channelByKey(req.params.key)); return reply.code(204).send(); });
   app.options<KeyParams>('/public/webchat/:key/files', async (req, reply) => { cors(req, reply, await channelByKey(req.params.key)); return reply.code(204).send(); });
+  app.options<KeyParams>('/public/webchat/:key/typing', async (req, reply) => { cors(req, reply, await channelByKey(req.params.key)); return reply.code(204).send(); });
+
+  /**
+   * Live updates for the visitor's open chat (server-sent events): "messages" when their conversation changes (they
+   * then fetch it as usual) and "typing" while a team member writes a reply. Ends after 30 minutes; the widget
+   * reconnects while the chat is open. Bounded per conversation and per process.
+   */
+  const visitorStreams = new Set<ServerResponse>();
+  app.addHook('preClose', async () => { for (const s of visitorStreams) s.end(); visitorStreams.clear(); });
+  app.get<KeyParams & { Querystring: { token?: string } }>('/public/webchat/:key/events', { config: { rateLimit: { max: 30, timeWindow: '1 minute' } } }, async (req, reply) => {
+    const c = await webchat(req, reply);
+    const conv = await visitorConversation(c, req.query.token);
+    if (!conv) throw notFound('Chat');
+    const res = reply.raw;
+    const unsubscribe = await subscribeVisitor(conv.id, (event, name) => {
+      res.write(event === 'messages' ? 'event: messages\ndata: {}\n\n' : `event: typing\ndata: ${JSON.stringify({ name: name ?? '' })}\n\n`);
+    });
+    if (!unsubscribe) throw new AppError(429, 'RATE_LIMITED', 'Too many open chats; updates are checked every few seconds instead.');
+    reply.hijack();
+    res.writeHead(200, {
+      'content-type': 'text/event-stream; charset=utf-8', 'cache-control': 'no-cache, no-transform', connection: 'keep-alive', 'x-accel-buffering': 'no',
+      ...Object.fromEntries(Object.entries(reply.getHeaders()).filter(([k]) => k.startsWith('access-control-') || k === 'vary' || k === 'cross-origin-resource-policy')),
+    });
+    res.write('retry: 5000\n\n: connected\n\n');
+    visitorStreams.add(res);
+    const ping = setInterval(() => res.write(': ping\n\n'), 25_000);
+    const expire = setTimeout(() => res.end(), 30 * 60_000);
+    res.on('close', () => { clearInterval(ping); clearTimeout(expire); unsubscribe(); visitorStreams.delete(res); });
+  });
+
+  /** The visitor is typing (the widget sends it at most every few seconds); the team sees it in the Inbox. */
+  app.post<KeyParams>('/public/webchat/:key/typing', { config: { rateLimit: { max: 30, timeWindow: '1 minute' } } }, async (req, reply) => {
+    const c = await webchat(req, reply);
+    const conv = await visitorConversation(c, (req.body as { token?: unknown } | null)?.token);
+    if (!conv) throw notFound('Chat');
+    await notifyTyping(conv.id, 'customer', conv.title);
+    return reply.code(204).send();
+  });
 
   /** Widget settings. */
   app.get<KeyParams>('/public/webchat/:key', { config: { rateLimit: { max: 120, timeWindow: '1 minute' } } }, async (req, reply) => {
