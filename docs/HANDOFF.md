@@ -329,9 +329,11 @@ The research behind every decision is in this folder:
   companies and leads can now be seen and edited on their pages (they were stored and printed on invoices, but no screen
   showed them); related-record lines in History name the record with a link ("on deal Umbrella forklifts"), only when
   the user may see it; tablet: report tabs and the Settings menu wrap instead of cutting words, deals-list cells stay on
-  one line; phone: shorter Inbox reply placeholder.
+  one line; phone: shorter Inbox reply placeholder. A click-through in real Chrome then fixed: the "Sign-in email" card no longer
+  gets the saved login autofilled into "New email" (hidden username field, like the password card); empty values show
+  one muted "—" on every detail page; report tables keep each cell on one line.
 
-**Quality:** 214 Vitest tests (API against real PostgreSQL), 60 Playwright tests (desktop, tablet, phone), lint and
+**Quality:** 214 Vitest tests (API against real PostgreSQL), 59 Playwright tests (desktop, tablet, phone), lint and
 typecheck clean, `npm audit` = 0, GitHub Actions CI in `.github/workflows/ci.yml`.
 
 ## 3. Not built yet — suggested next work (in priority order)

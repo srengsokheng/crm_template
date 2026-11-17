@@ -86,7 +86,7 @@ export function EditRow<T>({ label, value, display, renderEditor, onSave, canEdi
         </div>
       ) : (
         <div className="flex min-w-0 items-start justify-between gap-2">
-          <div className="min-w-0 break-words pt-0.5">{display}{hint && <div className="text-xs text-muted">{hint}</div>}</div>
+          <div className="min-w-0 break-words pt-0.5">{display === '—' ? <span className="text-muted">—</span> : display}{hint && <div className="text-xs text-muted">{hint}</div>}</div>
           {canEdit && locked && (
             <span className="inline-flex size-7 shrink-0 items-center justify-center text-muted" title="Read-only for your role" aria-label={`${label} is read-only for your role`} role="img">
               <Lock className="size-3.5" />

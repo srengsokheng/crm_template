@@ -127,13 +127,13 @@ export function ReportsPage() {
                 <div className="overflow-x-auto">
                   <table className="w-full min-w-[560px] text-sm">
                     <thead className="border-b border-base bg-[var(--surface-2)]/60 text-left text-xs text-muted">
-                      <tr>{cols.map((c) => <th key={c} className={cn('px-3 py-2.5 font-medium', (MONEY.has(c) || c === 'amountInBase' || PCT.has(c) || typeof q.data!.rows[0][c] === 'number') && 'text-right')}>{c === 'amountInBase' ? `In ${cur}` : human(c)}</th>)}</tr>
+                      <tr>{cols.map((c) => <th key={c} className={cn('whitespace-nowrap px-3 py-2.5 font-medium', (MONEY.has(c) || c === 'amountInBase' || PCT.has(c) || typeof q.data!.rows[0][c] === 'number') && 'text-right')}>{c === 'amountInBase' ? `In ${cur}` : human(c)}</th>)}</tr>
                     </thead>
                     <tbody className="divide-y divide-[var(--border)]">
                       {q.data.rows.map((r, i) => (
                         <tr key={i}>
                           {cols.map((c) => (
-                            <td key={c} className={cn('px-3 py-2', (MONEY.has(c) || c === 'amountInBase' || PCT.has(c) || typeof r[c] === 'number') && 'text-right tabular')}>
+                            <td key={c} className={cn('max-w-[18rem] truncate whitespace-nowrap px-3 py-2', (MONEY.has(c) || c === 'amountInBase' || PCT.has(c) || typeof r[c] === 'number') && 'text-right tabular')}>
                               {c === 'title' && r.id ? <Link to={`/deals/${r.id}`} className="font-medium text-brand-600 hover:underline">{String(r[c])}</Link> : fmt(c, r[c], r)}
                             </td>
                           ))}

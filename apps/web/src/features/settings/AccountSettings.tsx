@@ -68,8 +68,11 @@ function EmailCard({ email }: { email: string }) {
       <form onSubmit={save} className="max-w-md space-y-3">
         <p className="text-sm text-muted">Currently <span className="font-medium text-[var(--text)]">{email}</span>. We’ll send a confirmation link to the new address; your email changes when you open it.</p>
         {sentTo && <p className="rounded-md bg-emerald-50 px-3 py-2 text-sm text-emerald-800 dark:bg-emerald-500/10 dark:text-emerald-200" role="status">Check {sentTo} for a confirmation link (valid for 1 hour). Until you open it, you keep signing in with {email}.</p>}
+        {/* Password managers fill a saved login into "email + password" forms; give them the current
+            address here so they don't put it into "New email". */}
+        <input type="text" name="username" autoComplete="username" value={email} readOnly hidden />
         <Field label="New email" htmlFor="acc-new-email" required error={errors.newEmail}>
-          <Input id="acc-new-email" type="email" autoComplete="email" maxLength={200} value={next} onChange={(e) => setNext(e.target.value)} invalid={!!errors.newEmail} />
+          <Input id="acc-new-email" type="email" name="new-email" autoComplete="off" maxLength={200} value={next} onChange={(e) => setNext(e.target.value)} invalid={!!errors.newEmail} />
         </Field>
         <Field label="Current password" htmlFor="acc-email-password" required error={errors.currentPassword} hint="To make sure it’s you.">
           <Input id="acc-email-password" type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} invalid={!!errors.currentPassword} />
