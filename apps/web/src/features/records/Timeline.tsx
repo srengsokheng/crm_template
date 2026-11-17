@@ -1,47 +1,65 @@
 import { useState } from 'react';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useInfiniteQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { ArrowRightLeft, Bot, CalendarClock, CheckCircle2, Circle, Mail, MessageSquare, Phone, Pin, PinOff, Trash2, Users, Flag, CheckSquare, History } from 'lucide-react';
-import { api, errorMessage } from '../../lib/api.ts';
+import { api, errorMessage, qsOf } from '../../lib/api.ts';
 import { cn } from '../../lib/cn.ts';
 import { dateTime, dueLabel, fromLocalInput, money, relative, toLocalInput } from '../../lib/format.ts';
 import { useMe, useMeta } from '../../lib/hooks.ts';
 import type { Activity, RecordType } from '../../lib/types.ts';
-import { Avatar, Button, Card, IconButton, Input, Segmented, Select, Skeleton, Textarea } from '../../components/ui/primitives.tsx';
+import { Avatar, Button, Card, ErrorState, IconButton, Input, Segmented, Select, Skeleton, Textarea } from '../../components/ui/primitives.tsx';
 import { UserSelect } from './form.tsx';
 
 export const ACTIVITY_ICON = { task: CheckSquare, call: Phone, meeting: Users, email: Mail, deadline: Flag } as const;
 const KINDS = ['task', 'call', 'meeting', 'email', 'deadline'] as const;
 
 interface TimelineItem { type: 'note' | 'activity' | 'event'; at: string; data: Record<string, any> }
-interface TimelineData { upcoming: Activity[]; items: TimelineItem[] }
+interface TimelineData { upcoming?: Activity[]; items: TimelineItem[]; nextCursor: string | null }
 
 const tomorrow9 = () => { const d = new Date(); d.setDate(d.getDate() + 1); d.setHours(9, 0, 0, 0); return d.toISOString(); };
 
 export function Timeline({ type, id }: { type: RecordType; id: number }) {
   const qc = useQueryClient();
   const key = ['timeline', type, id];
-  const { data, isLoading } = useQuery({ queryKey: key, queryFn: () => api.get<TimelineData>(`/timeline/${type}/${id}`) });
   const [filter, setFilter] = useState<'all' | 'note' | 'activity' | 'event'>('all');
+  // History is paged ("Load more"); the filter is applied by the server so every page is full.
+  const feed = useInfiniteQuery({
+    queryKey: [...key, filter], initialPageParam: '',
+    queryFn: ({ pageParam }) => api.get<TimelineData>(`/timeline/${type}/${id}${qsOf({ kind: filter, ...(pageParam ? { before: pageParam } : {}) })}`),
+    getNextPageParam: (last) => last.nextCursor ?? undefined,
+  });
+  const isLoading = feed.isLoading;
+  const upcoming = feed.data?.pages[0]?.upcoming ?? [];
   const refresh = () => { qc.invalidateQueries({ queryKey: key }); qc.invalidateQueries({ queryKey: ['activity-counts'] }); qc.invalidateQueries({ queryKey: [type + 's'] }); };
-  const items = (data?.items ?? []).filter((i) => filter === 'all' || i.type === filter);
+  const items = feed.data?.pages.flatMap((p) => p.items) ?? [];
   return (
     <div className="space-y-4">
       <Composer type={type} id={id} onDone={refresh} />
       <Card title={<span className="flex items-center gap-1.5"><CalendarClock className="size-4 text-brand-600" />Up next</span>} padded={false}>
         {isLoading ? <div className="p-4"><Skeleton className="h-10" /></div>
-          : data?.upcoming.length ? <ul className="divide-y divide-[var(--border)]">{data.upcoming.map((a) => <UpcomingRow key={a.id} a={a} onChange={refresh} />)}</ul>
+          : feed.isError && !feed.data ? <ErrorState message={errorMessage(feed.error)} onRetry={() => feed.refetch()} />
+          : upcoming.length ? <ul className="divide-y divide-[var(--border)]">{upcoming.map((a) => <UpcomingRow key={a.id} a={a} onChange={refresh} />)}</ul>
           : <p className="px-4 py-5 text-sm text-muted">No open activities. Plan the next step so nothing slips.</p>}
       </Card>
       <Card title="History" padded={false} actions={
         <Segmented size="sm" value={filter} onChange={setFilter} options={[{ value: 'all', label: 'All' }, { value: 'note', label: 'Notes' }, { value: 'activity', label: 'Activities' }, { value: 'event', label: 'Changes' }]} />
       }>
-        {isLoading ? <div className="space-y-3 p-4"><Skeleton className="h-12" /><Skeleton className="h-12" /></div> : (
-          <ol className="relative space-y-0 px-4 py-2">
-            {items.map((it) => <FeedItem key={`${it.type}-${it.data.id}`} it={it} recordType={type} recordId={id} onChange={refresh} />)}
-            {!items.length && <li className="py-6 text-center text-sm text-muted">Nothing here yet.</li>}
-          </ol>
-        )}
+        {isLoading ? <div className="space-y-3 p-4"><Skeleton className="h-12" /><Skeleton className="h-12" /></div>
+          : feed.isError && !feed.data ? <ErrorState message={errorMessage(feed.error)} onRetry={() => feed.refetch()} />
+          : (
+            <>
+              <ol className="relative space-y-0 px-4 py-2">
+                {items.map((it) => <FeedItem key={`${it.type}-${it.data.id}`} it={it} recordType={type} recordId={id} onChange={refresh} />)}
+                {!items.length && <li className="py-6 text-center text-sm text-muted">{filter === 'all' ? 'Nothing here yet.' : filter === 'note' ? 'No notes yet.' : filter === 'activity' ? 'No finished activities yet.' : 'No changes recorded yet.'}</li>}
+              </ol>
+              {feed.hasNextPage && (
+                <div className="flex justify-center border-t border-base p-2">
+                  <Button size="sm" variant="ghost" disabled={feed.isFetchingNextPage} onClick={() => feed.fetchNextPage()}>{feed.isFetchingNextPage ? 'Loading…' : 'Load more'}</Button>
+                </div>
+              )}
+              {feed.isFetchNextPageError && <p className="px-4 pb-2 text-center text-xs text-rose-600" role="alert">Couldn’t load more. {errorMessage(feed.error)}</p>}
+            </>
+          )}
       </Card>
     </div>
   );

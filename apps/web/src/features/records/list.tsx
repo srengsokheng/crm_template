@@ -57,7 +57,7 @@ export function ExportLink({ path, params }: { path: string; params: Record<stri
   const { page: _p, pageSize: _s, ...rest } = params;
   void _p; void _s;
   return (
-    <a href={`/api/v1${path}${qsOf({ ...rest, format: 'csv' })}`} download title="Download these records as a CSV file"
+    <a href={`/api/v1${path}${qsOf({ ...rest, format: 'csv' })}`} download title="Download these records as a CSV file (up to 50,000 rows; the audit log notes when the limit is reached)"
       className="inline-flex h-9 items-center gap-1.5 rounded-[var(--radius-control)] border border-base surface px-3 text-[13px] font-medium hover:bg-[var(--surface-2)]">
       <Download className="size-4" />Export
     </a>

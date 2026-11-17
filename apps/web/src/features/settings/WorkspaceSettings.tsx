@@ -135,6 +135,7 @@ function FailedMails() {
       <h3 className="flex items-center gap-2 border-b border-rose-200 px-3 py-2 text-[13px] font-semibold text-rose-700 dark:border-rose-500/30 dark:text-rose-300">
         <AlertTriangle className="size-4" />Emails that couldn’t be delivered ({rows.length})
       </h3>
+      <p className="border-b border-rose-200 px-3 py-1.5 text-xs text-muted dark:border-rose-500/30">The 50 most recent are listed; failed emails are kept for 14 days.</p>
       {q.isLoading ? <div className="p-3"><Skeleton className="h-10" /></div>
         : q.error ? <ErrorState message={errorMessage(q.error)} onRetry={() => q.refetch()} />
         : !rows.length ? <p className="px-3 py-3 text-muted">None any more.</p>

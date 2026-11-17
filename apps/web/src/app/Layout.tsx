@@ -14,6 +14,7 @@ import { CommandPalette } from './CommandPalette.tsx';
 import { CreateProvider, useCreate } from './create.tsx';
 import { applyTheme, getTheme, type Theme } from './theme.ts';
 import { useInboxEvents, usePollInterval } from '../features/inbox/live.ts';
+import { FeedList, useFeed } from '../components/ui/FeedList.tsx';
 
 interface NavItem { to: string; label: string; icon: ReactNode; badge?: number; show?: boolean }
 
@@ -120,10 +121,9 @@ function MobileNav({ items }: { items: NavItem[] }) {
 function Notifications() {
   const qc = useQueryClient();
   const nav = useNavigate();
-  const { data } = useQuery({
-    queryKey: ['notifications'], refetchInterval: 30_000,
-    queryFn: () => api.get<{ unread: number; data: { id: number; title: string; body: string | null; entityType: string | null; entityId: number | null; readAt: string | null; createdAt: string }[] }>('/notifications'),
-  });
+  const feed = useFeed<{ id: number; title: string; body: string | null; entityType: string | null; entityId: number | null; readAt: string | null; createdAt: string }>(
+    ['notifications'], '/notifications', {}, { refetchInterval: 30_000, limit: 20 });
+  const data = { unread: (feed.data?.pages[0] as { unread?: number } | undefined)?.unread ?? 0 };
   const markRead = async () => { await api.post('/notifications/read', {}); qc.invalidateQueries({ queryKey: ['notifications'] }); };
   const go = (n: { entityType: string | null; entityId: number | null }) => {
     if (n.entityType === 'activity') nav('/activities');
@@ -141,8 +141,9 @@ function Notifications() {
         <span className="text-sm font-semibold">Notifications</span>
         {!!data?.unread && <button type="button" className="text-xs font-medium text-brand-600" onClick={markRead}>Mark all read</button>}
       </div>
-      <ul className="max-h-96 overflow-y-auto">
-        {(data?.data ?? []).map((n) => (
+      <div className="max-h-96 overflow-y-auto">
+      <FeedList feed={feed} listClassName="" label="Notifications" skeletonRows={2} empty={<p className="px-3 py-8 text-center text-sm text-muted">You’re all caught up.</p>}>
+        {(items) => items.map((n) => (
           <li key={n.id}>
             <button type="button" onClick={() => go(n)} className={cn('w-full border-b border-base px-3 py-2.5 text-left hover:bg-[var(--surface-2)]', !n.readAt && 'bg-brand-50/50 dark:bg-brand-600/10')}>
               <div className="text-sm font-medium">{n.title}</div>
@@ -151,8 +152,8 @@ function Notifications() {
             </button>
           </li>
         ))}
-        {!data?.data.length && <li className="px-3 py-8 text-center text-sm text-muted">You’re all caught up.</li>}
-      </ul>
+      </FeedList>
+      </div>
     </Popover>
   );
 }

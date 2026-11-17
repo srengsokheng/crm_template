@@ -1,13 +1,13 @@
 import { useRef, useState, type DragEvent } from 'react';
 import { Link, Navigate, useNavigate, useParams } from 'react-router';
-import { useQuery } from '@tanstack/react-query';
 import { ArrowLeft, Download, FileSpreadsheet, History, UploadCloud } from 'lucide-react';
 import { IMPORT_LIMITS , type ImportEntity, importPermissionEntity } from '@crm/shared';
 import { api, ApiError, errorMessage } from '../../lib/api.ts';
 import { cn } from '../../lib/cn.ts';
 import { relative } from '../../lib/format.ts';
 import { useCan, useFields } from '../../lib/hooks.ts';
-import { Badge, Button, Card, EmptyState, ErrorState, PageHeader, Skeleton, Spinner } from '../../components/ui/primitives.tsx';
+import { Badge, Button, Card, EmptyState, PageHeader, Spinner } from '../../components/ui/primitives.tsx';
+import { FeedList, useFeed } from '../../components/ui/FeedList.tsx';
 import { downloadText, ENTITY, isImportEntity, readCsvFile, STATUS_BADGE, Steps, templateCsv, type ImportView } from './importUi.tsx';
 
 export function ImportStart() {
@@ -25,7 +25,7 @@ function ImportStartFor({ entity }: { entity: ImportEntity }) {
   const [drag, setDrag] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const history = useQuery({ queryKey: ['imports', entity], queryFn: () => api.get<{ data: ImportView[] }>(`/imports?entityType=${entity}`) });
+  const history = useFeed<ImportView>(['imports', entity], '/imports', { entityType: entity }, { limit: 20 });
 
   const send = async (file: File | undefined) => {
     setError(null);
@@ -91,12 +91,8 @@ function ImportStartFor({ entity }: { entity: ImportEntity }) {
       </Card>
 
       <Card title={<span className="flex items-center gap-2"><History className="size-4 text-muted" />Recent imports</span>} padded={false}>
-        {history.isLoading ? <div className="space-y-2 p-4">{[0, 1].map((i) => <Skeleton key={i} className="h-9" />)}</div>
-          : history.error ? <ErrorState message={errorMessage(history.error)} onRetry={() => history.refetch()} />
-          : !history.data?.data.length ? <p className="px-4 py-6 text-center text-sm text-muted">No {e.one} imports yet.</p>
-          : (
-            <ul className="divide-y divide-[var(--border)]">
-              {history.data.data.map((imp) => (
+        <FeedList feed={history} skeletonRows={2} label="Recent imports" empty={<p className="px-4 py-6 text-center text-sm text-muted">No {e.one} imports yet.</p>}>
+              {(items) => items.map((imp) => (
                 <li key={imp.id}>
                   <Link to={`/imports/${imp.id}`} className="flex flex-wrap items-center gap-x-3 gap-y-1 px-4 py-2.5 text-sm hover:bg-[var(--surface-2)]/70">
                     <span className="min-w-0 flex-1 truncate font-medium">{imp.fileName}</span>
@@ -108,8 +104,7 @@ function ImportStartFor({ entity }: { entity: ImportEntity }) {
                   </Link>
                 </li>
               ))}
-            </ul>
-          )}
+        </FeedList>
       </Card>
     </div>
   );

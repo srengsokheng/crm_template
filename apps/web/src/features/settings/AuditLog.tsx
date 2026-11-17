@@ -69,7 +69,7 @@ export function AuditLog() {
             <p className="text-sm text-muted">Every change in this workspace: who did what, and when.</p>
           </div>
           <a href={`/api/v1/audit-log${qsOf({ ...lp.params, page: undefined, pageSize: undefined, format: 'csv' })}`} download
-            className="inline-flex h-9 items-center gap-1.5 rounded-[var(--radius-control)] border border-base surface px-3 text-[13px] font-medium hover:bg-[var(--surface-2)]">
+            title="Download the filtered events as CSV (the newest 10,000; narrow the dates for older ones)" className="inline-flex h-9 items-center gap-1.5 rounded-[var(--radius-control)] border border-base surface px-3 text-[13px] font-medium hover:bg-[var(--surface-2)]">
             <Download className="size-4" />Export CSV
           </a>
         </div>

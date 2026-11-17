@@ -1,0 +1,33 @@
+import { expect, test } from '@playwright/test';
+import { api, signUp } from './helpers.ts';
+
+test('record history loads in pages ("Load more"), filtered on the server', async ({ page }) => {
+  await signUp(page);
+  const deal = await api(page, 'POST', '/deals', { title: 'Busy deal' });
+  for (let i = 1; i <= 35; i++) await api(page, 'POST', '/notes', { entityType: 'deal', entityId: deal.id, body: `Call note number ${i}` });
+  await page.goto(`/deals/${deal.id}`);
+  const history = page.locator('section').filter({ hasText: /^History/ });
+  await expect(history.getByText('Call note number 35')).toBeVisible();
+  await expect(history.getByText('Call note number 5', { exact: true })).toHaveCount(0); // beyond the first page (30 items)
+  await history.getByRole('button', { name: 'Load more' }).click();
+  await expect(history.getByText('Call note number 5', { exact: true })).toBeVisible();
+  await expect(history.getByText('Call note number 1', { exact: true })).toBeVisible();
+  // Filter: only changes (the note pages don't hide them).
+  await history.getByRole('tab', { name: 'Changes' }).click();
+  await expect(history.getByText('Call note number 35')).toHaveCount(0);
+  await expect(history.getByText(/created/i).first()).toBeVisible();
+});
+
+test('recycle bin pages with "Load more"', async ({ page }) => {
+  await signUp(page);
+  for (let i = 1; i <= 55; i++) {
+    const c = await api(page, 'POST', '/contacts', { firstName: `Old${i}` });
+    await api(page, 'DELETE', `/contacts/${c.id}`);
+  }
+  await page.goto('/settings/recycle-bin');
+  const bin = page.getByRole('list', { name: 'Deleted records' });
+  await expect(bin.getByRole('listitem')).toHaveCount(50);
+  await page.getByRole('button', { name: 'Load more' }).click();
+  await expect(bin.getByRole('listitem')).toHaveCount(55);
+  await expect(page.getByRole('button', { name: 'Load more' })).toHaveCount(0);
+});

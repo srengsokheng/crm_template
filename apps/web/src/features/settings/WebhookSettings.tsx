@@ -91,7 +91,7 @@ export function WebhookDeliveries({ ruleId }: { ruleId: number }) {
         <h3 className="text-[13px] font-semibold">Recent deliveries</h3>
         <Button size="sm" icon={<Send className="size-3.5" />} loading={testing} onClick={test}>Send test</Button>
       </div>
-      <p className="text-xs text-muted">“Send test” posts a sample record (event <code>*.test</code>) to the saved URL. Save the rule first if you changed the URL.</p>
+      <p className="text-xs text-muted">“Send test” posts a sample record (event <code>*.test</code>) to the saved URL. Save the rule first if you changed the URL. Shows the latest 50 (kept 30 days).</p>
       {q.isLoading ? <Skeleton className="h-10" />
         : q.error ? <ErrorState message={errorMessage(q.error)} onRetry={() => q.refetch()} />
         : !rows.length ? <p className="text-sm text-muted">No deliveries yet.</p>

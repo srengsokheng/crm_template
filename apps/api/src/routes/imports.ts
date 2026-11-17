@@ -14,6 +14,7 @@ import { canOnRecord, requireAny, scopeOf } from '../lib/permissions.ts';
 import { recalcDealAmount } from './deals.ts';
 import { assertMembers } from '../lib/records.ts';
 import { parse } from '../lib/validate.ts';
+import { feedCursorColumn, feedQuery, feedResult, feedWhere } from '../lib/list.ts';
 import { preview, TABLE, type ImportRow, type RowResult } from '../imports/engine.ts';
 
 type IdParams = { Params: { id: string } };
@@ -77,14 +78,16 @@ export async function importRoutes(app: FastifyInstance) {
     const ctx = ctxOf(req);
     const entity = (req.query as { entityType?: string }).entityType;
     const e = IMPORT_ENTITIES.includes(entity as ImportEntity) ? entity : null;
-    const rows = await q<ImportRow & { created_by_name: string }>(sql`SELECT i.id, i.workspace_id, i.entity_type, i.file_name, i.status, i.headers,
+    const feed = feedQuery({ limit: 20, ...(req.query as Record<string, unknown>) });
+    const rows = await q<ImportRow & { created_by_name: string; feed_us: number }>(sql`SELECT i.id, ${feedCursorColumn('i.created_at')}, i.workspace_id, i.entity_type, i.file_name, i.status, i.headers,
         NULL::jsonb AS rows, i.row_numbers, i.row_count, i.mapping, i.options, i.processed, i.created_count, i.updated_count, i.skipped_count,
         i.failed_count, '[]'::jsonb AS results, i.error, i.undone_at, i.created_by, i.created_at, i.started_at, i.finished_at, u.name AS created_by_name
       FROM imports i JOIN users u ON u.id = i.created_by
       WHERE i.workspace_id = ${ctx.workspaceId} ${ctx.isAdmin ? sql`` : sql`AND i.created_by = ${ctx.userId}`}
-        ${e ? sql`AND i.entity_type = ${e}` : sql``}
-      ORDER BY i.created_at DESC, i.id DESC LIMIT 20`);
-    return { data: rows.map((r) => { const v = view(r, r.created_by_name); delete v.headers; delete v.sample; delete v.mapping; return v; }) };
+        ${e ? sql`AND i.entity_type = ${e}` : sql``} AND ${feedWhere(feed, 'i.created_at', 'i.id')}
+      ORDER BY i.created_at DESC, i.id DESC LIMIT ${feed.limit + 1}`);
+    const page = feedResult(rows, feed);
+    return { data: (page.data as (ImportRow & { created_by_name: string })[]).map((r) => { const v = view(r, r.created_by_name); delete v.headers; delete v.sample; delete v.mapping; return v; }), nextCursor: page.nextCursor };
   });
 
   // Upload: parse the file, keep the cells, suggest a mapping.

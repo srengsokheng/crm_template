@@ -26,7 +26,7 @@ interface Message { id: number; direction: 'in' | 'out'; senderName: string; aut
 const PREVIEW_TYPES = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/webp']);
 interface ConversationDetail extends ConversationItem {
   channelStatus: string; botUsername: string | null; profile: { name?: string; username?: string; email?: string; phone?: string };
-  canEdit: boolean; canReply: boolean; messages: Message[];
+  canEdit: boolean; canReply: boolean; messages: Message[]; hasOlder: boolean;
 }
 
 export function ChannelIcon({ kind, className }: { kind: ChannelKind; className?: string }) {
@@ -121,6 +121,21 @@ function Thread({ id }: { id: number }) {
   const threadPoll = usePollInterval(4000);
   const conv = useQuery({ queryKey: ['conversation', id], refetchInterval: threadPoll, queryFn: () => api.get<ConversationDetail>(`/inbox/conversations/${id}`) });
   const d = conv.data;
+  // Earlier messages loaded with "Load older messages" (the thread query only returns the latest ones).
+  const [older, setOlder] = useState<Message[]>([]);
+  const [olderMore, setOlderMore] = useState<boolean | null>(null);
+  const [loadingOlder, setLoadingOlder] = useState(false);
+  const hasOlder = olderMore ?? !!d?.hasOlder;
+  const loadOlder = async () => {
+    const first = older[0] ?? d?.messages[0];
+    if (!first) return;
+    setLoadingOlder(true);
+    try {
+      const r = await api.get<{ messages: Message[]; hasOlder: boolean }>(`/inbox/conversations/${id}/messages?beforeId=${first.id}`);
+      setOlder((o) => [...r.messages, ...o]);
+      setOlderMore(r.hasOlder);
+    } catch (e) { toast.error(errorMessage(e)); } finally { setLoadingOlder(false); }
+  };
   const bottom = useRef<HTMLDivElement>(null);
   const lastId = d?.messages.at(-1)?.id;
   useEffect(() => { bottom.current?.scrollIntoView({ block: 'end' }); }, [lastId]);
@@ -184,9 +199,14 @@ function Thread({ id }: { id: number }) {
         )}
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto px-3 py-4 md:px-6" aria-live="polite">
+        {hasOlder && (
+          <div className="mb-3 flex justify-center">
+            <Button size="sm" variant="ghost" disabled={loadingOlder} onClick={loadOlder}>{loadingOlder ? 'Loading…' : 'Load older messages'}</Button>
+          </div>
+        )}
         {d.messages.length === 0 ? <EmptyState title="No messages yet" /> : (
           <ol className="space-y-3">
-            {d.messages.map((m) => <Bubble key={m.id} m={m} group={d.kind === 'group'} conversationId={id} canRetry={d.canReply} onRetried={refresh} />)}
+            {[...older.filter((o) => !d.messages.some((m) => m.id === o.id)), ...d.messages].map((m) => <Bubble key={m.id} m={m} group={d.kind === 'group'} conversationId={id} canRetry={d.canReply} onRetried={refresh} />)}
           </ol>
         )}
         <div ref={bottom} />

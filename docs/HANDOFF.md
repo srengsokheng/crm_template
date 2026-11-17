@@ -297,9 +297,13 @@ The research behind every decision is in this folder:
   `lib/list.ts`): written rules for every screen (tokens, components, tables & pagination, feeds, forms, states,
   accessibility, checks before a PR). Feeds (newest first) use an opaque cursor of microseconds + id, so rows with equal
   times are neither skipped nor repeated, and `FeedList` shows loading / error / empty / "Load more". The Inbox list and
-  the "Conversations" card on contacts and leads use it (no more silent 50-row cap).
+  the "Conversations" card on contacts and leads use it (no more silent 50-row cap). Also paged with "Load more": record
+  history (notes, finished activities and changes merged under one (time, source, id) cursor; the Notes / Activities /
+  Changes filter runs on the server), the recycle bin (cursor over (time, table, id)), notifications, import history and
+  Inbox threads ("Load older messages", 50 at a time). The short logs keep a fixed size and say so (webhook deliveries
+  and failed emails: the 50 most recent); CSV exports state their row limits.
 
-**Quality:** 200 Vitest tests (API against real PostgreSQL), 48 Playwright tests (desktop, tablet, phone), lint and
+**Quality:** 203 Vitest tests (API against real PostgreSQL), 50 Playwright tests (desktop, tablet, phone), lint and
 typecheck clean, `npm audit` = 0, GitHub Actions CI in `.github/workflows/ci.yml`.
 
 ## 3. Not built yet — suggested next work (in priority order)

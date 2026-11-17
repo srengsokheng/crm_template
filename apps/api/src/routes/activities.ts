@@ -5,7 +5,7 @@ import { audit } from '../lib/audit.ts';
 import type { Ctx } from '../lib/context.ts';
 import { badRequest, forbidden, notFound } from '../lib/errors.ts';
 import { ctxOf } from '../lib/http.ts';
-import { likeTerm, qs, runList } from '../lib/list.ts';
+import { feedCursorColumn, feedQuery, feedResult, feedWhere, likeTerm, qs, runList } from '../lib/list.ts';
 import { assertOnRecord, pipelineAllowed, requireAny, scopeOf, scopeWhere } from '../lib/permissions.ts';
 import { assertMembers, camel, camelAll } from '../lib/records.ts';
 import { redactChanges } from '../lib/fieldAccess.ts';
@@ -223,8 +223,22 @@ export async function activityRoutes(app: FastifyInstance) {
   });
 
   // ─────────────── Timeline ───────────────
-  app.get<{ Params: { type: string; id: string } }>('/timeline/:type/:id', async (req) => {
+  /**
+   * The record's history, newest first, paged with "Load more": notes, finished activities and changes merged into one
+   * stream. Query: kind=all|note|activity|event, limit (default 30, max 100), before (cursor from nextCursor). The cursor
+   * is (microseconds, source, id) so the three sources interleave exactly. "upcoming" (open activities) comes with the
+   * first page only.
+   */
+  app.get<{ Params: { type: string; id: string }; Querystring: { kind?: string; limit?: string; before?: string } }>('/timeline/:type/:id', async (req) => {
     const ctx = ctxOf(req);
+    const kind = (['note', 'activity', 'event'] as const).find((k) => k === req.query.kind) ?? 'all';
+    const limit = Math.min(Math.max(Number(req.query.limit) || 30, 1), 100);
+    let cursor: { us: number; src: number; id: number } | null = null;
+    if (req.query.before) {
+      const m = /^(-?\d{1,17})\|([123])\|(\d{1,15})$/.exec(Buffer.from(String(req.query.before), 'base64url').toString('utf8'));
+      if (!m) throw badRequest('Invalid cursor');
+      cursor = { us: Number(m[1]), src: Number(m[2]), id: Number(m[3]) };
+    }
     const type = req.params.type as RecordType;
     if (!TABLE[type]) throw badRequest('Unknown record type');
     const id = Number(req.params.id);
@@ -246,27 +260,46 @@ export async function activityRoutes(app: FastifyInstance) {
     const relIds = related.map((r) => r.id);
     const relMatch = (alias: string) => sql`(${raw(alias)}.entity_type, ${raw(alias)}.entity_id) IN (SELECT * FROM unnest(${relTypes}::text[], ${relIds}::bigint[]))`;
 
+    // One query per source: rows after the cursor, newest first, limit + 1 each; merged below.
+    const us = (expr: string) => raw(`(extract(epoch from ${expr}) * 1000000)::bigint`);
+    const after = (expr: string, src: number, idCol: string) => cursor
+      ? sql`AND (${us(expr)}, ${src}::int, ${raw(idCol)}) < (${cursor.us}::bigint, ${cursor.src}::int, ${cursor.id}::bigint)` : sql``;
+    const none = Promise.resolve([] as Record<string, unknown>[]);
     const [notes, activities, events, upcoming] = await Promise.all([
-      q(sql`SELECT n.id, n.entity_type, n.entity_id, n.body, n.is_pinned, n.author_type, n.author_id, n.created_at, n.updated_at, u.name AS author_name
-            FROM notes n LEFT JOIN users u ON u.id = n.author_id WHERE ${relMatch('n')} AND n.deleted_at IS NULL ORDER BY n.created_at DESC LIMIT 200`),
-      q(sql`SELECT ${activitySelect(ctx)} FROM activities a LEFT JOIN users u ON u.id = a.assignee_id
+      kind === 'all' || kind === 'note' ? q(sql`SELECT n.id, ${us('n.created_at')} AS feed_us, n.entity_type, n.entity_id, n.body, n.is_pinned, n.author_type, n.author_id, n.created_at, n.updated_at, u.name AS author_name
+            FROM notes n LEFT JOIN users u ON u.id = n.author_id WHERE ${relMatch('n')} AND n.deleted_at IS NULL ${after('n.created_at', 1, 'n.id')}
+            ORDER BY n.created_at DESC, n.id DESC LIMIT ${limit + 1}`) : none,
+      kind === 'all' || kind === 'activity' ? q(sql`SELECT ${activitySelect(ctx)}, ${us('coalesce(a.completed_at, a.updated_at)')} AS feed_us FROM activities a LEFT JOIN users u ON u.id = a.assignee_id
             WHERE a.deleted_at IS NULL AND a.status <> 'open' AND EXISTS (SELECT 1 FROM activity_links al WHERE al.activity_id = a.id AND ${relMatch('al')})
-            ORDER BY coalesce(a.completed_at, a.updated_at) DESC LIMIT 200`),
-      q(sql`SELECT e.id, e.entity_type, e.entity_id, e.action, e.changes, e.actor_type, e.actor_id, e.created_at, u.name AS actor_name
+              ${after('coalesce(a.completed_at, a.updated_at)', 2, 'a.id')}
+            ORDER BY coalesce(a.completed_at, a.updated_at) DESC, a.id DESC LIMIT ${limit + 1}`) : none,
+      kind === 'all' || kind === 'event' ? q(sql`SELECT e.id, ${us('e.created_at')} AS feed_us, e.entity_type, e.entity_id, e.action, e.changes, e.actor_type, e.actor_id, e.created_at, u.name AS actor_name
             FROM audit_events e LEFT JOIN users u ON u.id = e.actor_id
             WHERE e.workspace_id = ${ctx.workspaceId} AND ${relMatch('e')}
               AND (e.entity_type = ${type} AND e.entity_id = ${id} OR e.action IN ('created','won','lost','converted','disqualified'))
-            ORDER BY e.created_at DESC LIMIT 300`),
-      q(sql`SELECT ${activitySelect(ctx)} FROM activities a LEFT JOIN users u ON u.id = a.assignee_id
+              AND e.action NOT LIKE 'activity\\_%' ${after('e.created_at', 3, 'e.id')}
+            ORDER BY e.created_at DESC, e.id DESC LIMIT ${limit + 1}`) : none,
+      cursor ? none : q(sql`SELECT ${activitySelect(ctx)} FROM activities a LEFT JOIN users u ON u.id = a.assignee_id
             WHERE a.deleted_at IS NULL AND a.status = 'open' AND EXISTS (SELECT 1 FROM activity_links al WHERE al.activity_id = a.id AND al.entity_type = ${type} AND al.entity_id = ${id})
-            ORDER BY a.due_at NULLS LAST, a.id`),
+            ORDER BY a.due_at NULLS LAST, a.id LIMIT 100`),
     ]);
-    const items = [
-      ...camelAll(notes).map((n) => ({ type: 'note', at: (n as { createdAt: Date }).createdAt, data: n })),
-      ...camelAll(activities).map((a) => ({ type: 'activity', at: (a as { completedAt?: Date; updatedAt: Date }).completedAt ?? (a as { updatedAt: Date }).updatedAt, data: a })),
-      ...redactEvents(ctx, camelAll(events)).filter((e) => !String((e as { action: string }).action).startsWith('activity_')).map((e) => ({ type: 'event', at: (e as { createdAt: Date }).createdAt, data: e })),
-    ].sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime());
-    return { upcoming: camelAll(upcoming), items };
+    type Row = Record<string, unknown> & { id: number; feed_us: number };
+    const tag = (rows: Record<string, unknown>[], src: number, t: string) => (rows as Row[]).map((r) => ({ src, t, r }));
+    const merged = [...tag(notes, 1, 'note'), ...tag(activities, 2, 'activity'), ...tag(events, 3, 'event')]
+      .sort((a, b) => Number(b.r.feed_us) - Number(a.r.feed_us) || b.src - a.src || b.r.id - a.r.id);
+    const page = merged.slice(0, limit);
+    const last = page[page.length - 1];
+    const nextCursor = merged.length > limit && last ? Buffer.from(`${last.r.feed_us}|${last.src}|${last.r.id}`).toString('base64url') : null;
+    const strip = ({ feed_us: _f, ...rest }: Row) => { void _f; return rest; };
+    const items = page.flatMap(({ t, r }) => {
+      const data = camelAll([strip(r)])[0] as Record<string, unknown>;
+      if (t === 'event') {
+        const shown = redactEvents(ctx, [data]); // may hide a change the role can't see (field permissions)
+        return shown.length ? [{ type: t, at: data.createdAt, data: shown[0] }] : [];
+      }
+      return [{ type: t, at: t === 'note' ? data.createdAt : data.completedAt ?? data.updatedAt, data }];
+    });
+    return { ...(cursor ? {} : { upcoming: camelAll(upcoming) }), items, nextCursor };
   });
 
   // ─────────────── History (audit) ───────────────
@@ -283,12 +316,16 @@ export async function activityRoutes(app: FastifyInstance) {
   });
 
   // ─────────────── Notifications ───────────────
+  /** Newest first, paged with "Load more" (limit, before); `unread` counts all unread ones. */
   app.get('/notifications', async (req) => {
     const ctx = ctxOf(req);
-    const rows = await q(sql`SELECT id, kind, title, body, entity_type, entity_id, read_at, created_at FROM notifications
-      WHERE user_id = ${ctx.userId} AND workspace_id = ${ctx.workspaceId} ORDER BY created_at DESC LIMIT 50`);
+    const feed = feedQuery(req.query as Record<string, unknown>);
+    const rows = await q<{ id: number; feed_us: number }>(sql`SELECT id, ${feedCursorColumn('created_at')}, kind, title, body, entity_type, entity_id, read_at, created_at FROM notifications
+      WHERE user_id = ${ctx.userId} AND workspace_id = ${ctx.workspaceId} AND ${feedWhere(feed, 'created_at', 'id')}
+      ORDER BY created_at DESC, id DESC LIMIT ${feed.limit + 1}`);
     const unread = await q1<{ n: number }>(sql`SELECT count(*)::int AS n FROM notifications WHERE user_id = ${ctx.userId} AND workspace_id = ${ctx.workspaceId} AND read_at IS NULL`);
-    return { data: camelAll(rows), unread: unread?.n ?? 0 };
+    const page = feedResult(rows, feed);
+    return { data: camelAll(page.data as Record<string, unknown>[]), nextCursor: page.nextCursor, unread: unread?.n ?? 0 };
   });
   app.post('/notifications/read', async (req) => {
     const ctx = ctxOf(req);

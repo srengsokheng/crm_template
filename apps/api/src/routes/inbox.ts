@@ -42,6 +42,18 @@ const linkedJoins = sql`
   LEFT JOIN contacts ct ON ct.id = cv.contact_id AND ct.deleted_at IS NULL
   LEFT JOIN leads l ON l.id = cv.lead_id AND l.deleted_at IS NULL`;
 
+const THREAD_PAGE = 50;
+/** Up to THREAD_PAGE + 1 messages before `beforeId` (or the latest), oldest first; the extra one means there are older. */
+async function threadMessages(conversationId: number, beforeId: number | null) {
+  return q(sql`SELECT * FROM (
+      SELECT m.id, m.direction, m.sender_name, m.author_id, a.name AS author_name, m.body, m.status, m.error, m.created_at,
+        ${messageFilesJson}
+      FROM messages m LEFT JOIN users a ON a.id = m.author_id
+      WHERE m.conversation_id = ${conversationId} ${beforeId ? sql`AND m.id < ${beforeId}` : sql``}
+      ORDER BY m.id DESC LIMIT ${THREAD_PAGE + 1}
+    ) t ORDER BY id`);
+}
+
 /** A message's files as JSON (alias m = messages). */
 export const messageFilesJson = sql`(SELECT coalesce(json_agg(json_build_object('id', f.id, 'fileName', f.file_name, 'contentType', f.content_type,
     'sizeBytes', f.size_bytes, 'status', f.status) ORDER BY f.id), '[]'::json) FROM message_files f WHERE f.message_id = m.id) AS files`;
@@ -122,18 +134,26 @@ export async function inboxRoutes(app: FastifyInstance) {
         cv.created_at, ${linkedColumns(ctx)}
       FROM conversations cv JOIN channels ch ON ch.id = cv.channel_id LEFT JOIN users u ON u.id = cv.assignee_id ${linkedJoins}
       WHERE cv.id = ${c.id}`);
-    // The latest 200 messages, oldest first.
-    const messages = await q(sql`SELECT * FROM (
-        SELECT m.id, m.direction, m.sender_name, m.author_id, a.name AS author_name, m.body, m.status, m.error, m.created_at,
-          ${messageFilesJson}
-        FROM messages m LEFT JOIN users a ON a.id = m.author_id WHERE m.conversation_id = ${c.id} ORDER BY m.id DESC LIMIT 200
-      ) t ORDER BY id`);
+    // The latest messages, oldest first; earlier ones come from GET …/messages?beforeId= ("Load older messages").
+    const messages = await threadMessages(c.id, null);
     return {
       ...camel(row!),
       canEdit: canOnConversation(ctx, 'edit', c),
       canReply: canOnConversation(ctx, 'edit', c) && c.channel_status === 'active',
-      messages: camelAll(messages),
+      messages: camelAll(messages.slice(-THREAD_PAGE)),
+      hasOlder: messages.length > THREAD_PAGE,
     };
+  });
+
+  /** Earlier messages of a thread ("Load older messages"): the THREAD_PAGE messages before `beforeId`, oldest first. */
+  app.get<IdParams & { Querystring: { beforeId?: string } }>('/inbox/conversations/:id/messages', async (req) => {
+    const ctx = ctxOf(req);
+    requireAny(ctx, 'conversation', 'view');
+    const c = await loadConversation(pool, ctx, Number(req.params.id), 'view');
+    const beforeId = Number(req.query.beforeId);
+    if (!Number.isInteger(beforeId) || beforeId <= 0) throw badRequest('beforeId is required');
+    const rows = await threadMessages(c.id, beforeId);
+    return { messages: camelAll(rows.slice(-THREAD_PAGE)), hasOlder: rows.length > THREAD_PAGE };
   });
 
   app.post<IdParams>('/inbox/conversations/:id/read', async (req) => {
