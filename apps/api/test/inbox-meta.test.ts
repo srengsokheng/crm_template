@@ -5,6 +5,9 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { config } from '../src/config.ts';
 import { pool } from '../src/db/pool.ts';
 import { processJobs } from '../src/automation/engine.ts';
+
+/** Runs every due job (earlier test files may have left some ahead of ours in the queue). */
+const drainJobs = async () => { for (let i = 0; i < 50 && (await processJobs(100)) > 0; i++); };
 import { splitText } from '../src/inbox/meta.ts';
 import { openSecret } from '../src/lib/secrets.ts';
 import { getApp, inviteUser, signup } from './helpers.ts';
@@ -191,7 +194,7 @@ describe('inbox: Facebook Messenger, Instagram, WhatsApp', () => {
     expect((await c.get(`/inbox/conversations/${wa.id}`)).body.messages.map((m: any) => m.body)).toEqual(['Hello from WhatsApp', '[File: po.pdf] Our order']);
 
     // Files are downloaded by the job queue (the WhatsApp one through the media endpoint, with the token).
-    await processJobs();
+    await drainJobs();
     thread = (await c.get(`/inbox/conversations/${msConv.id}`)).body;
     expect(thread.messages[1].files[0]).toMatchObject({ status: 'stored', contentType: 'image/png', sizeBytes: PNG.length });
     const doc = (await c.get(`/inbox/conversations/${wa.id}`)).body.messages[1].files[0];
@@ -232,7 +235,7 @@ describe('inbox: Facebook Messenger, Instagram, WhatsApp', () => {
     await c.post(`/inbox/conversations/${old}/messages`, { body: 'Hello again' });
     await c.post(`/inbox/conversations/${late}/messages`, { body: 'Hello again' });
     await c.upload(`/inbox/conversations/${vibol}/files?fileName=arm.png&caption=${encodeURIComponent('The X2 arm')}`, PNG, { 'x-file-type': 'image/png' });
-    await processJobs();
+    await drainJobs();
     expect(fake.sent.find((s) => s.recipient?.id === '5550001')).toEqual({ path: 'me/messages', recipient: { id: '5550001' }, messaging_type: 'RESPONSE', message: { text: 'Yes, we do.' } });
     expect(fake.sent.find((s) => s.to === '85511111111' && s.type === 'text')).toMatchObject({ path: `${WA}/messages`, messaging_product: 'whatsapp', text: { body: 'Sues sdei! ' + 'ក'.repeat(10), preview_url: false } });
     // The file: uploaded to WhatsApp's media endpoint, then sent as an image with the caption.
@@ -255,7 +258,7 @@ describe('inbox: Facebook Messenger, Instagram, WhatsApp', () => {
     // The token expires: the reply fails, the channel needs attention; new credentials bring it back.
     fake.expired = true;
     await c.post(`/inbox/conversations/${ada}/messages`, { body: 'Still there?' });
-    await processJobs();
+    await drainJobs();
     expect((await last(ada)).error).toMatch(/no longer accepts this channel’s access token/);
     expect((await c.get('/channels')).body.data.find((x: any) => x.id === ms.id)).toMatchObject({ status: 'error', lastError: expect.stringMatching(/access token/) });
     fake.expired = false;
