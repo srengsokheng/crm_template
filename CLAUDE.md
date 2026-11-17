@@ -12,7 +12,7 @@ Read `docs/HANDOFF.md` first: it explains what exists, how to run it, and what t
   - only erasable TypeScript syntax (no `enum`, no constructor parameter properties, no namespaces).
 - PostgreSQL 16+. Migrations are hand-written SQL in `apps/api/src/db/migrations/NNNN_name.sql`, applied in order on start.
   Never edit an applied migration; add a new numbered file.
-- Dependencies are pinned exactly (`.npmrc save-exact`). Before adding one, check `npm audit` stays at 0 and prefer
+- Dependencies are pinned exactly (`.npmrc save-exact`). Before adding one, check `npm run audit` passes (production deps: 0 advisories) and prefer
   writing a small helper over pulling a large package.
 
 ## Checks (all must pass before pushing)
@@ -21,7 +21,7 @@ npm run typecheck
 npm run lint
 npm test                        # Vitest: shared unit + API integration tests on TEST_DATABASE_URL
 npm run build && npm run e2e    # Playwright (set PW_CHROMIUM_PATH if Chromium is preinstalled)
-npm audit                       # must report 0 vulnerabilities
+npm run audit                   # production deps: 0 advisories; dev tools: only entries in audit-allowlist.json
 ```
 
 ## Conventions
