@@ -56,7 +56,7 @@ test('website chat: a visitor writes from another site, the team replies from th
   // The contact page lists the conversation.
   const contacts = await api(page, 'GET', '/contacts?q=Grace');
   await page.goto(`/contacts/${contacts.data[0].id}`);
-  await expect(page.getByText('Conversations (1)')).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Conversations' }).or(page.getByText('Conversations', { exact: true }))).toBeVisible();
   await expect(page.getByRole('link', { name: /Grace.*closed/ })).toBeVisible();
 });
 

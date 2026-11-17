@@ -293,7 +293,13 @@ The research behind every decision is in this folder:
   files per conversation a day; virus-scanned when ClamAV is configured. A file can start a conversation. The team sees
   it like any incoming file; the visitor can open their own files with their chat token.
 
-**Quality:** 196 Vitest tests (API against real PostgreSQL), 48 Playwright tests (desktop, tablet, phone), lint and
+- **UI rules and feed lists** (`docs/UI-RULES.md`, `components/ui/FeedList.tsx`, `feedQuery`/`feedResult` in
+  `lib/list.ts`): written rules for every screen (tokens, components, tables & pagination, feeds, forms, states,
+  accessibility, checks before a PR). Feeds (newest first) use an opaque cursor of microseconds + id, so rows with equal
+  times are neither skipped nor repeated, and `FeedList` shows loading / error / empty / "Load more". The Inbox list and
+  the "Conversations" card on contacts and leads use it (no more silent 50-row cap).
+
+**Quality:** 198 Vitest tests (API against real PostgreSQL), 48 Playwright tests (desktop, tablet, phone), lint and
 typecheck clean, `npm audit` = 0, GitHub Actions CI in `.github/workflows/ci.yml`.
 
 ## 3. Not built yet — suggested next work (in priority order)

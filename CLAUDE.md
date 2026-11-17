@@ -35,7 +35,9 @@ npm audit                       # must report 0 vulnerabilities
   also emits the outbox event automation listens to.
 - **Money:** `numeric(18,2)` in the DB, strings over JSON, arithmetic only via `packages/shared/src/money.ts`.
 - **API responses** are camelCase (`camel()` / `camelAll()`); errors are `{ error: { code, message, fields?, details? } }`.
-- **UI:** reuse components in `apps/web/src/components/ui` and `apps/web/src/features/records`. No buttons without
-  working behaviour. Every list/board needs loading, empty and error states. Check phone (390px), tablet (834px) and
-  desktop (1440px) — no horizontal page scroll.
+- **UI:** follow `docs/UI-RULES.md` (tokens, components, lists & pagination, forms, states, accessibility). Reuse
+  components in `apps/web/src/components/ui` and `apps/web/src/features/records`. No buttons without working
+  behaviour. Every list/board needs loading, empty and error states; no list may grow without limit or silently drop
+  rows (paged tables or "Load more" feeds). Check phone (390px), tablet (834px) and desktop (1440px), light and dark —
+  no horizontal page scroll.
 - Keep docs in `docs/` current when behaviour changes.

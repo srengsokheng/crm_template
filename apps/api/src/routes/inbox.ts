@@ -10,7 +10,7 @@ import { files, newStorageKey } from '../lib/files.ts';
 import { scanBuffer } from '../lib/virusScan.ts';
 import { cleanFileName, cleanType, sendStoredFile } from './attachments.ts';
 import { ctxOf } from '../lib/http.ts';
-import { likeTerm } from '../lib/list.ts';
+import { feedCursorColumn, feedQuery, feedResult, feedWhere, likeTerm } from '../lib/list.ts';
 import { canOnConversation, canOnRecord, conversationScopeWhere, requireAny, scopeOf, scopeWhere } from '../lib/permissions.ts';
 import { assertMembers, camel, camelAll } from '../lib/records.ts';
 import { parse } from '../lib/validate.ts';
@@ -21,7 +21,6 @@ import { preview } from '../inbox/store.ts';
 import { createContact } from './parties.ts';
 
 type IdParams = { Params: { id: string } };
-const PAGE = 50;
 
 interface ConvRow { id: number; workspace_id: number; channel_id: number; kind: 'direct' | 'group'; assignee_id: number | null; contact_id: number | null; lead_id: number | null; status: string; title: string; profile: Record<string, string | undefined>; channel_status: string; channel_kind: string }
 
@@ -85,21 +84,23 @@ export async function inboxRoutes(app: FastifyInstance) {
     requireAny(ctx, 'conversation', 'view');
     const f = parse(conversationListSchema, req.query);
     const term = f.q ? likeTerm(f.q) : null;
-    const rows = await q(sql`
-      SELECT cv.id, cv.channel_id, ch.kind AS channel_kind, ch.name AS channel_name, cv.kind, cv.title, cv.status, cv.unread,
+    const feed = feedQuery(f);
+    const rows = await q<{ id: number; feed_us: number }>(sql`
+      SELECT cv.id, ${feedCursorColumn('cv.last_message_at')}, cv.channel_id, ch.kind AS channel_kind, ch.name AS channel_name, cv.kind, cv.title, cv.status, cv.unread,
         cv.last_message_at, cv.last_message_preview, cv.last_direction, cv.assignee_id, u.name AS assignee_name,
         cv.contact_id, cv.lead_id, ${linkedColumns(ctx)}
       FROM conversations cv JOIN channels ch ON ch.id = cv.channel_id LEFT JOIN users u ON u.id = cv.assignee_id ${linkedJoins}
-      WHERE cv.workspace_id = ${ctx.workspaceId} AND ${conversationScopeWhere(ctx, 'view', 'cv')} AND cv.status = ${f.status}
+      WHERE cv.workspace_id = ${ctx.workspaceId} AND ${conversationScopeWhere(ctx, 'view', 'cv')} ${f.status === 'all' ? sql`` : sql`AND cv.status = ${f.status}`}
         ${f.assignee === 'me' ? sql`AND cv.assignee_id = ${ctx.userId}` : f.assignee === 'unassigned' ? sql`AND cv.assignee_id IS NULL` : sql``}
         ${f.channelId ? sql`AND cv.channel_id = ${f.channelId}` : sql``}
         ${f.contactId ? sql`AND cv.contact_id = ${f.contactId}` : sql``}
         ${f.leadId ? sql`AND cv.lead_id = ${f.leadId}` : sql``}
-        ${f.before ? sql`AND cv.last_message_at < ${f.before}` : sql``}
+        AND ${feedWhere(feed, 'cv.last_message_at', 'cv.id')}
         ${term ? sql`AND (cv.title ILIKE ${term} OR cv.profile->>'username' ILIKE ${term} OR cv.profile->>'email' ILIKE ${term}
                        OR EXISTS (SELECT 1 FROM messages m WHERE m.conversation_id = cv.id AND m.body ILIKE ${term}))` : sql``}
-      ORDER BY cv.last_message_at DESC, cv.id DESC LIMIT ${PAGE + 1}`);
-    return { data: camelAll(rows.slice(0, PAGE)), hasMore: rows.length > PAGE };
+      ORDER BY cv.last_message_at DESC, cv.id DESC LIMIT ${feed.limit + 1}`);
+    const page = feedResult(rows, feed);
+    return { data: camelAll(page.data as Record<string, unknown>[]), nextCursor: page.nextCursor };
   });
 
   /** Counts for the sidebar badge: open conversations with unread messages that the user can see. */

@@ -8,9 +8,10 @@ import { fileSize } from '../records/Attachments.tsx';
 import { cn } from '../../lib/cn.ts';
 import { dateTime, relative } from '../../lib/format.ts';
 import { useCan, useDebounced, useMe, useMeta } from '../../lib/hooks.ts';
-import { Avatar, Badge, Button, EmptyState, ErrorState, IconButton, Input, Segmented, Select, Skeleton, Spinner, Textarea } from '../../components/ui/primitives.tsx';
+import { Avatar, Badge, Button, EmptyState, ErrorState, IconButton, Input, Segmented, Select, Spinner, Textarea } from '../../components/ui/primitives.tsx';
 import { Dialog } from '../../components/ui/overlays.tsx';
 import { usePollInterval } from './live.ts';
+import { FeedList, useFeed } from '../../components/ui/FeedList.tsx';
 import { SavedRepliesMenu } from './SavedReplies.tsx';
 import { EntityPicker, type PickerItem } from '../../components/ui/EntityPicker.tsx';
 
@@ -57,13 +58,9 @@ function ConversationList({ activeId }: { activeId: number | null }) {
   const term = useDebounced(q.trim(), 300);
   const listPoll = usePollInterval(5000);
   const { data: me } = useMe();
-  const params = new URLSearchParams({ status, assignee, ...(term ? { q: term } : {}) });
-  const list = useQuery({
-    queryKey: ['inbox', status, assignee, term], refetchInterval: listPoll,
-    queryFn: () => api.get<{ data: ConversationItem[]; hasMore: boolean }>(`/inbox/conversations?${params}`),
-  });
+  const list = useFeed<ConversationItem>(['inbox', 'list'], '/inbox/conversations', { status, assignee, q: term || undefined }, { refetchInterval: listPoll });
   const channels = useQuery({ queryKey: ['channels'], enabled: !!me?.role.isAdmin, queryFn: () => api.get<{ data: unknown[] }>('/channels') });
-  const items = list.data?.data ?? [];
+  const noChannels = !!me?.role.isAdmin && !!channels.data && channels.data.data.length === 0;
   return (
     <>
       <div className="space-y-2 border-b border-base p-3">
@@ -82,21 +79,11 @@ function ConversationList({ activeId }: { activeId: number | null }) {
         </div>
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto">
-        {list.isLoading ? (
-          <div className="space-y-3 p-3">{[0, 1, 2, 3].map((i) => <Skeleton key={i} className="h-14" />)}</div>
-        ) : list.isError ? (
-          <ErrorState message={errorMessage(list.error)} onRetry={() => list.refetch()} />
-        ) : items.length === 0 ? (
-          me?.role.isAdmin && channels.data && channels.data.data.length === 0 ? (
-            <EmptyState icon={<Inbox className="size-5" />} title="No channels connected" description="Connect your website chat or a Telegram bot, and customer messages will appear here."
-              action={<Link to="/settings/channels"><Button size="sm" variant="primary">Connect a channel</Button></Link>} />
-          ) : (
-            <EmptyState icon={<Inbox className="size-5" />} title={term ? 'No matching conversations' : status === 'open' ? 'No open conversations' : 'No closed conversations'}
-              description={term ? 'Try another name or word.' : status === 'open' ? 'New messages from customers will show up here.' : undefined} />
-          )
-        ) : (
-          <ul className="divide-y divide-[var(--border)]">
-            {items.map((c) => (
+        <FeedList feed={list} skeletonRows={4} label="Conversations list"
+          empty={noChannels
+            ? { icon: <Inbox className="size-5" />, title: 'No channels connected', description: 'Connect your website chat or a Telegram bot, and customer messages will appear here.', action: <Link to="/settings/channels"><Button size="sm" variant="primary">Connect a channel</Button></Link> }
+            : { icon: <Inbox className="size-5" />, title: term ? 'No matching conversations' : status === 'open' ? 'No open conversations' : 'No closed conversations', description: term ? 'Try another name or word.' : status === 'open' ? 'New messages from customers will show up here.' : undefined }}>
+          {(items) => items.map((c) => (
               <li key={c.id}>
                 <Link to={`/inbox/${c.id}`} aria-current={c.id === activeId ? 'page' : undefined}
                   className={cn('flex gap-3 px-3 py-3 hover:bg-[var(--surface-2)]', c.id === activeId && 'bg-brand-50 dark:bg-brand-600/15')}>
@@ -119,10 +106,8 @@ function ConversationList({ activeId }: { activeId: number | null }) {
                   </span>
                 </Link>
               </li>
-            ))}
-          </ul>
-        )}
-        {list.data?.hasMore && <p className="p-3 text-center text-xs text-muted">Showing the 50 most recent. Search to find older conversations.</p>}
+          ))}
+        </FeedList>
       </div>
     </>
   );

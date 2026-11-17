@@ -37,15 +37,16 @@ export const channelUpdateSchema = z.object({
 });
 
 export const conversationListSchema = z.object({
-  status: z.enum(['open', 'closed']).default('open'),
+  status: z.enum(['open', 'closed', 'all']).default('open'),
   /** me = assigned to me, unassigned, all = everything I may see. */
   assignee: z.enum(['me', 'unassigned', 'all']).default('all'),
   channelId: id.optional(),
   contactId: id.optional(),
   leadId: id.optional(),
   q: text(200).optional(),
-  /** Paging: conversations whose last message is older than this (ISO time) — "Load more". */
-  before: z.string().datetime({ offset: true }).optional(),
+  /** Paging (feed cursor from the previous page's nextCursor) — "Load more". */
+  before: z.string().max(100).optional(),
+  limit: z.coerce.number().int().min(1).max(100).optional(),
 });
 
 export const conversationUpdateSchema = z.object({
