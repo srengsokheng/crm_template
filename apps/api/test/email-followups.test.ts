@@ -55,10 +55,12 @@ describe('daily digest', () => {
     const rep = await inviteUser(c, 'Sales rep', 'Rita');
     const off = await inviteUser(c, 'Sales rep', 'Otto');
     const deal = (await c.post('/deals', { title: 'Robots for Acme', ownerId: me.id })).body;
-    const past = (h: number) => new Date(Date.now() - h * 3600_000).toISOString();
+    // Due dates relative to the digest moment below (not the real clock, or the test depends on the time it runs).
+    const nine = new Date('2026-11-17T02:00:00Z'); // 09:00 local
+    const past = (h: number) => new Date(nine.getTime() - h * 3600_000).toISOString();
     await c.post('/activities', { kind: 'call', subject: 'Call back Acme', assigneeId: me.id, dueAt: past(48), links: [{ entityType: 'deal', entityId: deal.id }] });
     await c.post('/activities', { kind: 'task', subject: 'Send proposal', assigneeId: me.id, dueAt: past(2) });
-    await c.post('/activities', { kind: 'task', subject: 'Not yet due', assigneeId: me.id, dueAt: new Date(Date.now() + 86400_000).toISOString() });
+    await c.post('/activities', { kind: 'task', subject: 'Not yet due', assigneeId: me.id, dueAt: new Date(nine.getTime() + 86400_000).toISOString() });
     await c.post('/activities', { kind: 'task', subject: 'Otto overdue', assigneeId: off.id, dueAt: past(5) });
     expect((await off.c.patch('/auth/preferences', { emailDigest: false })).status).toBe(200);
     expect((await off.c.get('/auth/me')).body.preferences).toEqual({ emailReminders: true, emailDigest: false });
@@ -67,7 +69,6 @@ describe('daily digest', () => {
     const early = new Date('2026-11-16T23:00:00Z');
     await sendDigests(early);
     // 09:00 local on 2026-11-17 (02:00 UTC): sent.
-    const nine = new Date('2026-11-17T02:00:00Z');
     await sendDigests(nine);
     await drain();
     // (Other tests' workspaces live in the same database, so look only at this workspace's members.)
@@ -101,7 +102,11 @@ describe('daily digest', () => {
     await c.patch(`/pipelines/${vip.id}`, { allowedRoleIds: [roles.find((r: any) => r.name === 'Manager').id] });
     await c.post('/activities', { kind: 'call', subject: 'Prep call', assigneeId: rep.id, dueAt: new Date(Date.now() - 3600_000).toISOString(), links: [{ entityType: 'deal', entityId: secret.id }] });
     await q(sql`UPDATE memberships SET digest_sent_on = NULL`);
-    await sendDigests(new Date(Date.now() + 86400_000 * 2));
+    // Noon UTC two days ahead: after the 08:00 send time whatever the time of day the test runs.
+    await c.patch('/workspace', { timezone: 'UTC' });
+    const noon = new Date(Date.now() + 86400_000 * 2);
+    noon.setUTCHours(12, 0, 0, 0);
+    await sendDigests(noon);
     await drain();
     const d = outbox.find((m) => m.to === rep.email && /overdue/.test(m.subject))!;
     expect(d.text).toContain('Prep call');

@@ -146,3 +146,22 @@ test('saved replies: create one, insert it with the customer name filled in, sen
   await page.getByRole('button', { name: 'Send' }).click();
   await expect(page.locator('ol').getByText('Hi Grace, we are open 9–5. — Ada Admin')).toBeVisible();
 });
+
+test('website chat: a visitor sends a photo; the team sees it in the Inbox', async ({ page, context, baseURL }) => {
+  await signUp(page);
+  const ch = await api(page, 'POST', '/channels', { kind: 'webchat', name: 'Acme help' });
+  const site = await context.newPage();
+  await site.setContent(`<!doctype html><html><body><script src="${baseURL}/widget.js" data-key="${ch.publicKey}" async></script></body></html>`);
+  await site.getByRole('button', { name: 'Open chat' }).click();
+  const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==', 'base64');
+  // A file that only pretends to be a photo is refused with an explanation.
+  await site.getByLabel('Photo or PDF to send').setInputFiles({ name: 'fake.png', mimeType: 'image/png', buffer: Buffer.from('<html>') });
+  await expect(site.getByText('Only photos (PNG, JPEG, GIF, WebP) and PDF files can be sent.')).toBeVisible();
+  await site.getByLabel('Photo or PDF to send').setInputFiles({ name: 'broken-part.png', mimeType: 'image/png', buffer: png });
+  await expect(site.getByRole('img', { name: 'broken-part.png' })).toBeVisible();
+
+  const conv = (await api(page, 'GET', '/inbox/conversations')).data[0];
+  await page.goto(`/inbox/${conv.id}`);
+  await expect(page.getByRole('img', { name: 'broken-part.png' })).toBeVisible();
+  await expect.poll(() => page.getByRole('img', { name: 'broken-part.png' }).evaluate((img: HTMLImageElement) => img.naturalWidth)).toBe(1);
+});

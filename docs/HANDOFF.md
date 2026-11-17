@@ -257,7 +257,7 @@ The research behind every decision is in this folder:
     give an email matching exactly one contact are linked to it automatically. Deleting a channel deletes its
     conversations; disabling keeps them.
   - **Not included**: personal accounts (Telegram user login, WhatsApp, Messenger), Facebook/Instagram/WhatsApp
-    Business, visitors sending files from the website chat, typing indicators.
+    Business, typing indicators.
 
 - **Inbox files** (migration 0024, `message_files`, `inbox/files.ts`): incoming Telegram photos (largest size),
   documents, audio, voice notes and videos are downloaded by job `inbox.fetch_file` (getFile + file URL) into the same
@@ -284,7 +284,13 @@ The research behind every decision is in this folder:
   their owner (not even admins); shared "Team" replies are seen by everyone with Inbox view, and only admins share or
   change them. Creating needs Inbox edit.
 
-**Quality:** 191 Vitest tests (API against real PostgreSQL), 46 Playwright tests (desktop, tablet, phone), lint and
+- **Files from website visitors** (`POST /public/webchat/:key/files`): a paperclip in the chat widget sends a photo or
+  PDF. Accepted only when the content really is PNG/JPEG/GIF/WebP/PDF (checked from the file's first bytes, and it
+  must match the declared type), up to 5 MB (or `FILES_MAX_BYTES` if lower), 10 uploads a minute per address and 20
+  files per conversation a day; virus-scanned when ClamAV is configured. A file can start a conversation. The team sees
+  it like any incoming file; the visitor can open their own files with their chat token.
+
+**Quality:** 193 Vitest tests (API against real PostgreSQL), 47 Playwright tests (desktop, tablet, phone), lint and
 typecheck clean, `npm audit` = 0, GitHub Actions CI in `.github/workflows/ci.yml`.
 
 ## 3. Not built yet — suggested next work (in priority order)
@@ -301,8 +307,7 @@ The earlier list is done (see section 2). Known follow-ups, collected from the p
    (Cloud API), and a **Telegram personal account** (MTProto user login, e.g. GramJS; the account owner logs in with
    their phone code — needs `api_id`/`api_hash` from my.telegram.org). Unofficial WhatsApp-Web libraries break
    WhatsApp's terms and get numbers banned; Meta has no API for personal Messenger/Instagram inboxes.
-4. Inbox: file uploads from website visitors (needs abuse limits and scanning), live updates for the visitor's
-   widget (it polls every 4 s while open).
+4. Inbox: live updates for the visitor's widget (it polls every 4 s while open); typing indicators.
 
 Import limits and choices: 5 MB / 10,000 rows / 100 columns per file; lead rows only match *open* leads; list
 values (type, source, industry, size, deal type, category) must already exist unless an admin ticks "Add values that aren't in

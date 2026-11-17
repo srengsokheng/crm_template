@@ -174,3 +174,64 @@ describe('inbox files', () => {
     expect(JSON.parse((await pub('GET', `/messages?token=${b.token}`)).body).messages.every((m: any) => m.files.length === 0)).toBe(true);
   });
 });
+
+describe('website chat: visitors sending files', () => {
+  const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==', 'base64');
+  it('accepts images and PDFs whose content matches, within limits, and shows them in the Inbox', async () => {
+    const { c } = await signup();
+    const ch = (await c.post('/channels', { kind: 'webchat', name: 'Chat' })).body;
+    const app = await getApp();
+    const send = (data: Buffer, type: string, name: string, token?: string) => app.inject({
+      method: 'POST', url: `/api/v1/public/webchat/${ch.publicKey}/files?fileName=${encodeURIComponent(name)}${token ? `&token=${token}` : ''}`,
+      headers: { 'content-type': 'application/octet-stream', 'x-file-type': type, origin: 'https://shop.example' }, payload: data,
+    });
+    const pre = await app.inject({ method: 'OPTIONS', url: `/api/v1/public/webchat/${ch.publicKey}/files` });
+    expect(pre.statusCode).toBe(204);
+    expect(pre.headers['access-control-allow-headers']).toContain('x-file-type');
+
+    // First contact can be a photo: it starts the conversation and returns the token.
+    const first = await send(PNG, 'image/png', 'broken-part.png');
+    expect(first.statusCode, first.body).toBe(201);
+    const { token, messages } = JSON.parse(first.body);
+    expect(first.headers['access-control-allow-origin']).toBe('*');
+    expect(messages).toMatchObject([{ direction: 'in', body: '[Photo]', files: [{ fileName: 'broken-part.png', contentType: 'image/png' }] }]);
+    const pdf = await send(Buffer.from('%PDF-1.4 receipt'), 'application/pdf', 'receipt.pdf', token);
+    expect(pdf.statusCode).toBe(201);
+    expect(JSON.parse(pdf.body).messages).toHaveLength(2);
+
+    // The team sees both in one conversation and can download them.
+    const conv = (await c.get('/inbox/conversations')).body.data[0];
+    expect(conv).toMatchObject({ unread: 2, lastMessagePreview: '[File: receipt.pdf]' });
+    const thread = (await c.get(`/inbox/conversations/${conv.id}`)).body.messages;
+    expect(thread.map((m: any) => [m.body, m.files[0].fileName, m.files[0].status])).toEqual([['[Photo]', 'broken-part.png', 'stored'], ['[File: receipt.pdf]', 'receipt.pdf', 'stored']]);
+    expect((await c.download(`/inbox/files/${thread[0].files[0].id}`)).body.equals(PNG)).toBe(true);
+    // The visitor can open their own file too.
+    const own = await app.inject({ method: 'GET', url: `/api/v1/public/webchat/${ch.publicKey}/files/${thread[1].files[0].id}?token=${token}` });
+    expect(own.statusCode).toBe(200);
+    expect(own.headers['content-disposition']).toMatch(/^attachment;/);
+
+    // Refused: content that isn't what it claims, other types, empty, too large, bad token.
+    expect((await send(Buffer.from('<html><script>alert(1)</script>'), 'image/png', 'x.png', token)).statusCode).toBe(415);
+    expect((await send(PNG, 'application/pdf', 'x.pdf', token)).statusCode).toBe(415);
+    expect((await send(Buffer.from('MZ\x90\x00'), 'application/octet-stream', 'setup.exe', token)).statusCode).toBe(415);
+    expect((await send(Buffer.alloc(0), 'image/png', 'x.png', token)).statusCode).toBe(400);
+    expect((await send(Buffer.concat([PNG, Buffer.alloc(6 * 1024 * 1024)]), 'image/png', 'big.png', token)).statusCode).toBe(413);
+    expect((await send(PNG, 'image/png', 'x.png', 'bad token')).statusCode).toBe(400);
+  });
+
+  it('limits files per conversation per day', async () => {
+    const { c } = await signup();
+    const ch = (await c.post('/channels', { kind: 'webchat', name: 'Chat' })).body;
+    const app = await getApp();
+    const first = await app.inject({ method: 'POST', url: `/api/v1/public/webchat/${ch.publicKey}/files?fileName=a.png`,
+      headers: { 'content-type': 'application/octet-stream', 'x-file-type': 'image/png' }, payload: PNG });
+    const token = JSON.parse(first.body).token;
+    // 19 more earlier today (written directly, to stay under the per-minute limit).
+    const m = (await pool.query(`SELECT m.id, m.workspace_id FROM messages m JOIN conversations cv ON cv.id = m.conversation_id WHERE cv.channel_id = $1`, [ch.id])).rows[0];
+    for (let i = 0; i < 19; i++) await pool.query(`INSERT INTO message_files (workspace_id, message_id, file_name, content_type, status) VALUES ($1, $2, 'old.png', 'image/png', 'failed')`, [m.workspace_id, m.id]);
+    const again = await app.inject({ method: 'POST', url: `/api/v1/public/webchat/${ch.publicKey}/files?fileName=b.png&token=${token}`,
+      headers: { 'content-type': 'application/octet-stream', 'x-file-type': 'image/png' }, payload: PNG });
+    expect(again.statusCode).toBe(429);
+    expect(JSON.parse(again.body).error.message).toBe('You have sent the maximum number of files for today.');
+  });
+});

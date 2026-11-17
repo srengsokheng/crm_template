@@ -47,13 +47,14 @@
       '.row{display:flex;gap:6px}input,textarea{width:100%;font-size:14px;padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--fg);resize:none}' +
       '.send{border:0;border-radius:8px;background:' + color + ';color:#fff;padding:0 14px;font-weight:600;cursor:pointer}.send:disabled{opacity:.5;cursor:default}' +
       '.err{color:#dc2626;font-size:12px;min-height:0}' +
-      '.f{display:block;max-width:80%;font-size:14px;color:inherit;text-decoration:underline;word-break:break-all}.f.in{align-self:flex-end}.f.out{align-self:flex-start}' +
+      '.att{border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--muted);padding:0 9px;cursor:pointer}.att:disabled{opacity:.5;cursor:default}' +
+      '.f{display:block;max-width:80%;font-size:14px;color:var(--fg);text-decoration:none;word-break:break-all;border:1px solid var(--line);border-radius:12px;padding:8px 12px;background:var(--bg)}.f:hover{background:var(--bubble)}.f.in{align-self:flex-end}.f.out{align-self:flex-start}.f:has(img){padding:0;border:0;background:none}' +
       '.f img{display:block;max-width:100%;max-height:200px;border-radius:12px;border:1px solid var(--line)}' +
       '</style>' +
       '<div class="panel" role="dialog" aria-label="Chat"><div class="head"><span class="title"></span><button class="x" type="button" aria-label="Close chat">×</button></div>' +
       '<div class="list" aria-live="polite"></div>' +
       '<form class="form"><div class="row id"><input name="name" placeholder="Your name (optional)" autocomplete="name" maxlength="100"><input name="email" type="email" placeholder="Email (optional)" autocomplete="email" maxlength="200"></div>' +
-      '<div class="row"><textarea name="body" rows="2" placeholder="Write a message…" aria-label="Message" maxlength="4000" required></textarea><button class="send" type="submit">Send</button></div><div class="err" role="alert"></div></form></div>' +
+      '<div class="row"><button class="att" type="button" aria-label="Attach a photo or PDF" title="Attach a photo or PDF"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg></button><input type="file" class="file" hidden accept="image/png,image/jpeg,image/gif,image/webp,application/pdf" aria-label="Photo or PDF to send"><textarea name="body" rows="2" placeholder="Write a message…" aria-label="Message" maxlength="4000" required></textarea><button class="send" type="submit">Send</button></div><div class="err" role="alert"></div></form></div>' +
       '<button class="btn" type="button" aria-label="Open chat" aria-expanded="false"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></button>';
     document.body.appendChild(host);
 
@@ -91,6 +92,8 @@
         }
         list.appendChild(a);
       });
+      // "[Photo]" / "[File: …]" only describe the file for the team's list; with the file shown, they're left out.
+      if (files && files.length) text = text.replace(/^\[[^\]]*\]\s?/, '');
       if (!text) return;
       var d = document.createElement('div');
       d.className = 'm ' + dir; // "in" = from the visitor (to the CRM), "out" = the team's reply
@@ -132,6 +135,32 @@
       }, function (x) {
         err.textContent = x.message === '429' ? 'Too many messages — please wait a minute.' : 'Your message could not be sent. Please try again.';
       }).then(function () { send.disabled = false; });
+    });
+
+    // Photos and PDFs (the server checks the content too; up to 5 MB).
+    var att = $('.att'), fileIn = $('.file');
+    att.addEventListener('click', function () { fileIn.click(); });
+    fileIn.addEventListener('change', function () {
+      var f = fileIn.files && fileIn.files[0];
+      fileIn.value = '';
+      if (!f) return;
+      err.textContent = '';
+      if (f.size > 5 * 1024 * 1024) { err.textContent = 'Files can be up to 5 MB.'; return; }
+      att.disabled = true;
+      var url = api + '/files?fileName=' + encodeURIComponent(f.name) + (token ? '&token=' + encodeURIComponent(token) : '');
+      fetch(url, { method: 'POST', body: f, headers: { 'content-type': 'application/octet-stream', 'x-file-type': f.type || 'application/octet-stream' } })
+        .then(function (r) { if (!r.ok) throw new Error(String(r.status)); return r.json(); })
+        .then(function (r) {
+          token = r.token;
+          try { localStorage.setItem(store, token); } catch { /* not persisted */ }
+          $('.id').style.display = 'none';
+          render(r.messages);
+        }, function (x) {
+          err.textContent = x.message === '415' ? 'Only photos (PNG, JPEG, GIF, WebP) and PDF files can be sent.'
+            : x.message === '429' ? 'Too many files — please wait and try again later.'
+            : x.message === '413' ? 'Files can be up to 5 MB.' : 'The file could not be sent. Please try again.';
+        })
+        .then(function () { att.disabled = false; });
     });
   }
 })();
