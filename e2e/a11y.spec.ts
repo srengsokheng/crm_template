@@ -33,6 +33,8 @@ test('every main screen passes the accessibility scan, light and dark', async ({
   test.setTimeout(180_000);
   await page.goto('/login');
   await scan(page, 'login');
+  await page.goto('/confirm-email/aaaaaaaaaaaaaaaaaaaaaaaa');
+  await scan(page, 'confirm email');
   await signUp(page);
   const s = await seed(page, baseURL!);
   const screens: [string, string][] = [

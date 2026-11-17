@@ -166,3 +166,32 @@ export function ResetPasswordPage() {
     </AuthShell>
   );
 }
+
+/** Opened from the confirmation email sent to a new address: one click switches the sign-in email. */
+export function ConfirmEmailPage() {
+  const { token = '' } = useParams();
+  const qc = useQueryClient();
+  const [state, setState] = useState<{ done?: string; error?: string; loading?: boolean }>({});
+  const confirm = async () => {
+    setState({ loading: true });
+    try {
+      const r = await api.post<{ email: string }>('/auth/confirm-email', { token });
+      qc.invalidateQueries({ queryKey: ['me'] });
+      setState({ done: r.email });
+    } catch (e) { setState({ error: e instanceof ApiError ? e.message : 'Network error, please try again' }); }
+  };
+  if (state.done) {
+    return (
+      <AuthShell title="Email changed" subtitle={`You now sign in with ${state.done}.`}>
+        <Link className="inline-flex h-9 w-full items-center justify-center rounded-[var(--radius-control)] bg-brand-600 px-3.5 text-sm font-medium text-white hover:bg-brand-700" to="/">Open Acme CRM</Link>
+      </AuthShell>
+    );
+  }
+  return (
+    <AuthShell title="Confirm your new email" subtitle="This makes the address you opened this link from your sign-in email."
+      footer={<Link className="font-medium text-brand-600 hover:underline dark:text-brand-200" to="/">Back to Acme CRM</Link>}>
+      {state.error && <p className="mb-3 text-sm text-rose-600" role="alert">{state.error}</p>}
+      <Button variant="primary" className="w-full" loading={state.loading} onClick={confirm}>Confirm new email</Button>
+    </AuthShell>
+  );
+}

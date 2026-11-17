@@ -180,6 +180,58 @@ export function resetMail(o: { to: string; name: string; url: string }): Mail {
   };
 }
 
+/** Security notice: the password was changed while signed in. */
+export function passwordChangedMail(o: { to: string; name: string; url: string }): Mail {
+  return {
+    to: o.to, subject: 'Your Acme CRM password was changed',
+    ...layout({
+      heading: 'Your password was changed',
+      lines: [`Hi ${o.name},`, 'The password for this account was just changed from your account settings, and other devices were signed out.'],
+      button: { label: 'Reset your password', url: o.url },
+      footer: 'If this wasn’t you, reset your password now with the button above and tell your workspace admin.',
+    }),
+  };
+}
+
+/** Sent to the NEW address: confirm it to switch the sign-in email. */
+export function emailChangeMail(o: { to: string; name: string; url: string }): Mail {
+  return {
+    to: o.to, subject: 'Confirm your new Acme CRM email',
+    ...layout({
+      heading: 'Confirm your new email',
+      lines: [`Hi ${o.name},`, 'Confirm this address to use it to sign in to Acme CRM. The link works once and expires in 1 hour.'],
+      button: { label: 'Confirm this email', url: o.url },
+      footer: 'If you didn’t ask for this, ignore this email — nothing changes.',
+    }),
+  };
+}
+
+/** Sent to the NEW address when it already belongs to an account (no change is possible; nothing is revealed to the requester). */
+export function emailTakenMail(o: { to: string }): Mail {
+  return {
+    to: o.to, subject: 'Someone tried to use this email on Acme CRM',
+    ...layout({
+      heading: 'This email already has an account',
+      lines: ['Someone asked to move another Acme CRM account to this email address. It already belongs to an account, so nothing was changed.'],
+      footer: 'If that was you, sign in with this email instead, or use a different address.',
+    }),
+  };
+}
+
+/** Sent to the OLD address: the change was requested / done. */
+export function emailNoticeMail(o: { to: string; name: string; newEmail: string; done: boolean }): Mail {
+  return {
+    to: o.to, subject: o.done ? 'Your Acme CRM sign-in email was changed' : 'Your Acme CRM email is being changed',
+    ...layout({
+      heading: o.done ? 'Your sign-in email was changed' : 'Email change requested',
+      lines: [`Hi ${o.name},`, o.done
+        ? `Your account now signs in with ${o.newEmail}. This address no longer works for signing in.`
+        : `Someone signed in to your account asked to change its email to ${o.newEmail}. It changes only when that address is confirmed.`],
+      footer: 'If this wasn’t you, change your password right away and tell your workspace admin.',
+    }),
+  };
+}
+
 /** A quote or invoice sent to a customer, with the PDF attached. The user's message is plain text (escaped). */
 export function documentMail(o: { to: string[]; replyTo: string; subject: string; message: string; sender: string; workspace: string; pdf: { filename: string; base64: string } }): Mail {
   return {

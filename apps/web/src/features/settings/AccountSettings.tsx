@@ -11,13 +11,14 @@ export function AccountSettings() {
   if (isLoading || !me) return <Card title="Your account"><Skeleton className="h-24" /></Card>;
   return (
     <div className="space-y-4">
-      <ProfileCard name={me.user.name} email={me.user.email} />
+      <ProfileCard name={me.user.name} />
+      <EmailCard email={me.user.email} />
       <PasswordCard />
     </div>
   );
 }
 
-function ProfileCard({ name: initial, email }: { name: string; email: string }) {
+function ProfileCard({ name: initial }: { name: string }) {
   const qc = useQueryClient();
   const [name, setName] = useState(initial);
   const [error, setError] = useState<string | undefined>();
@@ -39,10 +40,41 @@ function ProfileCard({ name: initial, email }: { name: string; email: string }) 
         <Field label="Name" htmlFor="acc-name" required error={error} hint="Shown to your team, on activities and on replies to customers.">
           <Input id="acc-name" maxLength={100} autoComplete="name" value={name} onChange={(e) => setName(e.target.value)} invalid={!!error} />
         </Field>
-        <Field label="Email" htmlFor="acc-email" hint="Used to sign in. Ask an admin if it needs to change.">
-          <Input id="acc-email" value={email} readOnly disabled />
-        </Field>
         <Button type="submit" variant="primary" disabled={saving || !name.trim() || name.trim() === initial}>{saving ? 'Saving…' : 'Save name'}</Button>
+      </form>
+    </Card>
+  );
+}
+
+function EmailCard({ email }: { email: string }) {
+  const [next, setNext] = useState('');
+  const [password, setPassword] = useState('');
+  const [errors, setErrors] = useState<Record<string, string>>({});
+  const [sentTo, setSentTo] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const save = async (e: FormEvent) => {
+    e.preventDefault();
+    setSaving(true); setErrors({});
+    try {
+      const r = await api.post<{ sentTo: string }>('/auth/email', { newEmail: next.trim(), currentPassword: password });
+      setSentTo(r.sentTo); setNext(''); setPassword('');
+    } catch (err) {
+      if (err instanceof ApiError && err.fields) setErrors(err.fields as Record<string, string>);
+      else toast.error(errorMessage(err));
+    } finally { setSaving(false); }
+  };
+  return (
+    <Card title="Sign-in email">
+      <form onSubmit={save} className="max-w-md space-y-3">
+        <p className="text-sm text-muted">Currently <span className="font-medium text-[var(--text)]">{email}</span>. We’ll send a confirmation link to the new address; your email changes when you open it.</p>
+        {sentTo && <p className="rounded-md bg-emerald-50 px-3 py-2 text-sm text-emerald-800 dark:bg-emerald-500/10 dark:text-emerald-200" role="status">Check {sentTo} for a confirmation link (valid for 1 hour). Until you open it, you keep signing in with {email}.</p>}
+        <Field label="New email" htmlFor="acc-new-email" required error={errors.newEmail}>
+          <Input id="acc-new-email" type="email" autoComplete="email" maxLength={200} value={next} onChange={(e) => setNext(e.target.value)} invalid={!!errors.newEmail} />
+        </Field>
+        <Field label="Current password" htmlFor="acc-email-password" required error={errors.currentPassword} hint="To make sure it’s you.">
+          <Input id="acc-email-password" type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} invalid={!!errors.currentPassword} />
+        </Field>
+        <Button type="submit" variant="primary" disabled={saving || !next.trim() || !password}>{saving ? 'Sending…' : 'Send confirmation link'}</Button>
       </form>
     </Card>
   );

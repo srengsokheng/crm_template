@@ -11,7 +11,7 @@ import { stripHidden } from './lib/fieldAccess.ts';
 import { registerRoutes } from './routes/index.ts';
 
 const PUBLIC_API = new Set(['/api/v1/auth/login', '/api/v1/auth/signup', '/api/v1/auth/accept-invite', '/api/v1/health',
-  '/api/v1/auth/forgot-password', '/api/v1/auth/reset-password']);
+  '/api/v1/auth/forgot-password', '/api/v1/auth/reset-password', '/api/v1/auth/confirm-email']);
 
 export async function buildApp(opts: { logger?: boolean } = {}): Promise<FastifyInstance> {
   const app = Fastify({

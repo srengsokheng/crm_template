@@ -1,9 +1,9 @@
 import type { FastifyInstance, FastifyReply } from 'fastify';
-import { DEFAULT_WORKING_HOURS, type WorkingHours, acceptInviteSchema, forgotPasswordSchema, loginSchema, passwordChangeSchema, preferencesSchema, profileSchema, resetPasswordSchema, signupSchema } from '@crm/shared';
+import { DEFAULT_WORKING_HOURS, type WorkingHours, acceptInviteSchema, forgotPasswordSchema, emailChangeSchema, emailConfirmSchema, loginSchema, passwordChangeSchema, preferencesSchema, profileSchema, resetPasswordSchema, signupSchema } from '@crm/shared';
 import { config } from '../config.ts';
 import { pool, q, q1, sql, tx } from '../db/index.ts';
 import { createSession, destroySession, hashPassword, newToken, SESSION_COOKIE, sha256, verifyPassword } from '../lib/auth.ts';
-import { queueMail, resetMail } from '../lib/mailer.ts';
+import { emailChangeMail, emailNoticeMail, emailTakenMail, passwordChangedMail, queueMail, resetMail } from '../lib/mailer.ts';
 import { createWorkspaceDefaults } from '../lib/bootstrap.ts';
 import { AppError, badRequest } from '../lib/errors.ts';
 import { ctxOf } from '../lib/http.ts';
@@ -148,10 +148,60 @@ export async function authRoutes(app: FastifyInstance) {
       // Whoever knew the old password loses access everywhere else; this session stays signed in.
       const r = await q(sql`DELETE FROM sessions WHERE user_id = ${ctx.userId} AND id_hash <> ${current} RETURNING 1`, db);
       await q(sql`UPDATE password_resets SET used_at = now() WHERE user_id = ${ctx.userId} AND used_at IS NULL`, db);
+      // Tell the owner, so a change they didn't make doesn't go unnoticed.
+      await queueMail(passwordChangedMail({ to: ctx.email, name: ctx.userName, url: `${config.appUrl}/forgot-password` }), db);
       return r.length;
     });
     req.log.info('password changed');
     return { ok: true, signedOutSessions: signedOut };
+  });
+
+  /**
+   * Change your sign-in email: needs your password; a confirmation link goes to the new address (and a notice to the
+   * current one). The answer is the same whether or not the new address is free, so this can't be used to find out
+   * which emails have accounts; if it's taken, its owner gets a note instead of a link.
+   */
+  app.post('/auth/email', resetLimit, async (req) => {
+    const ctx = ctxOf(req);
+    const body = parse(emailChangeSchema, req.body);
+    const user = await q1<{ password_hash: string | null; email: string }>(sql`SELECT password_hash, email FROM users WHERE id = ${ctx.userId}`);
+    if (!user?.password_hash || !(await verifyPassword(user.password_hash, body.currentPassword))) {
+      throw new AppError(400, 'VALIDATION_FAILED', 'Your current password is not correct', { currentPassword: 'Not correct' });
+    }
+    if (body.newEmail.toLowerCase() === user.email.toLowerCase()) {
+      throw new AppError(400, 'VALIDATION_FAILED', 'That is already your email', { newEmail: 'Already your email' });
+    }
+    await tx(async (db) => {
+      const taken = await q1(sql`SELECT 1 FROM users WHERE email = ${body.newEmail}`, db);
+      if (taken) { await queueMail(emailTakenMail({ to: body.newEmail }), db); return; }
+      // One pending change at a time: a new request replaces older links.
+      await q(sql`UPDATE email_changes SET used_at = now() WHERE user_id = ${ctx.userId} AND used_at IS NULL`, db);
+      const token = newToken();
+      await q(sql`INSERT INTO email_changes (user_id, new_email, token_hash, expires_at) VALUES (${ctx.userId}, ${body.newEmail}, ${sha256(token)}, now() + interval '1 hour')`, db);
+      await queueMail(emailChangeMail({ to: body.newEmail, name: ctx.userName, url: `${config.appUrl}/confirm-email/${token}` }), db);
+      await queueMail(emailNoticeMail({ to: user.email, name: ctx.userName, newEmail: body.newEmail, done: false }), db);
+    });
+    return { ok: true, sentTo: body.newEmail };
+  });
+
+  /** Opening the link from the new address switches the sign-in email (works signed in or not). */
+  app.post('/auth/confirm-email', limit, async (req) => {
+    const body = parse(emailConfirmSchema, req.body);
+    return tx(async (db) => {
+      const c = await q1<{ id: number; user_id: number; new_email: string; old_email: string; name: string }>(sql`
+        SELECT ec.id, ec.user_id, ec.new_email, u.email AS old_email, u.name FROM email_changes ec JOIN users u ON u.id = ec.user_id
+        WHERE ec.token_hash = ${sha256(body.token)} AND ec.used_at IS NULL AND ec.expires_at > now() AND u.is_active FOR UPDATE OF ec`, db);
+      if (!c) throw new AppError(400, 'INVALID_TOKEN', 'This link is not valid any more. Ask for a new one from your account settings.');
+      if (await q1(sql`SELECT 1 FROM users WHERE email = ${c.new_email} AND id <> ${c.user_id}`, db)) {
+        throw new AppError(409, 'EMAIL_TAKEN', 'This email now belongs to another account, so it can’t be used.');
+      }
+      await q(sql`UPDATE users SET email = ${c.new_email} WHERE id = ${c.user_id}`, db);
+      await q(sql`UPDATE email_changes SET used_at = now() WHERE user_id = ${c.user_id} AND used_at IS NULL`, db);
+      // Reset links sent to the old address must not work any more.
+      await q(sql`UPDATE password_resets SET used_at = now() WHERE user_id = ${c.user_id} AND used_at IS NULL`, db);
+      await queueMail(emailNoticeMail({ to: c.old_email, name: c.name, newEmail: c.new_email, done: true }), db);
+      return { email: c.new_email };
+    });
   });
 
   /** Personal settings for the current workspace. */

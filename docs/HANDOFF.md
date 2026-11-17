@@ -318,7 +318,14 @@ The research behind every decision is in this folder:
   paged; the endpoint now checks access to that record (before, anyone who could view deals could read the runs of any
   deal in the workspace, including private ones and blocked pipelines).
 
-**Quality:** 208 Vitest tests (API against real PostgreSQL), 57 Playwright tests (desktop, tablet, phone), lint and
+- **Account security emails** (migration 0026, `email_changes`): changing your password emails you a notice (with a
+  reset link in case it wasn't you). **Change your sign-in email** in Settings → Your account: needs your password; a
+  one-time link (1 hour) goes to the new address, a notice to the old one; opening it (`/confirm-email/:token`, a
+  button, so link scanners can't trigger it) switches the email and kills reset links sent to the old address, and the
+  old address is told. The answer is the same whether or not the new address already has an account (its owner gets a
+  note instead of a link), so the form can't be used to find out which emails are registered.
+
+**Quality:** 212 Vitest tests (API against real PostgreSQL), 58 Playwright tests (desktop, tablet, phone), lint and
 typecheck clean, `npm audit` = 0, GitHub Actions CI in `.github/workflows/ci.yml`.
 
 ## 3. Not built yet — suggested next work (in priority order)

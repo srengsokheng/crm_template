@@ -1,7 +1,7 @@
 import { lazy } from 'react';
 import { createBrowserRouter, Navigate } from 'react-router';
 import { AppLayout } from './Layout.tsx';
-import { AcceptInvitePage, ForgotPasswordPage, LoginPage, ResetPasswordPage, SignupPage } from './AuthPages.tsx';
+import { AcceptInvitePage, ForgotPasswordPage, LoginPage, ResetPasswordPage, SignupPage, ConfirmEmailPage } from './AuthPages.tsx';
 import { NotFound, RouteError } from './RouteError.tsx';
 const HomePage = lazy(() => import('../features/dashboard/HomePage.tsx').then((m) => ({ default: m.HomePage })));
 import { DealsPage } from '../features/deals/DealsPage.tsx';
@@ -42,6 +42,7 @@ export const router = createBrowserRouter([
   { path: '/invite/:token', element: <AcceptInvitePage /> },
   { path: '/forgot-password', element: <ForgotPasswordPage /> },
   { path: '/reset-password/:token', element: <ResetPasswordPage /> },
+  { path: '/confirm-email/:token', element: <ConfirmEmailPage /> },
   {
     path: '/',
     element: <AppLayout />,
