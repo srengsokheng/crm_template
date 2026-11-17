@@ -8,7 +8,9 @@
  */
 import { readFileSync } from 'node:fs';
 import { deflateSync } from 'node:zlib';
+import { createHash } from 'node:crypto';
 import * as hb from 'harfbuzzjs';
+import { subsetFont } from './fontSubset.ts';
 
 const FONT_DIR = new URL('../../assets/fonts/', import.meta.url);
 
@@ -16,7 +18,11 @@ const FONT_DIR = new URL('../../assets/fonts/', import.meta.url);
 const SCRIPTS = [
   { name: 'Khmer', regular: 'NotoSansKhmer-Regular.ttf', bold: 'NotoSansKhmer-Bold.ttf' },
   { name: 'Thai', regular: 'NotoSansThai-Regular.ttf', bold: 'NotoSansThai-Bold.ttf' },
+  { name: 'Lao', regular: 'NotoSansLao-Regular.ttf', bold: 'NotoSansLao-Bold.ttf' },
+  // Latin letters Helvetica lacks (Vietnamese ư ơ ạ ế…, Polish ł, Turkish ş, …), plus Greek and Cyrillic.
+  { name: 'Latin', regular: 'NotoSans-Regular.ttf', bold: 'NotoSans-Bold.ttf' },
 ] as const;
+export const LATIN_SCRIPT = SCRIPTS.findIndex((s) => s.name === 'Latin');
 
 export interface LoadedFont {
   baseName: string;
@@ -50,6 +56,8 @@ export const unicodeFont = (bold: boolean | undefined, script = 0) => (bold ? fo
 /** A glyph's default advance (font units) — what a PDF viewer moves by after drawing it (the /W widths). */
 export const glyphAdvance = (f: LoadedFont, gid: number) => f.font.glyphHAdvance(gid);
 
+/** Does a script's font draw this code point? */
+export const covers = (script: number, cp: number) => coverage[script].has(cp);
 /** Which script font draws a code point (-1: none). Regular and bold cuts cover the same set. */
 const coverage = fonts.map((f) => new Set(new hb.Face(new hb.Blob(f.regular.data)).collectUnicodes()));
 export function scriptOf(cp: number): number {
@@ -113,13 +121,20 @@ export const pdfUnicodeString = (s: string) => `<FEFF${utf16Hex(s)}>`;
  * number; the Type0 font object number is returned.
  */
 export function fontObjects(f: LoadedFont, used: Map<number, string>, add: (body: string) => number): number {
-  const compressed = deflateSync(f.data);
-  const file = add(`<< /Length ${compressed.length} /Length1 ${f.data.length} /Filter /FlateDecode >>\nstream\n${compressed.toString('latin1')}\nendstream`);
+  // Only the glyphs this document draws (ids unchanged); the whole font if subsetting fails.
+  const gidList = [...used.keys()];
+  const sub = subsetFont(f.data, gidList);
+  const data = sub ?? f.data;
+  // Subset fonts are named with a 6-letter tag (PDF 32000-1, 9.6.4), here derived from the glyph list.
+  const tag = sub ? createHash('sha256').update(gidList.sort((a, b) => a - b).join(',')).digest().subarray(0, 6).reduce((s, b) => s + String.fromCharCode(65 + (b % 26)), '') + '+' : '';
+  const fontName = tag + f.baseName;
+  const compressed = deflateSync(data);
+  const file = add(`<< /Length ${compressed.length} /Length1 ${data.length} /Filter /FlateDecode >>\nstream\n${compressed.toString('latin1')}\nendstream`);
   const k = 1000 / f.upem;
-  const descriptor = add(`<< /Type /FontDescriptor /FontName /${f.baseName} /Flags 4 /FontBBox [${f.bbox.map((v) => Math.round(v * k)).join(' ')}] /ItalicAngle 0 /Ascent ${Math.round(f.ascent * k)} /Descent ${Math.round(f.descent * k)} /CapHeight ${Math.round(f.ascent * k)} /StemV 80 /FontFile2 ${file} 0 R >>`);
+  const descriptor = add(`<< /Type /FontDescriptor /FontName /${fontName} /Flags 4 /FontBBox [${f.bbox.map((v) => Math.round(v * k)).join(' ')}] /ItalicAngle 0 /Ascent ${Math.round(f.ascent * k)} /Descent ${Math.round(f.descent * k)} /CapHeight ${Math.round(f.ascent * k)} /StemV 80 /FontFile2 ${file} 0 R >>`);
   const gids = [...used.keys()].sort((a, b) => a - b);
   const widths = gids.map((g) => `${g} [${Math.round(f.font.glyphHAdvance(g) * k)}]`).join(' ');
-  const cid = add(`<< /Type /Font /Subtype /CIDFontType2 /BaseFont /${f.baseName} /CIDSystemInfo << /Registry (Adobe) /Ordering (Identity) /Supplement 0 >> /FontDescriptor ${descriptor} 0 R /CIDToGIDMap /Identity /DW 0 /W [${widths}] >>`);
+  const cid = add(`<< /Type /Font /Subtype /CIDFontType2 /BaseFont /${fontName} /CIDSystemInfo << /Registry (Adobe) /Ordering (Identity) /Supplement 0 >> /FontDescriptor ${descriptor} 0 R /CIDToGIDMap /Identity /DW 0 /W [${widths}] >>`);
   const mapped = gids.filter((g) => used.get(g));
   const chunks: string[] = [];
   for (let i = 0; i < mapped.length; i += 100) {
@@ -128,5 +143,5 @@ export function fontObjects(f: LoadedFont, used: Map<number, string>, add: (body
   }
   const cmap = `/CIDInit /ProcSet findresource begin\n12 dict begin\nbegincmap\n/CIDSystemInfo << /Registry (Adobe) /Ordering (UCS) /Supplement 0 >> def\n/CMapName /Adobe-Identity-UCS def\n/CMapType 2 def\n1 begincodespacerange\n<0000> <FFFF>\nendcodespacerange\n${chunks.join('\n')}\nendcmap\nCMapName currentdict /CMap defineresource pop\nend\nend`;
   const toUnicode = add(`<< /Length ${Buffer.byteLength(cmap, 'latin1')} >>\nstream\n${cmap}\nendstream`);
-  return add(`<< /Type /Font /Subtype /Type0 /BaseFont /${f.baseName} /Encoding /Identity-H /DescendantFonts [${cid} 0 R] /ToUnicode ${toUnicode} 0 R >>`);
+  return add(`<< /Type /Font /Subtype /Type0 /BaseFont /${fontName} /Encoding /Identity-H /DescendantFonts [${cid} 0 R] /ToUnicode ${toUnicode} 0 R >>`);
 }

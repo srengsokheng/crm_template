@@ -6,7 +6,7 @@
  * the embedded Unicode font covers (Khmer — see pdfFonts.ts) are shaped and drawn with that font; anything else (e.g.
  * Chinese, Thai) still prints as "?".
  */
-import { fontObjects, glyphAdvance, pdfUnicodeString, SCRIPT_COUNT, scriptOf, shape, unicodeFont } from './pdfFonts.ts';
+import { covers, fontObjects, glyphAdvance, LATIN_SCRIPT, pdfUnicodeString, SCRIPT_COUNT, scriptOf, shape, unicodeFont } from './pdfFonts.ts';
 
 export const A4 = { width: 595.28, height: 841.89 };
 type Rgb = [number, number, number];
@@ -54,9 +54,16 @@ type Run = { font: 'latin' | 'unicode'; text: string; script?: number };
 /** Splits text into runs for Helvetica ('latin') and for the embedded Unicode font ('unicode'). */
 export function textRuns(s: string): Run[] {
   const runs: Run[] = [];
-  for (const ch of s.normalize('NFC')) {
+  const chars = [...s.normalize('NFC')];
+  // Text with Latin letters Helvetica lacks (e.g. Vietnamese) is drawn entirely in the Latin font where it can be,
+  // so a word like "Việt" isn't stitched together from two typefaces.
+  const latinFont = chars.some((ch) => { const c = ch.codePointAt(0)!; return winAnsiCode(c) === undefined && !ZERO_WIDTH.has(c) && scriptOf(c) === LATIN_SCRIPT; });
+  for (const ch of chars) {
     const c = ch.codePointAt(0)!;
-    const script = winAnsiCode(c) !== undefined ? -1 : scriptOf(c);
+    // Invisible joiners only matter inside scripts that use them (the Khmer font draws the zero-width space).
+    if (ZERO_WIDTH.has(c) && (scriptOf(c) === LATIN_SCRIPT || scriptOf(c) < 0)) continue;
+    const script = latinFont && covers(LATIN_SCRIPT, c) && (winAnsiCode(c) !== undefined || scriptOf(c) === LATIN_SCRIPT) ? LATIN_SCRIPT
+      : winAnsiCode(c) !== undefined ? -1 : scriptOf(c);
     const font = script >= 0 ? 'unicode' : winAnsiCode(c) !== undefined || !ZERO_WIDTH.has(c) ? 'latin' : null;
     if (!font) continue; // invisible joiners / word separators the fonts don't need
     const last = runs[runs.length - 1];

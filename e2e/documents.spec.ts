@@ -52,7 +52,7 @@ test('an invoice for a Khmer-named company downloads with Khmer text, not "?"', 
   await expect(page.getByText('ការរចនាគេហទំព័រ')).toBeVisible();
   const [download] = await Promise.all([page.waitForEvent('download'), page.getByRole('link', { name: 'PDF', exact: true }).click()]);
   const pdf = await readFile(await download.path(), 'latin1');
-  expect(pdf).toContain('/BaseFont /NotoSansKhmer-Bold');
+  expect(pdf).toMatch(/\/BaseFont \/[A-Z]{6}\+NotoSansKhmer-Bold/); // embedded as a subset
   // The company name, as UTF-16 for copy & search (ក្រុមហ៊ុន).
   expect(pdf).toContain('/ActualText <FEFF178017d2179a17bb179817a017ca17bb1793>');
   expect(pdf).not.toMatch(/\(\?+\)/);
@@ -68,8 +68,23 @@ test('an invoice for a Thai company downloads with Thai text, not "?"', async ({
   await expect(page.getByText('ติดตั้งระบบ')).toBeVisible();
   const [download] = await Promise.all([page.waitForEvent('download'), page.getByRole('link', { name: 'PDF', exact: true }).click()]);
   const pdf = await readFile(await download.path(), 'latin1');
-  expect(pdf).toContain('/BaseFont /NotoSansThai-Bold');
+  expect(pdf).toMatch(/\/BaseFont \/[A-Z]{6}\+NotoSansThai-Bold/);
   expect(pdf).not.toContain('NotoSansKhmer'); // only the fonts a document uses
   expect(pdf).toContain('/ActualText <FEFF0e1a0e230e340e290e310e17>'); // บริษัท
   expect(pdf).not.toMatch(/\(\?+\)/);
+});
+
+test('an invoice for a Vietnamese company downloads with all accents, using a small embedded font subset', async ({ page }) => {
+  await signUp(page);
+  const co = await api(page, 'POST', '/companies', { name: 'Công ty TNHH Việt Nam' });
+  const d = await api(page, 'POST', '/deals', { title: 'Hanoi office', companyId: co.id });
+  await api(page, 'PUT', `/deals/${d.id}/line-items`, { items: [{ name: 'Thiết kế website', unitPrice: '500', quantity: 1, unit: 'pc' }] });
+  const inv = await api(page, 'POST', `/deals/${d.id}/documents`, { kind: 'invoice' });
+  await page.goto(`/documents/${inv.id}`);
+  await expect(page.getByText('Thiết kế website')).toBeVisible();
+  const [download] = await Promise.all([page.waitForEvent('download'), page.getByRole('link', { name: 'PDF', exact: true }).click()]);
+  const pdf = await readFile(await download.path(), 'latin1');
+  expect(pdf).toMatch(/\/BaseFont \/[A-Z]{6}\+NotoSans-Bold/);
+  expect(pdf).not.toMatch(/\(\?+\)/);
+  expect(pdf.length).toBeLessThan(60_000);
 });

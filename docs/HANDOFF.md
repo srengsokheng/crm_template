@@ -224,14 +224,17 @@ The research behind every decision is in this folder:
   Needs the same rights as merging. Merging leads now adds the other lead's products, except products the kept lead
   already has (same catalogue product or same name).
 
-- **Khmer and Thai in PDFs** (`lib/pdfFonts.ts`, `apps/api/assets/fonts/`): text Helvetica can't draw is split into
-  runs per script, shaped with HarfBuzz (`harfbuzzjs`, WebAssembly) and drawn with embedded **Noto Sans Khmer** and
-  **Noto Sans Thai** Regular/Bold (SIL Open Font License, `assets/fonts/OFL-*.txt`), so subscripts, vowel signs and
-  tone marks stack and reorder correctly. Each font (Khmer ~68 KB, Thai ~21 KB, compressed) is embedded only in PDFs
-  that use it; Latin-only PDFs are unchanged (~2–3 KB). Copy & search use `/ActualText` with the original text, plus a
-  ToUnicode map. Both scripts are written without spaces and wrap at word boundaries (`Intl.Segmenter`). Other scripts
-  (Chinese, Lao, …) still print as "?": add their Noto font to `SCRIPTS` in `pdfFonts.ts` (CJK fonts are 10+ MB, so
-  they would need subsetting first).
+- **Khmer, Thai, Lao and extended Latin (Vietnamese) in PDFs** (`lib/pdfFonts.ts`, `lib/fontSubset.ts`,
+  `apps/api/assets/fonts/`): text Helvetica can't draw is split into runs per script, shaped with HarfBuzz
+  (`harfbuzzjs`, WebAssembly) and drawn with embedded **Noto Sans Khmer / Thai / Lao** and **Noto Sans** (Latin,
+  Greek, Cyrillic) Regular/Bold (SIL Open Font License, `assets/fonts/OFL-*.txt`), so subscripts, vowel signs and tone
+  marks stack and reorder correctly. A string that contains Latin letters Helvetica lacks (Vietnamese ư ơ ạ ế…) is
+  drawn entirely in Noto Sans so words aren't stitched from two typefaces; plain Latin-1 text stays Helvetica.
+  **Fonts are subset**: only the drawn glyphs are embedded (hb-subset from harfbuzzjs' WebAssembly, glyph ids kept,
+  `ABCDEF+` subset name tags), so a Khmer or Vietnamese invoice is ~15–30 KB instead of 70–450 KB. Latin-only PDFs
+  embed nothing (~2–3 KB). Copy & search use `/ActualText` with the original text, plus a ToUnicode map. Khmer, Thai
+  and Lao are written without spaces and wrap at word boundaries (`Intl.Segmenter`). Chinese/Japanese/Korean still
+  print as "?" (their Noto fonts are 10+ MB CFF fonts — they'd need FontFile3 embedding; not added to the repo).
 
 - **Inbox: website chat and Telegram bots** (migration 0023, `routes/inbox.ts`, `routes/channels.ts`,
   `routes/publicChannels.ts`, `inbox/`):
@@ -290,16 +293,16 @@ The research behind every decision is in this folder:
   files per conversation a day; virus-scanned when ClamAV is configured. A file can start a conversation. The team sees
   it like any incoming file; the visitor can open their own files with their chat token.
 
-**Quality:** 193 Vitest tests (API against real PostgreSQL), 47 Playwright tests (desktop, tablet, phone), lint and
+**Quality:** 196 Vitest tests (API against real PostgreSQL), 48 Playwright tests (desktop, tablet, phone), lint and
 typecheck clean, `npm audit` = 0, GitHub Actions CI in `.github/workflows/ci.yml`.
 
 ## 3. Not built yet — suggested next work (in priority order)
 
 The earlier list is done (see section 2). Known follow-ups, collected from the pull requests' "not verified" notes:
 
-1. PDFs: fonts for further scripts if needed — Lao; Vietnamese (letters outside Latin-1 such as ư, ạ, ế print as "?"
-   until a Latin font like Noto Sans is added); Chinese/Japanese need font subsetting first (e.g. harfbuzzjs' subset
-   build). The mechanism is `SCRIPTS` in `lib/pdfFonts.ts`.
+1. PDFs: Chinese/Japanese/Korean if needed — Noto Sans CJK is a CFF (OpenType/PostScript) font of 10+ MB per weight:
+   it would need `FontFile3`/`CIDFontType0` embedding next to the TrueType path, and the font kept outside the repo
+   (subsetting already exists). Other scripts with TrueType Noto fonts are one line in `SCRIPTS` (`lib/pdfFonts.ts`).
 2. Copy & paste of Khmer from PDFs: the file carries the exact text (`/ActualText`), but MuPDF's text extraction
    repeats some fragments where marks step back over a base letter; check in Acrobat / browser viewers.
 3. Inbox, next channels (same `channels` / `conversations` / `messages` tables, add a `kind` and an ingest/send pair):

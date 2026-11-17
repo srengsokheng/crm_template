@@ -3,6 +3,7 @@ import { inflateSync } from 'node:zlib';
 import { afterAll, describe, expect, it } from 'vitest';
 import { renderDocumentPdf, type PdfInput } from '../src/lib/documentPdf.ts';
 import { PdfDoc, textRuns, textWidth, wrapText } from '../src/lib/pdf.ts';
+import * as hb from 'harfbuzzjs';
 import { pdfUnicodeString, shape } from '../src/lib/pdfFonts.ts';
 import { pool } from '../src/db/pool.ts';
 import { getApp, signup } from './helpers.ts';
@@ -89,12 +90,17 @@ describe('Unicode (Khmer) text in PDFs', () => {
       items: [{ name: 'សេវាកម្ម', quantity: 1, unit: 'h', unitPrice: '10', discountType: null, discountValue: null, taxRate: null, taxIncluded: false, lineTotal: '10' }],
     });
     const s = assertValidPdf(pdf);
-    expect(s).toContain('/BaseFont /NotoSansKhmer-Regular /Encoding /Identity-H');
-    expect(s).toContain('/BaseFont /NotoSansKhmer-Bold /Encoding /Identity-H'); // bill-to name and item names are bold
+    expect(s).toMatch(/\/BaseFont \/[A-Z]{6}\+NotoSansKhmer-Regular \/Encoding \/Identity-H/); // subset: tagged name
+    expect(s).toMatch(/\/BaseFont \/[A-Z]{6}\+NotoSansKhmer-Bold \/Encoding \/Identity-H/); // bill-to name and item names are bold
     const fonts = embeddedFonts(s);
     expect(fonts).toHaveLength(2);
-    expect(fonts.some((f) => f.equals(FONT))).toBe(true);
-    expect(fonts.some((f) => f.equals(FONT_BOLD))).toBe(true);
+    // Subsets: far smaller than the fonts, still valid fonts with the drawn glyphs at their original ids.
+    for (const f of fonts) expect(f.length).toBeLessThan(FONT.length / 4);
+    expect(FONT_BOLD.length).toBeGreaterThan(60_000);
+    for (const f of fonts) expect(new hb.Face(new hb.Blob(f)).upem).toBe(1000);
+    const gids = [...s.matchAll(/<([0-9a-f]{4})>/g)].map((m) => parseInt(m[1], 16));
+    const drawn = new hb.Font(new hb.Face(new hb.Blob(fonts[0])));
+    expect(gids.filter((g) => g > 0).some((g) => drawn.glyphToPath(g).length > 0)).toBe(true);
     expect(s).toContain(`/ActualText ${pdfUnicodeString('ក្រុមហ៊ុន')}`);
     expect(s).toContain(`/ActualText ${pdfUnicodeString('សូមអរគុណ')}`);
     expect(s).toContain('/ToUnicode');
@@ -156,7 +162,7 @@ describe('Thai text in PDFs', () => {
 
   it('embeds only the fonts a document uses, each as its own resource', () => {
     const thaiOnly = assertValidPdf(renderDocumentPdf({ ...base, billToName: 'บริษัท สยาม จำกัด' }));
-    expect(thaiOnly).toContain('/BaseFont /NotoSansThai-Bold /Encoding /Identity-H');
+    expect(thaiOnly).toMatch(/\/BaseFont \/[A-Z]{6}\+NotoSansThai-Bold \/Encoding \/Identity-H/);
     expect(thaiOnly).not.toContain('NotoSansKhmer');
     expect(embeddedFonts(thaiOnly).some((f) => f.length > 0)).toBe(true);
     expect(thaiOnly).toContain(`/ActualText ${pdfUnicodeString('บริษัท')}`);
@@ -168,7 +174,47 @@ describe('Thai text in PDFs', () => {
     expect(both).toMatch(/\/F3 \d+ 0 R/); // Khmer regular
     expect(both).toMatch(/\/F5 \d+ 0 R/); // Thai regular
     expect(both).toContain('/F5 10 Tf');
-    expect(embeddedFonts(both).some((f) => f.equals(THAI))).toBe(true);
+    expect(embeddedFonts(both).every((f) => f.length < THAI.length)).toBe(true); // subsets
     expect(both).not.toMatch(/\(\?+\)/);
+  });
+});
+
+describe('Lao and Vietnamese in PDFs; fonts embedded as subsets', () => {
+  it('Vietnamese text is drawn in the Latin font as a whole; plain Latin-1 text stays Helvetica', () => {
+    const vi = textRuns('Công ty TNHH Việt Nam');
+    expect(vi).toHaveLength(1);
+    expect(vi[0]).toMatchObject({ font: 'unicode', text: 'Công ty TNHH Việt Nam' });
+    expect(textRuns('Café Müller, 12 €')).toEqual([{ font: 'latin', text: 'Café Müller, 12 €' }]);
+    // Mixed with Khmer: Khmer keeps its own font.
+    const mixed = textRuns('Việt ក្រុម');
+    expect(mixed.map((r) => r.text)).toEqual(['Việt ', 'ក្រុម']);
+    expect(mixed[0].script).not.toBe(mixed[1].script);
+  });
+
+  it('Lao: own font, shaped, wraps between words', () => {
+    const runs = textRuns('ບໍລິສັດ ລາວ');
+    expect(runs.filter((r) => r.font === 'unicode').map((r) => r.text)).toEqual(['ບໍລິສັດ', 'ລາວ']);
+    const s = shape('ບໍລິສັດ', false, runs[0].script);
+    expect(s.glyphs.map((g) => g.text).join('')).toHaveLength('ບໍລິສັດ'.length);
+    const text = 'ບໍລິການຕິດຕັ້ງແລະບຳລຸງຮັກສາລະບົບສຳລັບບໍລິສັດໃຫຍ່ທົ່ວປະເທດລາວ';
+    const lines = wrapText(text, 9.5, 110, true);
+    expect(lines.length).toBeGreaterThan(1);
+    expect(lines.join('')).toBe(text);
+    for (const l of lines) expect(textWidth(l, 9.5, true)).toBeLessThanOrEqual(110);
+  });
+
+  it('invoices in Vietnamese and Lao print without "?" and stay small (fonts are subset)', () => {
+    const vi = assertValidPdf(renderDocumentPdf({ ...base, billToName: 'Công ty TNHH Thương mại Việt Nam', notes: 'Cảm ơn quý khách đã tin tưởng.' }));
+    expect(vi).toMatch(/\/BaseFont \/[A-Z]{6}\+NotoSans-Bold \/Encoding/);
+    expect(vi).toMatch(/\/BaseFont \/[A-Z]{6}\+NotoSans-Regular \/Encoding/);
+    expect(vi).not.toMatch(/\(\?+\)/);
+    expect(vi.length).toBeLessThan(40_000); // the Latin font alone is 430 KB
+    expect(vi).toContain(`/ActualText ${pdfUnicodeString('Công ty TNHH Thương mại Việt Nam')}`);
+    const lo = assertValidPdf(renderDocumentPdf({ ...base, billToName: 'ບໍລິສັດ ລາວ ຈຳກັດ' }));
+    expect(lo).toMatch(/\/BaseFont \/[A-Z]{6}\+NotoSansLao-Bold/);
+    expect(lo).not.toMatch(/\(\?+\)/);
+    // Khmer invoices shrink too (whole Khmer font was ~68 KB per weight).
+    const km = renderDocumentPdf({ ...base, billToName: 'ក្រុមហ៊ុន អង្គរ', notes: 'សូមអរគុណ' });
+    expect(km.length).toBeLessThan(25_000);
   });
 });
