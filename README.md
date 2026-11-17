@@ -5,6 +5,7 @@ Leads, deals with pipelines and Kanban, contacts, companies, products and line i
 custom fields (including "required from stage"), role-based permissions with teams, automation rules, dashboard and reports.
 
 > **Continuing this project?** Start with [docs/HANDOFF.md](docs/HANDOFF.md) and [CLAUDE.md](CLAUDE.md).
+> The backlog is [docs/UI_AND_FEATURE_GAPS.md](docs/UI_AND_FEATURE_GAPS.md).
 > A ready-to-paste prompt for a new AI agent is in [docs/AGENT_PROMPT.md](docs/AGENT_PROMPT.md).
 
 ## Stack

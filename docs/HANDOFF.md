@@ -44,6 +44,9 @@ typecheck clean, `npm audit` = 0, GitHub Actions CI in `.github/workflows/ci.yml
 
 ## 3. Not built yet — suggested next work (in priority order)
 
+> **The up-to-date, detailed backlog is `docs/UI_AND_FEATURE_GAPS.md`** (design system, pagination, missing
+> features). The list below is the original summary.
+
 1. **CSV import** for contacts/companies/leads with column mapping and duplicate handling (plan M10).
 2. **Merge duplicates** (contacts, companies) — re-point deals, activities, notes, contact methods; audit it.
 3. **Email delivery** for invitations and reminders (pluggable transport; today the invite link is shown to the admin).

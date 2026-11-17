@@ -28,9 +28,10 @@ Act as a senior full-stack engineer, product designer and QA engineer. Work care
 === 2. READ THESE FIRST (in this order) ===
 1. CLAUDE.md                     – working rules and conventions (mandatory)
 2. docs/HANDOFF.md               – current status, project map, setup, business rules, next work
-3. docs/CRM_UX_REDESIGN.md       – design principles and tokens; follow them for every screen
-4. docs/DATABASE_SCHEMA.md       – data model and service rules
-5. docs/CRM_ARCHITECTURE.md      – architecture; see the "As built" table at the top
+3. docs/UI_AND_FEATURE_GAPS.md   – what is weak or missing, in priority order (your backlog)
+4. docs/CRM_UX_REDESIGN.md       – design principles and tokens; follow them for every screen
+5. docs/DATABASE_SCHEMA.md       – data model and service rules
+6. docs/CRM_ARCHITECTURE.md      – architecture; see the "As built" table at the top
 Background research (read when relevant): docs/BITRIX24_ANALYSIS.md, docs/CRM_WORKFLOWS.md, docs/CRM_FEATURES.md,
 docs/IMPLEMENTATION_PLAN.md. The product was designed by studying Bitrix24 and simplifying its UX.
 
@@ -69,14 +70,23 @@ To look at the app: `npm run db:migrate && npm run db:seed && npm run dev`, open
 sign in as demo@example.com / demo12345 (teammates dara@, mia@, omar@example.com use the same password).
 
 === 5. YOUR TASK (continue from here) ===
-Build the next items from docs/HANDOFF.md section 3, one branch + pull request each, in this order:
-  1. CSV import for contacts, companies and leads: upload, column mapping, preview, duplicate handling
-     (skip / update / create), result report with row errors.
-  2. Merge duplicate contacts and companies: choose the surviving record and field values, re-point deals,
-     activities, notes and contact methods, keep history, audit the merge.
-  3. Pluggable email delivery for invitations and activity reminders (console transport in development, SMTP in
-     production configured by environment variables; never commit credentials).
-After each item, stop, summarise, and wait for my go-ahead before starting the next one.
+The UI is functional but not polished: components are inconsistent, several lists are silently truncated
+(no pagination), there are no written UI rules, and some features are missing or half-done.
+The full, prioritised list is docs/UI_AND_FEATURE_GAPS.md. Project skills that help are in .claude/skills/
+(frontend-design, accessibility-testing, wireframing, user-flow-mapping, api-design, testing, code-review,
+refactoring, lead-scoring, crm-data-enrichment) — use them; CLAUDE.md wins if they disagree.
+
+Do it in this order, one branch + pull request each:
+  1. Section A (design system): write docs/UI_GUIDELINES.md, build the missing shared components, a dev-only
+     component gallery, 44px touch targets, axe accessibility checks in Playwright; then refactor every page to
+     use only shared components (no behaviour changes in that PR).
+  2. Section B (pagination): every unbounded list paginated server-side with totals; "Load more" for timeline and
+     Kanban columns; column picker + saved views.
+  3. Section C P0: change/forgot/reset password and a profile page; product categories UI and product detail.
+  4. Section C P1: CSV import, merge duplicates, email delivery, CSV export of lists.
+  5. Then P2/P3 and section D.
+For UI items: wireframe the screen first (component inventory + empty/loading/error states), then build.
+After each item, stop, show screenshots (390/834/1440 px, light and dark), summarise, and wait for my go-ahead.
 
 === 6. RULES ===
 - Follow the patterns in CLAUDE.md: zod schemas in packages/shared, `sql` tagged templates that always filter by
