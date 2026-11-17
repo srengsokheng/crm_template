@@ -299,7 +299,7 @@ The research behind every decision is in this folder:
   times are neither skipped nor repeated, and `FeedList` shows loading / error / empty / "Load more". The Inbox list and
   the "Conversations" card on contacts and leads use it (no more silent 50-row cap).
 
-**Quality:** 198 Vitest tests (API against real PostgreSQL), 48 Playwright tests (desktop, tablet, phone), lint and
+**Quality:** 200 Vitest tests (API against real PostgreSQL), 48 Playwright tests (desktop, tablet, phone), lint and
 typecheck clean, `npm audit` = 0, GitHub Actions CI in `.github/workflows/ci.yml`.
 
 ## 3. Not built yet — suggested next work (in priority order)
@@ -415,6 +415,9 @@ Gotchas learned the hard way:
 `npm ci && npm run build`, then `NODE_ENV=production DATABASE_URL=… APP_URL=https://… npm start`.
 For real email set `SMTP_HOST` (+ `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `EMAIL_FROM`) in the environment; without it messages
 are only printed to the log. Check it in Settings → Workspace → "Send a test email to me".
+Behind a reverse proxy or load balancer set `TRUST_PROXY` (its address, CIDR list, or hop count) so rate limits see
+the real client address; leave it unset when the app is reached directly (otherwise clients can fake `X-Forwarded-For`
+and dodge the login and website-chat limits).
 One process serves `/api/v1/*` and the built SPA, runs migrations on start and runs jobs inline. Serve over HTTPS
 (cookies are `Secure` in production). Health checks: `GET /api/v1/health`.
 Set `SECRETS_KEY` (32 random bytes, base64) before connecting Telegram bots: their tokens are encrypted with it, and

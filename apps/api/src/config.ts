@@ -11,6 +11,13 @@ export const config = {
   databaseUrl: env.DATABASE_URL ?? 'postgres://crm:crm@127.0.0.1:5432/crm_dev',
   appUrl: env.APP_URL ?? 'http://localhost:5173',
   sessionDays: 30,
+  /**
+   * Which proxies may tell us the client's address (X-Forwarded-For), used for rate limits. Off by default: when the
+   * app is reached directly, anyone could send the header and dodge the limits. Behind a reverse proxy / load balancer
+   * set TRUST_PROXY to its address(es) ("127.0.0.1", "10.0.0.0/8,10.1.2.3"), to the number of proxy hops ("1"), or to
+   * "true" only if every request is guaranteed to pass through a proxy that overwrites the header.
+   */
+  trustProxy: parseTrustProxy(env.TRUST_PROXY),
   /** Email delivery. console = print to the log (default), smtp = send via SMTP_*, memory = keep in memory (tests). */
   mail: {
     transport: (env.EMAIL_TRANSPORT ?? (env.NODE_ENV === 'test' ? 'memory' : env.SMTP_HOST ? 'smtp' : 'console')) as 'console' | 'smtp' | 'memory',
@@ -49,3 +56,11 @@ export const config = {
   /** Inbox channels. TELEGRAM_API_URL is only changed for tests. */
   telegram: { apiUrl: env.TELEGRAM_API_URL ?? 'https://api.telegram.org' },
 };
+
+function parseTrustProxy(v: string | undefined): boolean | string[] | ((address: string, hop: number) => boolean) {
+  const t = (v ?? '').trim();
+  if (!t || t === 'false') return false;
+  if (t === 'true') return true;
+  if (/^\d+$/.test(t)) { const hops = Number(t); return (_address: string, hop: number) => hop < hops; } // the nearest N proxies
+  return t.split(',').map((s) => s.trim()).filter(Boolean);
+}

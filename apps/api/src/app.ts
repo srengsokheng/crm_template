@@ -16,7 +16,7 @@ const PUBLIC_API = new Set(['/api/v1/auth/login', '/api/v1/auth/signup', '/api/v
 export async function buildApp(opts: { logger?: boolean } = {}): Promise<FastifyInstance> {
   const app = Fastify({
     logger: opts.logger ?? (config.isTest ? false : config.isProd ? true : { transport: { target: 'pino-pretty' } }),
-    trustProxy: true,
+    trustProxy: config.trustProxy,
     bodyLimit: 1024 * 1024,
   });
 
