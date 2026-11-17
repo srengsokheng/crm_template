@@ -15,6 +15,7 @@ import { CustomFieldsRows, EditRow, RecordError, RecordShell, RecordSkeleton, us
 import { MethodsView } from '../records/MethodsView.tsx';
 import { Timeline } from '../records/Timeline.tsx';
 import { Attachments } from '../records/Attachments.tsx';
+import { AutomationRuns } from '../records/AutomationRuns.tsx';
 import { DocumentsCard } from '../documents/DocumentsCard.tsx';
 import { LineItemsEditor, saveLineItems } from '../products/LineItemsEditor.tsx';
 import { useStageMove } from './useStageMove.tsx';
@@ -119,6 +120,7 @@ export function DealDetail() {
         <LineItemsEditor items={d.lineItems} currency={d.currency} canEdit={edit && !locked('deal', 'amount')} amountMode={d.amountMode}
           onSave={async (items) => { await saveLineItems(`/deals/${id}/line-items`, items); await refresh(); toast.success('Products saved'); }} />
         <DocumentsCard dealId={id} canEdit={edit} />
+        <AutomationRuns type="deal" id={id} />
         <Attachments entityType="deal" entityId={id} canEdit={edit} />
       </>}
       right={<>{mover.dialogs}<Timeline type="deal" id={id} /></>} />

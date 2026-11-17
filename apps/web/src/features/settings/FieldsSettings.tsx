@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { Plus, Trash2 } from 'lucide-react';
-import { api } from '../../lib/api.ts';
+import { toast } from 'sonner';
+import { ChevronDown, ChevronUp, Plus, Trash2 } from 'lucide-react';
+import { api, errorMessage } from '../../lib/api.ts';
 import { useAction, useMeta, usePipelines } from '../../lib/hooks.ts';
 import type { FieldDef } from '../../lib/types.ts';
 import { Badge, Button, Card, Checkbox, EmptyState, Field, IconButton, Input, Segmented, Select } from '../../components/ui/primitives.tsx';
@@ -20,6 +21,16 @@ export function FieldsSettings() {
   const { data: meta } = useMeta();
   const [editing, setEditing] = useState<FieldDef | 'new' | null>(null);
   const fields = (meta?.fields ?? []).filter((f) => f.entityType === entity);
+  const qc = useQueryClient();
+  // Order = how fields appear on records and forms. Move up / down saves the whole order for this record type.
+  const move = async (index: number, delta: -1 | 1) => {
+    const ids = fields.map((f) => f.id);
+    const j = index + delta;
+    if (j < 0 || j >= ids.length) return;
+    [ids[index], ids[j]] = [ids[j], ids[index]];
+    try { await api.post('/fields/reorder', { ids }); await qc.invalidateQueries({ queryKey: ['meta'] }); }
+    catch (e) { toast.error(errorMessage(e)); }
+  };
   const stageName = (id: number) => meta?.pipelines.flatMap((p) => p.stages).find((s) => s.id === Number(id))?.name ?? '?';
   return (
     <AdminOnly>
@@ -31,9 +42,13 @@ export function FieldsSettings() {
         <Card padded={false}>
           {fields.length ? (
             <ul className="divide-y divide-[var(--border)]">
-              {fields.map((f) => (
-                <li key={f.id}>
-                  <button type="button" onClick={() => setEditing(f)} className="flex w-full flex-wrap items-center justify-between gap-2 px-4 py-3 text-left hover:bg-[var(--surface-2)]/60">
+              {fields.map((f, i) => (
+                <li key={f.id} className="flex items-center">
+                  <div className="flex flex-col py-1 pl-2">
+                    <IconButton size="sm" label={`Move ${f.label} up`} disabled={i === 0} onClick={() => move(i, -1)}><ChevronUp className="size-4" /></IconButton>
+                    <IconButton size="sm" label={`Move ${f.label} down`} disabled={i === fields.length - 1} onClick={() => move(i, 1)}><ChevronDown className="size-4" /></IconButton>
+                  </div>
+                  <button type="button" onClick={() => setEditing(f)} className="flex min-w-0 flex-1 flex-wrap items-center justify-between gap-2 px-3 py-3 text-left hover:bg-[var(--surface-2)]/60">
                     <div><div className="font-medium">{f.label} {!f.isActive && <Badge>Archived</Badge>}</div><div className="text-xs text-muted">{TYPES[f.type]} · key <code>{f.key}</code></div></div>
                     <div className="text-xs">
                       {f.required === 'always' && <Badge tone="red">Required</Badge>}

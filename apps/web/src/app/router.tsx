@@ -34,6 +34,7 @@ import { ImportDetail } from '../features/imports/ImportDetail.tsx';
 import { DuplicatesPage } from '../features/duplicates/DuplicatesPage.tsx';
 import { InboxPage } from '../features/inbox/InboxPage.tsx';
 import { ChannelsSettings } from '../features/settings/ChannelsSettings.tsx';
+import { AccountSettings } from '../features/settings/AccountSettings.tsx';
 
 export const router = createBrowserRouter([
   { path: '/login', element: <LoginPage /> },
@@ -69,7 +70,8 @@ export const router = createBrowserRouter([
         path: 'settings',
         element: <SettingsLayout />,
         children: [
-          { index: true, element: <Navigate to="workspace" replace /> },
+          { index: true, element: <Navigate to="account" replace /> },
+          { path: 'account', element: <AccountSettings /> },
           { path: 'workspace', element: <WorkspaceSettings /> },
           { path: 'pipelines', element: <PipelinesSettings /> },
           { path: 'fields', element: <FieldsSettings /> },

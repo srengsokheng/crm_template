@@ -1,5 +1,5 @@
 import type { FastifyInstance, FastifyReply } from 'fastify';
-import { DEFAULT_WORKING_HOURS, type WorkingHours, acceptInviteSchema, forgotPasswordSchema, loginSchema, preferencesSchema, resetPasswordSchema, signupSchema } from '@crm/shared';
+import { DEFAULT_WORKING_HOURS, type WorkingHours, acceptInviteSchema, forgotPasswordSchema, loginSchema, passwordChangeSchema, preferencesSchema, profileSchema, resetPasswordSchema, signupSchema } from '@crm/shared';
 import { config } from '../config.ts';
 import { pool, q, q1, sql, tx } from '../db/index.ts';
 import { createSession, destroySession, hashPassword, newToken, SESSION_COOKIE, sha256, verifyPassword } from '../lib/auth.ts';
@@ -117,6 +117,41 @@ export async function authRoutes(app: FastifyInstance) {
       permissions: permissionSummary(ctx),
       fieldRules: ctx.isAdmin ? {} : (ctx.fieldRules ?? {}),
     };
+  });
+
+  /** Your display name (all workspaces). */
+  app.patch('/auth/profile', async (req) => {
+    const ctx = ctxOf(req);
+    const body = parse(profileSchema, req.body);
+    await q(sql`UPDATE users SET name = ${body.name} WHERE id = ${ctx.userId}`);
+    return { name: body.name };
+  });
+
+  /**
+   * Change your password while signed in: needs the current one; signs out your other sessions (this one stays).
+   * Rate-limited like password resets.
+   */
+  app.post('/auth/password', resetLimit, async (req) => {
+    const ctx = ctxOf(req);
+    const body = parse(passwordChangeSchema, req.body);
+    const user = await q1<{ password_hash: string | null }>(sql`SELECT password_hash FROM users WHERE id = ${ctx.userId}`);
+    if (!user?.password_hash || !(await verifyPassword(user.password_hash, body.currentPassword))) {
+      throw new AppError(400, 'VALIDATION_FAILED', 'Your current password is not correct', { currentPassword: 'Not correct' });
+    }
+    if (await verifyPassword(user.password_hash, body.newPassword)) {
+      throw new AppError(400, 'VALIDATION_FAILED', 'Choose a password different from your current one', { newPassword: 'Same as your current password' });
+    }
+    const hash = await hashPassword(body.newPassword);
+    const current = sha256(req.cookies[SESSION_COOKIE] ?? '');
+    const signedOut = await tx(async (db) => {
+      await q(sql`UPDATE users SET password_hash = ${hash} WHERE id = ${ctx.userId}`, db);
+      // Whoever knew the old password loses access everywhere else; this session stays signed in.
+      const r = await q(sql`DELETE FROM sessions WHERE user_id = ${ctx.userId} AND id_hash <> ${current} RETURNING 1`, db);
+      await q(sql`UPDATE password_resets SET used_at = now() WHERE user_id = ${ctx.userId} AND used_at IS NULL`, db);
+      return r.length;
+    });
+    req.log.info('password changed');
+    return { ok: true, signedOutSessions: signedOut };
   });
 
   /** Personal settings for the current workspace. */

@@ -16,6 +16,7 @@ import { MethodsView } from '../records/MethodsView.tsx';
 import { Timeline } from '../records/Timeline.tsx';
 import { Attachments } from '../records/Attachments.tsx';
 import { LinkedConversations } from '../inbox/LinkedConversations.tsx';
+import { AutomationRuns } from '../records/AutomationRuns.tsx';
 import { LineItemsEditor, saveLineItems } from '../products/LineItemsEditor.tsx';
 import { useStageMove } from '../deals/useStageMove.tsx';
 import { ConvertDialog } from './ConvertDialog.tsx';
@@ -107,6 +108,7 @@ export function LeadDetail() {
         <LineItemsEditor items={l.lineItems} currency={l.currency} canEdit={edit && !locked('lead', 'amount')}
           onSave={async (items) => { await saveLineItems(`/leads/${id}/line-items`, items); await refresh(); toast.success('Products saved'); }} />
         <LinkedConversations leadId={id} />
+        <AutomationRuns type="lead" id={id} />
         <Attachments entityType="lead" entityId={id} canEdit={edit} />
       </>}
       right={<>{mover.dialogs}{converting && <ConvertDialog leadId={id} open onClose={() => setConverting(false)} />}<Timeline type="lead" id={id} /></>} />

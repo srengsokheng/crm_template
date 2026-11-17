@@ -1,10 +1,12 @@
 import type { FastifyInstance } from 'fastify';
 import { automationRuleSchema, automationRuleUpdateSchema, webhookSettingsSchema } from '@crm/shared';
-import { q, q1, sql } from '../db/index.ts';
+import { pool, q, q1, sql } from '../db/index.ts';
+import { feedCursorColumn, feedQuery, feedResult, feedWhere } from '../lib/list.ts';
+import { loadRecordForView } from './activities.ts';
 import { badRequest, notFound } from '../lib/errors.ts';
 import { ctxOf } from '../lib/http.ts';
 import type { Ctx } from '../lib/context.ts';
-import { requireAdmin, requireAny } from '../lib/permissions.ts';
+import { requireAdmin } from '../lib/permissions.ts';
 import { camel, camelAll } from '../lib/records.ts';
 import { parse } from '../lib/validate.ts';
 import { checkWebhookUrl, deliverWebhook, newWebhookSecret, normaliseHost, type Delivery } from '../lib/webhooks.ts';
@@ -185,14 +187,23 @@ export async function automationRoutes(app: FastifyInstance) {
     return result;
   });
 
-  app.get<{ Params: { type: string; id: string } }>('/automation-runs/:type/:id', async (req) => {
+  /**
+   * What automation did (or will do) on one deal or lead, newest first, paged ("Load more"). Needs view access to that
+   * record (owner scope, private records, pipeline restrictions), not just to deals/leads in general.
+   */
+  app.get<{ Params: { type: string; id: string }; Querystring: { limit?: string; before?: string } }>('/automation-runs/:type/:id', async (req) => {
     const ctx = ctxOf(req);
     const type = req.params.type === 'lead' ? 'lead' : 'deal';
-    requireAny(ctx, type, 'view');
-    const rows = await q(sql`SELECT ar.id, ar.status, ar.scheduled_for, ar.finished_at, ar.message, r.action, r.config
-      FROM automation_runs ar LEFT JOIN automation_rules r ON r.id = ar.rule_id
-      WHERE ar.workspace_id = ${ctx.workspaceId} AND ar.entity_type = ${type} AND ar.entity_id = ${Number(req.params.id)}
-      ORDER BY ar.scheduled_for DESC LIMIT 100`);
-    return { data: camelAll(rows) };
+    const id = Number(req.params.id);
+    await loadRecordForView(pool, ctx, type, id);
+    const feed = feedQuery({ limit: 20, ...req.query });
+    const rows = await q<{ id: number; feed_us: number }>(sql`SELECT ar.id, ${feedCursorColumn('ar.scheduled_for')}, ar.status, ar.scheduled_for, ar.finished_at, ar.message,
+        r.action, r.trigger, s.name AS stage_name
+      FROM automation_runs ar LEFT JOIN automation_rules r ON r.id = ar.rule_id LEFT JOIN stages s ON s.id = r.stage_id
+      WHERE ar.workspace_id = ${ctx.workspaceId} AND ar.entity_type = ${type} AND ar.entity_id = ${id}
+        AND ${feedWhere(feed, 'ar.scheduled_for', 'ar.id')}
+      ORDER BY ar.scheduled_for DESC, ar.id DESC LIMIT ${feed.limit + 1}`);
+    const page = feedResult(rows, feed);
+    return { data: camelAll(page.data as Record<string, unknown>[]), nextCursor: page.nextCursor };
   });
 }

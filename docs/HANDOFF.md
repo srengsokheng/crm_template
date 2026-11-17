@@ -310,7 +310,15 @@ The research behind every decision is in this folder:
   a focusable wrapper around links (a "Move …" grip button is the keyboard handle) and the arrow keys jump between
   stage columns and the Won/Lost zones (before, keyboard moving only nudged the card 25px and never reached a column).
 
-**Quality:** 203 Vitest tests (API against real PostgreSQL), 53 Playwright tests (desktop, tablet, phone), lint and
+- **Gaps closed after a user-flow audit** (every API route checked against the UI, journeys walked to their end):
+  **Your account** (Settings → Your account, also in the avatar menu): change your name; change your password with
+  the current one (other sessions are signed out, this one stays; rate-limited). **Product categories** are managed in
+  Settings → Lists & options (deleting one keeps its products). **Custom fields** can be moved up/down (the order
+  records and forms use). **Automation** card on deals and leads: what rules did or will do, with failure reasons,
+  paged; the endpoint now checks access to that record (before, anyone who could view deals could read the runs of any
+  deal in the workspace, including private ones and blocked pipelines).
+
+**Quality:** 208 Vitest tests (API against real PostgreSQL), 57 Playwright tests (desktop, tablet, phone), lint and
 typecheck clean, `npm audit` = 0, GitHub Actions CI in `.github/workflows/ci.yml`.
 
 ## 3. Not built yet — suggested next work (in priority order)

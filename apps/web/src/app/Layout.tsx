@@ -2,7 +2,7 @@ import { Suspense, useEffect, useState, type ReactNode } from 'react';
 import { Link, NavLink, Navigate, Outlet, useLocation, useNavigate } from 'react-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
-  BarChart3, Bell, BellOff, BellRing, Building2, CheckSquare, Handshake, Home, LogOut, Menu as MenuIcon, Moon, Package, Plus, Search, Settings, Sun, Users, Zap, Monitor, X, Mail, FileText, MessageCircle } from 'lucide-react';
+  BarChart3, Bell, BellOff, BellRing, Building2, CheckSquare, Handshake, Home, LogOut, Menu as MenuIcon, Moon, Package, Plus, Search, Settings, Sun, Users, Zap, Monitor, X, Mail, FileText, MessageCircle, UserCog } from 'lucide-react';
 import { toast } from 'sonner';
 import { api, ApiError, errorMessage } from '../lib/api.ts';
 import { cn } from '../lib/cn.ts';
@@ -204,6 +204,7 @@ function TopBar({ onSearch }: { onSearch: () => void }) {
       <Menu trigger={<button type="button" className="rounded-full" aria-label="Account menu"><Avatar name={me?.user.name} /></button>}
         items={[
           { label: <div><div className="font-medium">{me?.user.name}</div><div className="text-xs text-muted">{me?.role.name}</div></div>, onSelect: () => {}, disabled: true },
+          { label: 'Your account', icon: <UserCog className="size-4" />, onSelect: () => nav('/settings/account') },
           'separator',
           { label: 'Light theme', icon: <Sun className="size-4" />, onSelect: () => cycleTheme('light'), hidden: theme === 'light' },
           { label: 'Dark theme', icon: <Moon className="size-4" />, onSelect: () => cycleTheme('dark'), hidden: theme === 'dark' },

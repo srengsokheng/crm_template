@@ -40,7 +40,7 @@ test('every main screen passes the accessibility scan, light and dark', async ({
     ['deals', '/deals'], ['deal', `/deals/${s.deal.id}`], ['contacts', '/contacts'], ['contact', `/contacts/${s.contact.id}`],
     ['companies', '/companies'], ['company', `/companies/${s.co.id}`], ['products', '/products'], ['invoices', '/documents'],
     ['invoice', `/documents/${s.doc.id}`], ['reports', '/reports'], ['import', '/import/contact'],
-    ['settings/workspace', '/settings/workspace'], ['settings/pipelines', '/settings/pipelines'], ['settings/fields', '/settings/fields'],
+    ['settings/account', '/settings/account'], ['settings/workspace', '/settings/workspace'], ['settings/pipelines', '/settings/pipelines'], ['settings/fields', '/settings/fields'],
     ['settings/lists', '/settings/lists'], ['settings/currencies', '/settings/currencies'], ['settings/documents', '/settings/documents'],
     ['settings/channels', '/settings/channels'], ['settings/users', '/settings/users'], ['settings/roles', '/settings/roles'],
     ['settings/automation', '/settings/automation'], ['settings/audit-log', '/settings/audit-log'], ['settings/recycle-bin', '/settings/recycle-bin'],
