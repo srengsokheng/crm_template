@@ -1,6 +1,8 @@
 # Acme CRM — working rules for agents
 
 Read `docs/HANDOFF.md` first: it explains what exists, how to run it, and what to build next.
+The backlog is `docs/UI_AND_FEATURE_GAPS.md`. Project skills in `.claude/skills/` (frontend-design,
+accessibility-testing, wireframing, api-design, code-review, …) load automatically — these rules win where they disagree.
 
 ## Branches
 - `main` is the integration branch. Do work on a feature branch and open a pull request into `main`.

@@ -27,7 +27,8 @@ Act as a senior full-stack engineer, product designer and QA engineer. Work care
 
 === 2. READ THESE FIRST (in this order) ===
 1. CLAUDE.md                     – working rules and conventions (mandatory)
-2. docs/HANDOFF.md               – current status, project map, setup, business rules, next work
+2. docs/UI_AND_FEATURE_GAPS.md   – your backlog (what is still missing)
+   docs/HANDOFF.md               – current status, project map, setup, business rules, next work
 3. docs/CRM_UX_REDESIGN.md       – design principles and tokens; follow them for every screen
 4. docs/DATABASE_SCHEMA.md       – data model and service rules
 5. docs/CRM_ARCHITECTURE.md      – architecture; see the "As built" table at the top
@@ -69,14 +70,20 @@ To look at the app: `npm run db:migrate && npm run db:seed && npm run dev`, open
 sign in as demo@example.com / demo12345 (teammates dara@, mia@, omar@example.com use the same password).
 
 === 5. YOUR TASK (continue from here) ===
-Build the next items from docs/HANDOFF.md section 3, one branch + pull request each, in this order:
-  1. CSV import for contacts, companies and leads: upload, column mapping, preview, duplicate handling
-     (skip / update / create), result report with row errors.
-  2. Merge duplicate contacts and companies: choose the surviving record and field values, re-point deals,
-     activities, notes and contact methods, keep history, audit the merge.
-  3. Pluggable email delivery for invitations and activity reminders (console transport in development, SMTP in
-     production configured by environment variables; never commit credentials).
-After each item, stop, summarise, and wait for my go-ahead before starting the next one.
+Your backlog is docs/UI_AND_FEATURE_GAPS.md. Project skills in .claude/skills/ (frontend-design,
+accessibility-testing, wireframing, user-flow-mapping, api-design, testing, code-review, refactoring,
+lead-scoring, crm-data-enrichment) are loaded automatically — use them; CLAUDE.md and docs/UI-RULES.md win
+if they disagree.
+  0. FIRST: much finished work is still on a stack of unmerged branches (feat/password-reset → …
+     → feat/feeds-everywhere). Check `git log origin/main..origin/feat/feeds-everywhere`. Open pull requests
+     in stack order, run the code-review skill on each, get CI green, and ask me before merging into main.
+  1. Section 1 (design system: missing shared components, component gallery, 44px touch targets).
+  2. Section 2 (axe accessibility checks + keyboard-only e2e).
+  3. Section 3 (Kanban "Load more", column picker).
+  4. Section 4 in priority order (change password + profile page first).
+For UI items: wireframe the screen first (wireframing skill: component inventory + empty/loading/error states),
+then build. After each item, stop, show screenshots (390/834/1440 px, light and dark), summarise, and wait
+for my go-ahead.
 
 === 6. RULES ===
 - Follow the patterns in CLAUDE.md: zod schemas in packages/shared, `sql` tagged templates that always filter by
