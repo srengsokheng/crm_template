@@ -339,8 +339,26 @@ The research behind every decision is in this folder:
   The team sees "Grace is typing…" or "Dara is also writing a reply…" under the messages; on Telegram, the bot shows
   "typing…" in the chat. Typing is never stored; it travels on the same `pg_notify('inbox')` channel. Visitor streams are
   capped (5 per conversation, 2,000 per process) and only ever carry the visitor's own conversation.
+- **Facebook Messenger, Instagram and WhatsApp** (Meta's official APIs, business accounts only; `inbox/meta.ts`):
+  - **Connect** (Settings → Channels): the admin enters the Page ID / Instagram account ID / WhatsApp phone number ID,
+    a long-lived access token and the app secret. The API checks them with Meta (and subscribes the Page to the app
+    for Messenger) and explains refusals (expired token, wrong id, missing permission). Both credentials are stored
+    encrypted (SECRETS_KEY), never returned or written to the audit log; "Update access token" replaces them.
+  - **Webhook** `/api/v1/hooks/meta/:key` (shown on the channel with its verify token): GET answers Meta's check;
+    POST is accepted only with a valid `X-Hub-Signature-256` (HMAC of the raw body with the app secret). One Meta app has
+    one callback URL, so events are routed by account id to channels **of the same workspace** only.
+  - **Incoming:** text, photos, videos, audio, documents (downloaded by the jobs queue: Messenger/Instagram from the
+    CDN link, WhatsApp through the media endpoint with the token), stickers, locations, contacts, button replies.
+    Our own echoes are skipped, retries de-duplicated. Names: from WhatsApp's webhook, or looked up once for
+    Messenger/Instagram. A WhatsApp number links the conversation to the one contact with that phone number.
+  - **Replies:** text (split at 2,000 / 1,000 / 4,096 characters) and files (Instagram: photos, videos, audio only).
+    Meta delivers replies only **within 24 hours** of the customer's last message: the Inbox warns before, and a
+    refused reply says why (WhatsApp templates are not supported yet). WhatsApp delivery failures reported later turn
+    the message "failed". An expired token marks the channel "Needs attention". Messenger/Instagram show "typing…".
+  - Meta only calls https addresses: on a server whose APP_URL isn't https, the channel says so.
+  - `META_GRAPH_URL` (default `https://graph.facebook.com/v21.0`) is only changed for tests.
 
-**Quality:** 215 Vitest tests (API against real PostgreSQL), 60 Playwright tests (desktop, tablet, phone), lint and
+**Quality:** 220 Vitest tests (API against real PostgreSQL), 61 Playwright tests (desktop, tablet, phone), lint and
 typecheck clean, `npm audit` = 0, GitHub Actions CI in `.github/workflows/ci.yml`.
 
 ## 3. Not built yet — suggested next work (in priority order)
@@ -352,11 +370,11 @@ The earlier list is done (see section 2). Known follow-ups, collected from the p
    (subsetting already exists). Other scripts with TrueType Noto fonts are one line in `SCRIPTS` (`lib/pdfFonts.ts`).
 2. Copy & paste of Khmer from PDFs: the file carries the exact text (`/ActualText`), but MuPDF's text extraction
    repeats some fragments where marks step back over a base letter; check in Acrobat / browser viewers.
-3. Inbox, next channels (same `channels` / `conversations` / `messages` tables, add a `kind` and an ingest/send pair):
-   Facebook Page Messenger and Instagram (Meta Graph API webhooks; needs a Meta app and App Review), WhatsApp Business
-   (Cloud API), and a **Telegram personal account** (MTProto user login, e.g. GramJS; the account owner logs in with
-   their phone code — needs `api_id`/`api_hash` from my.telegram.org). Unofficial WhatsApp-Web libraries break
-   WhatsApp's terms and get numbers banned; Meta has no API for personal Messenger/Instagram inboxes.
+3. Inbox: a **Telegram personal account** (MTProto user login, e.g. GramJS; the account owner logs in with their phone
+   code — needs `api_id`/`api_hash` from my.telegram.org). Unofficial WhatsApp-Web libraries break WhatsApp's terms
+   and get numbers banned; Meta has no API for personal Messenger/Instagram inboxes.
+4. Inbox, Meta: WhatsApp template messages (to write after the 24-hour window), and testing against Meta itself with a
+   real app (only a fake Graph API has been used so far).
 
 Import limits and choices: 5 MB / 10,000 rows / 100 columns per file; lead rows only match *open* leads; list
 values (type, source, industry, size, deal type, category) must already exist unless an admin ticks "Add values that aren't in

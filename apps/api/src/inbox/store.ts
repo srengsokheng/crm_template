@@ -3,13 +3,13 @@ import { q, q1, sql, type Db } from '../db/index.ts';
 import { notifyInbox } from './events.ts';
 
 export interface ChannelRow {
-  id: number; workspace_id: number; kind: 'webchat' | 'telegram_bot'; name: string; public_key: string;
+  id: number; workspace_id: number; kind: 'webchat' | 'telegram_bot' | 'messenger' | 'instagram' | 'whatsapp'; name: string; public_key: string;
   config: Record<string, unknown>; secret: string | null; webhook_secret: string | null; status: string; last_error?: string | null;
 }
 
 export interface Inbound {
   channel: ChannelRow;
-  /** The chat on the platform (Telegram chat id, hashed website-chat token). */
+  /** The chat on the platform (Telegram chat id, hashed website-chat token, Messenger/Instagram user id, WhatsApp number). */
   chatId: string;
   kind: 'direct' | 'group';
   /** Conversation title: the person's name, or the group's name. */
@@ -34,7 +34,8 @@ export async function recordInbound(db: Db, m: Inbound): Promise<{ conversationI
   let conv = await q1<{ id: number; assignee_id: number | null; status: string; profile: Record<string, unknown> }>(sql`
     SELECT id, assignee_id, status, profile FROM conversations WHERE channel_id = ${m.channel.id} AND external_id = ${m.chatId} FOR UPDATE`, db);
   if (!conv) {
-    const contactId = m.profile.email ? await contactByEmail(db, ws, m.profile.email) : null;
+    const contactId = m.profile.email ? await contactByEmail(db, ws, m.profile.email)
+      : m.profile.phone ? await contactByPhone(db, ws, m.profile.phone) : null;
     conv = await q1(sql`
       INSERT INTO conversations (workspace_id, channel_id, external_id, kind, title, profile, contact_id)
       VALUES (${ws}, ${m.channel.id}, ${m.chatId}, ${m.kind}, ${m.title.slice(0, 200) || 'Unknown'}, ${JSON.stringify(m.profile)}, ${contactId})
@@ -63,6 +64,17 @@ export async function recordInbound(db: Db, m: Inbound): Promise<{ conversationI
   }
   await notifyInbox(db, c.id);
   return { conversationId: c.id, messageId: msg.id };
+}
+
+/** The one contact with this phone number (as +country… or the same digits without +); null if none or several. */
+async function contactByPhone(db: Db, workspaceId: number, phone: string): Promise<number | null> {
+  const digits = phone.replace(/[^\d]/g, '');
+  if (digits.length < 6) return null;
+  const rows = await q<{ id: number }>(sql`
+    SELECT DISTINCT c.id FROM contact_methods m JOIN contacts c ON c.id = m.party_id
+    WHERE m.workspace_id = ${workspaceId} AND m.party_type = 'contact' AND m.kind = 'phone' AND m.normalized IN (${'+' + digits}, ${digits})
+      AND c.deleted_at IS NULL LIMIT 2`, db);
+  return rows.length === 1 ? rows[0].id : null;
 }
 
 async function contactByEmail(db: Db, workspaceId: number, email: string): Promise<number | null> {

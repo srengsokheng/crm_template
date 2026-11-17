@@ -55,6 +55,8 @@ export const config = {
   secretsKeyFile: env.SECRETS_KEY_FILE ?? fileURLToPath(new URL('../../../data/secrets.key', import.meta.url)),
   /** Inbox channels. TELEGRAM_API_URL is only changed for tests. */
   telegram: { apiUrl: env.TELEGRAM_API_URL ?? 'https://api.telegram.org' },
+  /** Meta Graph API (Messenger, Instagram, WhatsApp). META_GRAPH_URL is only changed for tests. */
+  meta: { graphUrl: env.META_GRAPH_URL ?? 'https://graph.facebook.com/v21.0' },
 };
 
 function parseTrustProxy(v: string | undefined): boolean | string[] | ((address: string, hop: number) => boolean) {

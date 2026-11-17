@@ -1,39 +1,47 @@
 import { useEffect, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { Copy, Globe, Plus, Send } from 'lucide-react';
+import { AlertTriangle, Copy, Plus } from 'lucide-react';
+import { CHANNEL_LABELS, isMetaKind, META_ACCOUNT_LABELS, type ChannelKind, type MetaKind } from '@crm/shared';
+import { ChannelIcon } from '../inbox/InboxPage.tsx';
 import { api, errorMessage } from '../../lib/api.ts';
 import { Badge, Button, Card, EmptyState, ErrorState, Field, Input, Skeleton, Textarea } from '../../components/ui/primitives.tsx';
 import { ConfirmDialog, Dialog } from '../../components/ui/overlays.tsx';
 import { AdminOnly } from './SettingsLayout.tsx';
 
 interface Channel {
-  id: number; kind: 'webchat' | 'telegram_bot'; name: string; status: 'active' | 'disabled' | 'error'; lastError: string | null; publicKey: string;
+  id: number; kind: ChannelKind; name: string; status: 'active' | 'disabled' | 'error'; lastError: string | null; publicKey: string;
   conversationCount: number;
-  config: { greeting?: string; color?: string; allowedOrigins?: string[]; username?: string; botName?: string; mode?: 'webhook' | 'polling' };
+  config: {
+    greeting?: string; color?: string; allowedOrigins?: string[]; username?: string; botName?: string; mode?: 'webhook' | 'polling';
+    accountId?: string; accountName?: string; webhookUrl?: string; verifyToken?: string; httpsReady?: boolean;
+  };
 }
 
 export function ChannelsSettings() {
   const qc = useQueryClient();
   const list = useQuery({ queryKey: ['channels'], queryFn: () => api.get<{ data: Channel[] }>('/channels') });
-  const [adding, setAdding] = useState<null | 'webchat' | 'telegram_bot'>(null);
+  const [adding, setAdding] = useState<null | ChannelKind>(null);
   const refresh = () => { qc.invalidateQueries({ queryKey: ['channels'] }); qc.invalidateQueries({ queryKey: ['inbox'] }); };
   const channels = list.data?.data ?? [];
   return (
     <AdminOnly>
       <div className="space-y-4">
-        <Card title="Channels" actions={<div className="flex gap-2">
-          <Button size="sm" icon={<Globe className="size-3.5" />} onClick={() => setAdding('webchat')}>Website chat</Button>
-          <Button size="sm" icon={<Send className="size-3.5" />} onClick={() => setAdding('telegram_bot')}>Telegram bot</Button>
-        </div>}>
-          <p className="text-sm text-muted">Messages people send through these channels arrive in the Inbox, where your team replies. Telegram personal accounts, Facebook, Instagram and WhatsApp Business are not available yet.</p>
+        <Card title="Channels">
+          <p className="text-sm text-muted">Messages people send through these channels arrive in the Inbox, where your team replies. Add one:</p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            {(['webchat', 'telegram_bot', 'messenger', 'instagram', 'whatsapp'] as const).map((k) => (
+              <Button key={k} size="sm" icon={<ChannelIcon kind={k} decorative />} onClick={() => setAdding(k)}>{CHANNEL_LABELS[k]}</Button>
+            ))}
+          </div>
         </Card>
         {list.isLoading ? <Skeleton className="h-40" /> : list.isError ? <ErrorState message={errorMessage(list.error)} onRetry={() => list.refetch()} /> : channels.length === 0 ? (
-          <Card><EmptyState icon={<Plus className="size-5" />} title="No channels yet" description="Add a chat to your website, or connect a Telegram bot, to start receiving messages." /></Card>
+          <Card><EmptyState icon={<Plus className="size-5" />} title="No channels yet" description="Add a chat to your website, or connect Telegram, Facebook Messenger, Instagram or WhatsApp, to start receiving messages." /></Card>
         ) : channels.map((c) => <ChannelCard key={c.id} c={c} onChange={refresh} />)}
       </div>
       <AddWebchat open={adding === 'webchat'} onOpenChange={(v) => setAdding(v ? 'webchat' : null)} onAdded={refresh} />
       <AddTelegram open={adding === 'telegram_bot'} onOpenChange={(v) => setAdding(v ? 'telegram_bot' : null)} onAdded={refresh} />
+      {adding && isMetaKind(adding) && <AddMeta kind={adding} open onOpenChange={(v) => { if (!v) setAdding(null); }} onAdded={refresh} />}
     </AdminOnly>
   );
 }
@@ -47,7 +55,7 @@ function ChannelCard({ c, onChange }: { c: Channel; onChange: () => void }) {
   };
   const status = c.status === 'active' ? <Badge tone="green">Active</Badge> : c.status === 'error' ? <Badge tone="red">Needs attention</Badge> : <Badge>Disabled</Badge>;
   return (
-    <Card title={<span className="flex min-w-0 items-center gap-2">{c.kind === 'webchat' ? <Globe className="size-4 shrink-0" /> : <Send className="size-4 shrink-0" />}<span className="truncate">{c.name}</span>{status}</span>}
+    <Card title={<span className="flex min-w-0 items-center gap-2"><ChannelIcon kind={c.kind} className="size-4 shrink-0" decorative /><span className="truncate">{c.name}</span>{status}</span>}
       actions={<div className="flex gap-2">
         {c.status === 'active'
           ? <Button size="sm" disabled={busy} onClick={() => patch({ status: 'disabled' }, 'Channel disabled')}>Disable</Button>
@@ -55,8 +63,9 @@ function ChannelCard({ c, onChange }: { c: Channel; onChange: () => void }) {
         <Button size="sm" variant="ghost" onClick={() => setConfirm(true)}>Delete</Button>
       </div>}>
       {c.lastError && <p className="mb-3 rounded-md bg-rose-50 px-3 py-2 text-sm text-rose-700 dark:bg-rose-500/10 dark:text-rose-300" role="alert">{c.lastError}</p>}
-      <p className="mb-3 text-xs text-muted">{c.kind === 'webchat' ? 'Website chat' : 'Telegram bot'} · {c.conversationCount} conversation{c.conversationCount === 1 ? '' : 's'}</p>
-      {c.kind === 'webchat' ? <WebchatDetails c={c} save={(b) => patch(b, 'Chat settings saved')} busy={busy} /> : <TelegramDetails c={c} />}
+      <p className="mb-3 text-xs text-muted">{CHANNEL_LABELS[c.kind]} · {c.conversationCount} conversation{c.conversationCount === 1 ? '' : 's'}</p>
+      {c.kind === 'webchat' ? <WebchatDetails c={c} save={(b) => patch(b, 'Chat settings saved')} busy={busy} />
+        : isMetaKind(c.kind) ? <MetaDetails c={c} kind={c.kind} onChange={onChange} /> : <TelegramDetails c={c} />}
       <ConfirmDialog open={confirm} onOpenChange={setConfirm} danger confirmLabel="Delete channel" title={`Delete “${c.name}”?`}
         description={`This also deletes its ${c.conversationCount} conversation${c.conversationCount === 1 ? '' : 's'} and all their messages. It can’t be undone. To stop new messages but keep the history, disable the channel instead.`}
         onConfirm={async () => { try { await api.del(`/channels/${c.id}`); setConfirm(false); onChange(); toast.success('Channel deleted'); } catch (e) { toast.error(errorMessage(e)); } }} />
@@ -143,5 +152,117 @@ function AddTelegram({ open, onOpenChange, onAdded }: { open: boolean; onOpenCha
         <Input id="tg-token" autoComplete="off" spellCheck={false} placeholder="123456789:AA…" value={token} onChange={(e) => setToken(e.target.value)} />
       </Field>
     </Dialog>
+  );
+}
+
+/** Where each id and credential is found in Meta's dashboards. */
+const META_STEPS: Record<MetaKind, string[]> = {
+  messenger: [
+    'In developers.facebook.com, create an app (type Business) and add the Messenger product.',
+    'Under Messenger → Settings, generate a Page access token for your Page (permissions pages_messaging and pages_manage_metadata). For a token that doesn’t expire, use a system user in Business Settings.',
+    'Copy the Page ID from your Page’s About → Page transparency, or from the token screen.',
+  ],
+  instagram: [
+    'Your Instagram account must be a professional account linked to a Facebook Page.',
+    'In your Meta app, add the Instagram product (Instagram messaging via Facebook Login) and generate a Page access token with instagram_basic and instagram_manage_messages.',
+    'Copy the Instagram account ID shown next to the token (not the @username).',
+  ],
+  whatsapp: [
+    'In developers.facebook.com, create an app (type Business) and add the WhatsApp product.',
+    'Under WhatsApp → API setup, copy the Phone number ID of the number customers write to.',
+    'Create a permanent access token: Business Settings → System users → Generate token, with whatsapp_business_messaging.',
+  ],
+};
+
+function MetaCredentialFields({ token, setToken, secret, setSecret, idPrefix }: { token: string; setToken: (v: string) => void; secret: string; setSecret: (v: string) => void; idPrefix: string }) {
+  return (
+    <>
+      <Field label="Access token" htmlFor={`${idPrefix}-token`} required hint="Stored encrypted and never shown again.">
+        <Input id={`${idPrefix}-token`} type="password" autoComplete="off" spellCheck={false} value={token} onChange={(e) => setToken(e.target.value)} />
+      </Field>
+      <Field label="App secret" htmlFor={`${idPrefix}-secret`} required hint="App settings → Basic. Used to check that messages really come from Meta.">
+        <Input id={`${idPrefix}-secret`} type="password" autoComplete="off" spellCheck={false} value={secret} onChange={(e) => setSecret(e.target.value)} />
+      </Field>
+    </>
+  );
+}
+
+function AddMeta({ kind, open, onOpenChange, onAdded }: { kind: MetaKind; open: boolean; onOpenChange: (v: boolean) => void; onAdded: () => void }) {
+  const [accountId, setAccountId] = useState('');
+  const [token, setToken] = useState('');
+  const [secret, setSecret] = useState('');
+  const [saving, setSaving] = useState(false);
+  const save = async () => {
+    setSaving(true);
+    try {
+      await api.post('/channels', { kind, accountId: accountId.trim(), accessToken: token.trim(), appSecret: secret.trim() });
+      onAdded(); onOpenChange(false); toast.success(`${CHANNEL_LABELS[kind]} connected — finish the webhook setup on the channel`);
+    } catch (e) { toast.error(errorMessage(e)); } finally { setSaving(false); }
+  };
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange} title={`Connect ${CHANNEL_LABELS[kind]}`}
+      description="Uses Meta’s official API for business accounts. Personal accounts can’t be connected."
+      footer={<><Button onClick={() => onOpenChange(false)}>Cancel</Button><Button variant="primary" disabled={!accountId.trim() || !token.trim() || !secret.trim() || saving} onClick={save}>{saving ? 'Checking…' : 'Connect'}</Button></>}>
+      <ol className="mb-4 list-decimal space-y-1 pl-5 text-sm text-muted">{META_STEPS[kind].map((s) => <li key={s}>{s}</li>)}</ol>
+      <div className="space-y-3">
+        <Field label={META_ACCOUNT_LABELS[kind]} htmlFor="meta-account" required>
+          <Input id="meta-account" inputMode="numeric" autoComplete="off" value={accountId} onChange={(e) => setAccountId(e.target.value)} />
+        </Field>
+        <MetaCredentialFields token={token} setToken={setToken} secret={secret} setSecret={setSecret} idPrefix="meta" />
+      </div>
+    </Dialog>
+  );
+}
+
+function CopyField({ label, value, id }: { label: string; value: string; id: string }) {
+  const copy = async () => { try { await navigator.clipboard.writeText(value); toast.success('Copied'); } catch { toast.error('Copy failed — select the text and copy it'); } };
+  return (
+    <Field label={label} htmlFor={id}>
+      <div className="flex items-center gap-2">
+        <Input id={id} readOnly value={value} className="min-w-0 flex-1 font-mono text-xs" onFocus={(e) => e.target.select()} />
+        <Button size="sm" icon={<Copy className="size-3.5" />} onClick={copy}>Copy</Button>
+      </div>
+    </Field>
+  );
+}
+
+function MetaDetails({ c, kind, onChange }: { c: Channel; kind: MetaKind; onChange: () => void }) {
+  const [editing, setEditing] = useState(false);
+  const [token, setToken] = useState('');
+  const [secret, setSecret] = useState('');
+  const [saving, setSaving] = useState(false);
+  useEffect(() => { if (!editing) { setToken(''); setSecret(''); } }, [editing]);
+  const save = async () => {
+    setSaving(true);
+    try { await api.patch(`/channels/${c.id}`, { accessToken: token.trim(), appSecret: secret.trim() }); setEditing(false); onChange(); toast.success('Credentials updated'); }
+    catch (e) { toast.error(errorMessage(e)); } finally { setSaving(false); }
+  };
+  return (
+    <div className="space-y-4 text-sm">
+      <p>{META_ACCOUNT_LABELS[kind]}: <span className="font-medium">{c.config.accountId}</span>{c.config.accountName && c.config.accountName !== c.name ? <> · {c.config.accountName}</> : null}</p>
+      {!c.config.httpsReady && (
+        <p className="flex items-start gap-2 rounded-md bg-amber-50 px-3 py-2 text-amber-900 dark:bg-amber-500/10 dark:text-amber-100" role="status">
+          <AlertTriangle className="mt-0.5 size-4 shrink-0" />
+          <span>Meta only sends messages to an https address. This server’s APP_URL isn’t https, so nothing will arrive until it runs on its public https address.</span>
+        </p>
+      )}
+      <div>
+        <p className="mb-2 font-medium">Finish in your Meta app → Webhooks{kind === 'whatsapp' ? ' (under WhatsApp → Configuration)' : ''}:</p>
+        <div className="space-y-3">
+          <CopyField label="Callback URL" id={`cb${c.id}`} value={c.config.webhookUrl ?? ''} />
+          <CopyField label="Verify token" id={`vt${c.id}`} value={c.config.verifyToken ?? ''} />
+        </div>
+        <p className="mt-2 text-muted">Then subscribe to the <span className="font-mono">messages</span> field. If several channels use the same Meta app, one callback URL is enough: messages are sorted by account.</p>
+      </div>
+      {editing ? (
+        <div className="space-y-3 rounded-md border border-base p-3">
+          <MetaCredentialFields token={token} setToken={setToken} secret={secret} setSecret={setSecret} idPrefix={`m${c.id}`} />
+          <div className="flex justify-end gap-2">
+            <Button onClick={() => setEditing(false)}>Cancel</Button>
+            <Button variant="primary" disabled={!token.trim() || !secret.trim() || saving} onClick={save}>{saving ? 'Checking…' : 'Save credentials'}</Button>
+          </div>
+        </div>
+      ) : <Button size="sm" onClick={() => setEditing(true)}>Update access token</Button>}
+    </div>
   );
 }

@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 
 import { Link, useNavigate, useParams } from 'react-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { AlertCircle, ArrowLeft, Clock, FileText, Globe, Inbox, Link2, MessageCircle, Paperclip, RotateCcw, Search, Send, UserPlus, Users, X } from 'lucide-react';
+import { AlertCircle, ArrowLeft, Camera, Clock, FileText, Globe, Inbox, Link2, MessageCircle, Paperclip, Phone, RotateCcw, Search, Send, UserPlus, Users, X } from 'lucide-react';
 import { api, ApiError, errorMessage } from '../../lib/api.ts';
 import { fileSize } from '../records/Attachments.tsx';
 import { cn } from '../../lib/cn.ts';
@@ -15,7 +15,8 @@ import { FeedList, useFeed } from '../../components/ui/FeedList.tsx';
 import { SavedRepliesMenu } from './SavedReplies.tsx';
 import { EntityPicker, type PickerItem } from '../../components/ui/EntityPicker.tsx';
 
-type ChannelKind = 'webchat' | 'telegram_bot';
+import type { ChannelKind } from '@crm/shared';
+import { CHANNEL_LABELS, isMetaKind } from '@crm/shared';
 interface ConversationItem {
   id: number; channelKind: ChannelKind; channelName: string; kind: 'direct' | 'group'; title: string; status: 'open' | 'closed';
   unread: number; lastMessageAt: string; lastMessagePreview: string; lastDirection: 'in' | 'out';
@@ -29,8 +30,25 @@ interface ConversationDetail extends ConversationItem {
   canEdit: boolean; canReply: boolean; messages: Message[]; hasOlder: boolean;
 }
 
-export function ChannelIcon({ kind, className }: { kind: ChannelKind; className?: string }) {
-  return kind === 'telegram_bot' ? <Send className={cn('size-3.5', className)} aria-label="Telegram" /> : <Globe className={cn('size-3.5', className)} aria-label="Website chat" />;
+const CHANNEL_ICONS: Record<ChannelKind, typeof Globe> = { webchat: Globe, telegram_bot: Send, messenger: MessageCircle, instagram: Camera, whatsapp: Phone };
+/** The channel's icon; labelled for screen readers unless `decorative` (next to text that already names it). */
+export function ChannelIcon({ kind, className, decorative }: { kind: ChannelKind; className?: string; decorative?: boolean }) {
+  const Icon = CHANNEL_ICONS[kind] ?? Globe;
+  return decorative ? <Icon className={cn('size-3.5', className)} aria-hidden="true" /> : <Icon className={cn('size-3.5', className)} role="img" aria-label={CHANNEL_LABELS[kind] ?? 'Chat'} />;
+}
+
+/** Meta delivers replies only within 24 hours of the customer's last message. */
+const DAY_MS = 24 * 60 * 60 * 1000;
+function ReplyWindowNotice({ kind, messages }: { kind: ChannelKind; messages: Message[] }) {
+  if (!isMetaKind(kind)) return null;
+  const lastIn = [...messages].reverse().find((m) => m.direction === 'in');
+  if (!lastIn || Date.now() - new Date(lastIn.createdAt).getTime() < DAY_MS) return null;
+  return (
+    <p className="flex items-start gap-2 border-t border-base bg-amber-50 px-4 py-2 text-xs text-amber-900 dark:bg-amber-500/10 dark:text-amber-100" role="status">
+      <Clock className="mt-0.5 size-3.5 shrink-0" />
+      <span>Their last message was more than 24 hours ago. {CHANNEL_LABELS[kind]} only delivers replies within 24 hours of it, so a reply now will probably fail. Ask them to write again, or contact them another way.</span>
+    </p>
+  );
 }
 
 export function InboxPage() {
@@ -44,7 +62,7 @@ export function InboxPage() {
       </aside>
       <section className={cn('flex min-w-0 flex-1 flex-col', !activeId && 'max-md:hidden')} aria-label="Conversation">
         {activeId ? <Thread key={activeId} id={activeId} /> : (
-          <div className="grid flex-1 place-items-center"><EmptyState icon={<MessageCircle className="size-5" />} title="Pick a conversation" description="Messages from your website chat and Telegram bots arrive here." /></div>
+          <div className="grid flex-1 place-items-center"><EmptyState icon={<MessageCircle className="size-5" />} title="Pick a conversation" description="Messages from all your connected channels arrive here." /></div>
         )}
       </section>
     </div>
@@ -212,6 +230,7 @@ function Thread({ id }: { id: number }) {
         <div ref={bottom} />
       </div>
       <TypingLine conversationId={id} />
+      <ReplyWindowNotice kind={d.channelKind} messages={d.messages} />
       <Composer conversationId={id} canReply={d.canReply} reason={!d.canEdit ? 'You can read this conversation but your role can’t reply.' : d.channelStatus !== 'active' ? 'This channel is disabled or disconnected, so replies can’t be sent.' : ''} onSent={refresh} customerName={d.profile.name || d.title} />
       <LinkDialog open={linkOpen} onOpenChange={setLinkOpen} conversationId={id} onLinked={refresh} />
     </>

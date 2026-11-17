@@ -4,8 +4,9 @@ import { useCan } from '../../lib/hooks.ts';
 import { Card } from '../../components/ui/primitives.tsx';
 import { FeedList, useFeed } from '../../components/ui/FeedList.tsx';
 import { ChannelIcon } from './InboxPage.tsx';
+import type { ChannelKind } from '@crm/shared';
 
-interface Item { id: number; channelKind: 'webchat' | 'telegram_bot'; title: string; status: string; lastMessageAt: string; lastMessagePreview: string; unread: number }
+interface Item { id: number; channelKind: ChannelKind; title: string; status: string; lastMessageAt: string; lastMessagePreview: string; unread: number }
 
 /** "Conversations" card on contact and lead pages: Inbox conversations linked to the record (open and closed). */
 export function LinkedConversations({ contactId, leadId }: { contactId?: number; leadId?: number }) {

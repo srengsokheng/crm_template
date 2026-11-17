@@ -1,7 +1,9 @@
-/** Settings → Channels (admins): connect website chat and Telegram bots. */
+/** Settings → Channels (admins): connect website chat, Telegram bots, Facebook Messenger, Instagram and WhatsApp. */
 import { randomBytes } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
-import { channelCreateSchema, channelUpdateSchema } from '@crm/shared';
+import { channelCreateSchema, channelUpdateSchema, isMetaKind, type MetaKind } from '@crm/shared';
+import { config } from '../config.ts';
+import { credentialsOf, metaWebhookUrl, newVerifyToken, sealCredentials, verifyMetaAccount } from '../inbox/meta.ts';
 import { q, q1, sql, tx } from '../db/index.ts';
 import { audit } from '../lib/audit.ts';
 import { conflict, notFound } from '../lib/errors.ts';
@@ -23,7 +25,10 @@ function publicChannel(c: ChannelRow & { conversation_count?: number; created_at
     created_at: c.created_at, conversation_count: c.conversation_count ?? 0,
     config: c.kind === 'webchat'
       ? { greeting: cfg.greeting, color: cfg.color, allowedOrigins: cfg.allowedOrigins ?? [] }
-      : { username: cfg.username, botName: cfg.botName, mode: cfg.mode },
+      : isMetaKind(c.kind)
+        // What the admin pastes into the Meta app's webhook settings (the verify token only proves the URL is ours).
+        ? { accountId: cfg.accountId, accountName: cfg.accountName, webhookUrl: metaWebhookUrl(c), verifyToken: c.webhook_secret, httpsReady: config.appUrl.startsWith('https://') }
+        : { username: cfg.username, botName: cfg.botName, mode: cfg.mode },
   });
 }
 
@@ -47,6 +52,21 @@ export async function channelRoutes(app: FastifyInstance) {
           VALUES (${ctx.workspaceId}, 'webchat', ${body.name}, ${publicKey},
             ${JSON.stringify({ greeting: body.greeting, color: body.color, allowedOrigins: body.allowedOrigins })}, ${ctx.userId}) RETURNING *`, db);
         await audit(db, ctx, 'channel', r!.id, 'created', { kind: 'webchat', name: body.name });
+        return r!;
+      });
+      return reply.code(201).send(publicChannel(row));
+    }
+    if (body.kind === 'messenger' || body.kind === 'instagram' || body.kind === 'whatsapp') {
+      const kind: MetaKind = body.kind;
+      const sealed = sealCredentials({ accessToken: body.accessToken, appSecret: body.appSecret }); // fails early (503) without SECRETS_KEY
+      const dup = await q1(sql`SELECT 1 FROM channels WHERE workspace_id = ${ctx.workspaceId} AND kind = ${kind} AND config->>'accountId' = ${body.accountId}`);
+      if (dup) throw conflict('This account is already connected');
+      const acct = await verifyMetaAccount(kind, body.accountId, body.accessToken);
+      const row = await tx(async (db) => {
+        const r = await q1<ChannelRow>(sql`INSERT INTO channels (workspace_id, kind, name, public_key, config, secret, webhook_secret, created_by)
+          VALUES (${ctx.workspaceId}, ${kind}, ${body.name || acct.accountName}, ${publicKey},
+            ${JSON.stringify({ accountId: body.accountId, accountName: acct.accountName })}, ${sealed}, ${newVerifyToken()}, ${ctx.userId}) RETURNING *`, db);
+        await audit(db, ctx, 'channel', r!.id, 'created', { kind, name: r!.name });
         return r!;
       });
       return reply.code(201).send(publicChannel(row));
@@ -76,7 +96,18 @@ export async function channelRoutes(app: FastifyInstance) {
     let status = body.status ?? (c.status === 'disabled' ? 'disabled' : c.status);
     const cfg: Record<string, unknown> = {};
     let webhookSecret = c.webhook_secret;
-    if (c.kind === 'webchat') {
+    let secret = c.secret;
+    if (isMetaKind(c.kind)) {
+      // New credentials, or re-enabling: check them with Meta first.
+      const creds = body.accessToken && body.appSecret ? { accessToken: body.accessToken, appSecret: body.appSecret } : null;
+      if (creds || (body.status === 'active' && c.status !== 'active')) {
+        const use = creds ?? credentialsOf(c);
+        const acct = await verifyMetaAccount(c.kind, String(c.config.accountId), use.accessToken);
+        cfg.accountName = acct.accountName;
+        if (creds) secret = sealCredentials(creds);
+        if (body.status !== 'disabled' && (c.status !== 'disabled' || body.status === 'active')) status = 'active';
+      }
+    } else if (c.kind === 'webchat') {
       if (body.greeting !== undefined) cfg.greeting = body.greeting;
       if (body.color !== undefined) cfg.color = body.color;
       if (body.allowedOrigins !== undefined) cfg.allowedOrigins = body.allowedOrigins;
@@ -92,9 +123,11 @@ export async function channelRoutes(app: FastifyInstance) {
     return tx(async (db) => {
       const r = await q1<ChannelRow>(sql`UPDATE channels SET name = ${body.name ?? c.name}, status = ${status},
           last_error = ${status === 'error' ? c.last_error : null},
-          config = config || ${JSON.stringify(cfg)}::jsonb, webhook_secret = ${webhookSecret}
+          config = config || ${JSON.stringify(cfg)}::jsonb, webhook_secret = ${webhookSecret}, secret = ${secret}
         WHERE id = ${c.id} RETURNING *`, db);
-      await audit(db, ctx, 'channel', c.id, 'updated', { ...body });
+      // Credentials never go into the audit log.
+      const { accessToken, appSecret, ...logged } = body;
+      await audit(db, ctx, 'channel', c.id, 'updated', { ...logged, ...(accessToken || appSecret ? { credentials: 'replaced' } : {}) });
       return publicChannel(r!);
     });
   });

@@ -1,9 +1,26 @@
 import { z } from 'zod';
 
 /** Messaging channels the Inbox can receive from. */
-export const CHANNEL_KINDS = ['webchat', 'telegram_bot'] as const;
+export const CHANNEL_KINDS = ['webchat', 'telegram_bot', 'messenger', 'instagram', 'whatsapp'] as const;
 export type ChannelKind = (typeof CHANNEL_KINDS)[number];
-export const CHANNEL_LABELS: Record<ChannelKind, string> = { webchat: 'Website chat', telegram_bot: 'Telegram bot' };
+export const CHANNEL_LABELS: Record<ChannelKind, string> = {
+  webchat: 'Website chat', telegram_bot: 'Telegram bot', messenger: 'Facebook Messenger', instagram: 'Instagram', whatsapp: 'WhatsApp',
+};
+/** Channels connected through Meta's official APIs (one webhook design, a 24-hour reply window). */
+export const META_KINDS = ['messenger', 'instagram', 'whatsapp'] as const;
+export type MetaKind = (typeof META_KINDS)[number];
+export const isMetaKind = (k: string): k is MetaKind => (META_KINDS as readonly string[]).includes(k);
+/** What the account id is called in Meta's dashboards. */
+export const META_ACCOUNT_LABELS: Record<MetaKind, string> = {
+  messenger: 'Facebook Page ID', instagram: 'Instagram account ID', whatsapp: 'Phone number ID',
+};
+
+/** Meta credentials: a long-lived access token and the app secret (checks that webhooks really come from Meta). */
+const metaCredentials = {
+  accessToken: z.string().trim().min(20, 'Paste the whole access token').max(1000).regex(/^[A-Za-z0-9_|.-]+$/, 'The access token has unexpected characters — copy it again'),
+  appSecret: z.string().trim().regex(/^[0-9a-f]{32}$/i, 'The app secret is 32 letters and digits (App settings → Basic)'),
+};
+const metaAccountId = z.string().trim().regex(/^\d{5,25}$/, 'Use the number shown in Meta’s dashboard');
 
 const id = z.coerce.number().int().positive();
 const text = (max: number) => z.string().trim().max(max);
@@ -26,6 +43,9 @@ export const channelCreateSchema = z.discriminatedUnion('kind', [
     /** From @BotFather, e.g. 123456789:AA… */
     token: z.string().trim().regex(/^\d{3,15}:[A-Za-z0-9_-]{20,}$/, 'Paste the token @BotFather gave you (it looks like 123456789:AA…)'),
   }),
+  z.object({ kind: z.literal('messenger'), name: text(80).optional(), accountId: metaAccountId, ...metaCredentials }),
+  z.object({ kind: z.literal('instagram'), name: text(80).optional(), accountId: metaAccountId, ...metaCredentials }),
+  z.object({ kind: z.literal('whatsapp'), name: text(80).optional(), accountId: metaAccountId, ...metaCredentials }),
 ]);
 
 export const channelUpdateSchema = z.object({
@@ -34,7 +54,10 @@ export const channelUpdateSchema = z.object({
   greeting: text(300).optional(),
   color: hexColor.optional(),
   allowedOrigins: z.array(origin).max(20).optional(),
-});
+  /** Meta channels: replace the credentials (e.g. after the token expired); both together. */
+  accessToken: metaCredentials.accessToken.optional(),
+  appSecret: metaCredentials.appSecret.optional(),
+}).refine((v) => (v.accessToken === undefined) === (v.appSecret === undefined), { message: 'Enter the access token and the app secret', path: ['appSecret'] });
 
 export const conversationListSchema = z.object({
   status: z.enum(['open', 'closed', 'all']).default('open'),

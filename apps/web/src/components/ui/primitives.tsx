@@ -92,8 +92,8 @@ export function Card({ children, className, title, actions, padded = true }: { c
     <section className={cn('surface rounded-[var(--radius-card)] border border-base shadow-xs', className)}>
       {(title || actions) && (
         <header className="flex items-center justify-between gap-2 border-b border-base px-4 py-3">
-          <h2 className="text-[13px] font-semibold">{title}</h2>
-          <div className="flex items-center gap-1">{actions}</div>
+          <h2 className="min-w-0 text-[13px] font-semibold">{title}</h2>
+          <div className="flex shrink-0 items-center gap-1">{actions}</div>
         </header>
       )}
       <div className={padded ? 'p-4' : ''}>{children}</div>

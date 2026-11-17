@@ -11,6 +11,8 @@ import { openSecret } from '../lib/secrets.ts';
 import { scanBuffer } from '../lib/virusScan.ts';
 import type { ChannelRow } from './store.ts';
 import { tg, TelegramError, type TgMessage } from './telegram.ts';
+import { fetchMetaFile } from './meta.ts';
+import { isMetaKind } from '@crm/shared';
 
 export const BOT_DOWNLOAD_LIMIT = 20 * 1024 * 1024;
 export const maxFileBytes = () => Math.min(config.files.maxBytes, BOT_DOWNLOAD_LIMIT);
@@ -40,8 +42,8 @@ export async function queueIncomingFile(db: Db, workspaceId: number, messageId: 
   if (!tooLarge) await q(sql`INSERT INTO jobs (type, payload, workspace_id) VALUES ('inbox.fetch_file', ${JSON.stringify({ fileId: row!.id })}, ${workspaceId})`, db);
 }
 
-/** Job: download one incoming Telegram file into storage. Throws on temporary errors so the queue retries. */
-export async function fetchTelegramFile(fileRowId: number): Promise<void> {
+/** Job: download one incoming file (Telegram, Messenger, Instagram, WhatsApp) into storage. Throws on temporary errors so the queue retries. */
+export async function fetchIncomingFile(fileRowId: number): Promise<void> {
   const f = await q1<{ id: number; workspace_id: number; status: string; platform_file_id: string; channel_id: number }>(sql`
     SELECT mf.id, mf.workspace_id, mf.status, mf.platform_file_id, cv.channel_id
     FROM message_files mf JOIN messages m ON m.id = mf.message_id JOIN conversations cv ON cv.id = m.conversation_id
@@ -49,6 +51,7 @@ export async function fetchTelegramFile(fileRowId: number): Promise<void> {
   if (!f || f.status !== 'pending') return;
   const ch = await q1<ChannelRow>(sql`SELECT * FROM channels WHERE id = ${f.channel_id}`);
   if (!ch?.secret) return setStatus(f.id, 'failed');
+  if (isMetaKind(ch.kind)) return fetchMetaFile(f.id, ch, f.platform_file_id);
   const token = openSecret(ch.secret);
   let path: string;
   try {

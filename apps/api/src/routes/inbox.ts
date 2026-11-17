@@ -18,6 +18,7 @@ import type { ServerResponse } from 'node:http';
 import { enqueue } from '../automation/engine.ts';
 import { notifyInbox, notifyTyping, stopListening, subscribe } from '../inbox/events.ts';
 import { showTelegramTyping } from '../inbox/telegram.ts';
+import { showMetaTyping } from '../inbox/meta.ts';
 import { preview } from '../inbox/store.ts';
 import { createContact } from './parties.ts';
 
@@ -105,7 +106,10 @@ export async function inboxRoutes(app: FastifyInstance) {
     const c = await loadConversation(pool, ctx, Number(req.params.id), 'edit');
     const me = await q1<{ name: string }>(sql`SELECT name FROM users WHERE id = ${ctx.userId}`);
     await notifyTyping(c.id, 'team', (me?.name ?? '').split(' ')[0], ctx.userId);
-    if (c.channel_kind === 'telegram_bot' && c.channel_status === 'active') showTelegramTyping(c.channel_id, c.id);
+    if (c.channel_status === 'active') {
+      if (c.channel_kind === 'telegram_bot') showTelegramTyping(c.channel_id, c.id);
+      else if (c.channel_kind === 'messenger' || c.channel_kind === 'instagram') showMetaTyping(c.channel_id, c.id);
+    }
     return reply.code(204).send();
   });
 

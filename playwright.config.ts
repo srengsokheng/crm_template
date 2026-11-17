@@ -27,6 +27,6 @@ export default defineConfig({
     url: `http://localhost:${port}/api/v1/health`,
     reuseExistingServer: false,
     timeout: 60_000,
-    env: { E2E_PORT: String(port), INLINE_WORKER: 'true' },
+    env: { E2E_PORT: String(port), INLINE_WORKER: 'true', META_GRAPH_URL: 'http://127.0.0.1:47123' }, // e2e/inbox-meta.spec.ts fakes Meta there
   },
 });
