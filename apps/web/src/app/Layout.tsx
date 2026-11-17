@@ -63,8 +63,8 @@ function Sidebar({ items, onSearch }: { items: NavItem[]; onSearch: () => void }
         <span className="truncate text-[15px] font-semibold max-lg:hidden">{me?.workspace.name ?? 'Acme CRM'}</span>
       </div>
       <div className="px-3 pb-2 max-lg:px-2">
-        <button type="button" onClick={onSearch} className="flex h-9 w-full items-center gap-2 rounded-md border border-base px-2.5 text-[13px] text-muted hover:bg-[var(--surface-2)] max-lg:justify-center max-lg:px-0" aria-label="Open search">
-          <Search className="size-4" /><span className="flex-1 text-left max-lg:hidden">Search…</span>
+        <button type="button" onClick={onSearch} className="flex h-9 w-full items-center gap-2 rounded-md border border-base px-2.5 text-[13px] text-muted hover:bg-[var(--surface-2)] max-lg:justify-center max-lg:px-0" aria-keyshortcuts="Control+K Meta+K">
+          <Search className="size-4" /><span className="flex-1 text-left max-lg:sr-only">Search…</span>
           <kbd className="rounded border border-base px-1 text-[10px] max-lg:hidden">⌘K</kbd>
         </button>
       </div>
@@ -188,7 +188,7 @@ function TopBar({ onSearch }: { onSearch: () => void }) {
       <div className="flex items-center gap-2 md:hidden">
         <img src="/favicon.svg" alt="" className="size-7" />
       </div>
-      <button type="button" onClick={onSearch} className="flex h-9 flex-1 items-center gap-2 rounded-md border border-base surface px-3 text-[13px] text-muted md:hidden" aria-label="Open search">
+      <button type="button" onClick={onSearch} className="flex h-9 flex-1 items-center gap-2 rounded-md border border-base surface px-3 text-[13px] text-muted md:hidden" aria-label="Search…">
         <Search className="size-4" />Search
       </button>
       <div className="flex-1 max-md:hidden" />

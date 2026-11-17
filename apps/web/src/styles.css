@@ -7,6 +7,7 @@
   --color-brand-50: #eef2ff;
   --color-brand-100: #e0e7ff;
   --color-brand-200: #c7d2fe;
+  --color-brand-300: #a5b4fc;
   --color-brand-500: #6366f1;
   --color-brand-600: #4f46e5;
   --color-brand-700: #4338ca;
@@ -21,7 +22,8 @@
   --surface-2: #f1f5f9;
   --border: #e2e8f0;
   --text: #0f172a;
-  --muted: #64748b;
+  /* ≥ 4.5:1 on every light background incl. tinted rows (#eef2ff, #f1f5f9) — WCAG AA, see docs/UI-RULES.md §8. */
+  --muted: #5b6779;
 }
 [data-theme='dark'] {
   color-scheme: dark;
@@ -50,4 +52,28 @@
 @utility surface-2 { background: var(--surface-2); }
 @utility border-base { border-color: var(--border); }
 @utility text-muted { color: var(--muted); }
+
+/*
+ * Text contrast (WCAG AA 4.5:1, checked by e2e/a11y.spec.ts). The 600 shades of these hues are too light as text on
+ * white, and the 600 shades of the others too dark on the dark surfaces, so text colour classes are mapped to the
+ * nearest shade that passes. Components can keep writing text-amber-600 / text-rose-600 / text-brand-600.
+ */
+:root:not([data-theme='dark']) .text-orange-600 { color: var(--color-orange-700); }
+:root:not([data-theme='dark']) .text-amber-600 { color: var(--color-amber-700); }
+:root:not([data-theme='dark']) .text-yellow-600 { color: var(--color-yellow-700); }
+:root:not([data-theme='dark']) .text-lime-600 { color: var(--color-lime-700); }
+:root:not([data-theme='dark']) .text-green-600 { color: var(--color-green-700); }
+:root:not([data-theme='dark']) .text-emerald-600 { color: var(--color-emerald-700); }
+:root:not([data-theme='dark']) .text-teal-600 { color: var(--color-teal-700); }
+:root:not([data-theme='dark']) .text-cyan-600 { color: var(--color-cyan-700); }
+:root:not([data-theme='dark']) .text-sky-600 { color: var(--color-sky-700); }
+[data-theme='dark'] .text-red-600 { color: var(--color-red-400); }
+[data-theme='dark'] .text-rose-600 { color: var(--color-rose-400); }
+[data-theme='dark'] .text-blue-600 { color: var(--color-blue-400); }
+[data-theme='dark'] .text-indigo-600 { color: var(--color-indigo-400); }
+[data-theme='dark'] .text-violet-600 { color: var(--color-violet-400); }
+[data-theme='dark'] .text-purple-600 { color: var(--color-purple-400); }
+[data-theme='dark'] .text-fuchsia-600 { color: var(--color-fuchsia-400); }
+[data-theme='dark'] .text-pink-600 { color: var(--color-pink-400); }
+[data-theme='dark'] .text-brand-600, [data-theme='dark'] .text-brand-700 { color: var(--color-brand-300); }
 @utility tabular { font-variant-numeric: tabular-nums; }

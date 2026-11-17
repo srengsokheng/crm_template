@@ -102,8 +102,12 @@ one-off in the feature.
 - Text contrast ≥ 4.5:1 (3:1 for large text and UI borders) in both themes; never convey meaning by colour alone
   (badges have text, errors have words).
 - Content that updates by itself (inbox, toasts, upload results) is in an `aria-live` region.
-- Automated: Playwright runs an axe scan on every main screen (`e2e/a11y.spec.ts`, added with the accessibility
-  pass); no serious or critical violations may be merged.
+- Automated: Playwright runs an axe scan (WCAG 2.1 A/AA) of every main screen in light and dark, phone layouts, and
+  open dialogs/menus (`e2e/a11y.spec.ts`); serious or critical violations fail the build. Add new screens to it.
+- Colour: text colour classes `text-{hue}-600` are remapped in `styles.css` to the nearest shade that passes in each
+  theme; avatars use 700 shades. Check new colours with the scan rather than by eye.
+- Drag and drop always has a keyboard path: a focusable handle ("Move …"; Space, arrows, Space), never a focusable
+  wrapper around links or buttons.
 
 ## 9. Text
 

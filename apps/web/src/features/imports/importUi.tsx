@@ -69,7 +69,7 @@ export function Steps({ current }: { current: number }) {
         <li key={s} className="flex items-center gap-2" aria-current={i === current ? 'step' : undefined}>
           {i > 0 && <span className="h-px w-4 bg-[var(--border)] sm:w-6" aria-hidden />}
           <span className={cn('flex size-5 items-center justify-center rounded-full text-[11px] font-semibold',
-            i < current ? 'bg-emerald-600 text-white' : i === current ? 'bg-brand-600 text-white' : 'bg-[var(--surface-2)] text-muted')}>
+            i < current ? 'bg-emerald-700 text-white' : i === current ? 'bg-brand-600 text-white' : 'bg-[var(--surface-2)] text-muted')}>
             {i < current ? <Check className="size-3" /> : i + 1}
           </span>
           <span className={cn(i === current ? 'font-medium' : 'text-muted', i !== current && 'max-sm:sr-only')}>{s}</span>

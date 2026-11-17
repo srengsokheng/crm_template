@@ -9,7 +9,7 @@ const variants: Record<Variant, string> = {
   secondary: 'surface border border-base hover:bg-[var(--surface-2)] shadow-sm',
   ghost: 'hover:bg-[var(--surface-2)] text-[var(--text)]',
   danger: 'bg-rose-600 text-white hover:bg-rose-700 shadow-sm',
-  success: 'bg-emerald-600 text-white hover:bg-emerald-700 shadow-sm',
+  success: 'bg-emerald-700 text-white hover:bg-emerald-800 shadow-sm',
 };
 const sizes = { sm: 'h-8 px-2.5 text-[13px] gap-1.5', md: 'h-9 px-3.5 gap-2', lg: 'h-10 px-4 gap-2' };
 
@@ -76,7 +76,8 @@ export function Badge({ tone = 'slate', children, className }: { tone?: keyof ty
   return <span className={cn('inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium whitespace-nowrap', tones[tone], className)}>{children}</span>;
 }
 
-const avatarColors = ['bg-indigo-500', 'bg-emerald-500', 'bg-amber-500', 'bg-rose-500', 'bg-sky-500', 'bg-violet-500', 'bg-teal-500'];
+// 700 shades: white initials stay ≥ 4.5:1 (WCAG AA).
+const avatarColors = ['bg-indigo-700', 'bg-emerald-700', 'bg-amber-700', 'bg-rose-700', 'bg-sky-700', 'bg-violet-700', 'bg-teal-700'];
 export function Avatar({ name, size = 'md', className }: { name?: string | null; size?: 'xs' | 'sm' | 'md'; className?: string }) {
   const color = avatarColors[(name ?? '').split('').reduce((a, c) => a + c.charCodeAt(0), 0) % avatarColors.length];
   const s = size === 'xs' ? 'size-5 text-[9px]' : size === 'sm' ? 'size-6 text-[10px]' : 'size-8 text-xs';

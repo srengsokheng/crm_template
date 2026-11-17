@@ -28,7 +28,7 @@ export function StageBar({ stages, currentId, status, onSelect, disabled }: {
       })}
       {status !== 'open' && current && (
         <div className={cn('flex h-8 min-w-24 items-center justify-center gap-1 rounded-md px-3 text-xs font-semibold',
-          status === 'won' ? 'bg-emerald-600 text-white' : 'bg-rose-600 text-white')}>
+          status === 'won' ? 'bg-emerald-700 text-white' : 'bg-rose-700 text-white')}>
           {status === 'won' ? <Check className="size-3.5" /> : <X className="size-3.5" />}{current.name}
         </div>
       )}

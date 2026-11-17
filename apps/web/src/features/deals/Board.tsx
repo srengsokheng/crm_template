@@ -1,7 +1,32 @@
 import { useState, type ReactNode } from 'react';
-import { DndContext, DragOverlay, KeyboardSensor, PointerSensor, TouchSensor, useDraggable, useDroppable, useSensor, useSensors, type DragEndEvent, type DragStartEvent } from '@dnd-kit/core';
+import { DndContext, DragOverlay, KeyboardSensor, PointerSensor, TouchSensor, useDraggable, useDroppable, useSensor, useSensors, type DragEndEvent, type DragStartEvent, type KeyboardCoordinateGetter } from '@dnd-kit/core';
+
+/**
+ * Keyboard moving: each arrow key jumps to the nearest drop area (stage column, Won / Lost) in that direction, instead
+ * of dnd-kit's default 25px nudge, which never reached the next column.
+ */
+const jumpToDropArea: KeyboardCoordinateGetter = (event, { context: { droppableRects, droppableContainers, collisionRect } }) => {
+  const dir = ({ ArrowRight: [1, 0], ArrowLeft: [-1, 0], ArrowDown: [0, 1], ArrowUp: [0, -1] } as Record<string, [number, number]>)[event.code];
+  if (!dir || !collisionRect) return undefined;
+  event.preventDefault();
+  const cx = collisionRect.left + collisionRect.width / 2;
+  const cy = collisionRect.top + collisionRect.height / 2;
+  let best: { x: number; y: number; d: number } | null = null;
+  for (const c of droppableContainers.getEnabled()) {
+    const r = droppableRects.get(c.id);
+    if (!r) continue;
+    const tx = r.left + r.width / 2, ty = r.top + Math.min(r.height / 2, 60);
+    const along = (tx - cx) * dir[0] + (ty - cy) * dir[1];
+    const inside = cx >= r.left && cx <= r.left + r.width && cy >= r.top && cy <= r.top + r.height;
+    if (along <= 1 || inside) continue; // only areas ahead in the arrow's direction
+    const across = Math.abs((tx - cx) * dir[1]) + Math.abs((ty - cy) * dir[0]);
+    const d = along + across * 2;
+    if (!best || d < best.d) best = { x: tx - collisionRect.width / 2, y: ty - collisionRect.height / 2, d };
+  }
+  return best ? { x: best.x, y: best.y } : undefined;
+};
 import { Link } from 'react-router';
-import { Plus, CheckCircle2, XCircle, Clock, AlertTriangle } from 'lucide-react';
+import { Plus, CheckCircle2, XCircle, Clock, AlertTriangle, GripVertical } from 'lucide-react';
 import { cn } from '../../lib/cn.ts';
 import { dueLabel, money } from '../../lib/format.ts';
 import type { NextActivity, Stage } from '../../lib/types.ts';
@@ -24,7 +49,7 @@ export function Board({ stages, cards, stats, currency, onMove, onQuickAdd, clos
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
     useSensor(TouchSensor, { activationConstraint: { delay: 200, tolerance: 6 } }),
-    useSensor(KeyboardSensor),
+    useSensor(KeyboardSensor, { coordinateGetter: jumpToDropArea }),
   );
   const open = stages.filter((s) => s.kind === 'open');
   const onStart = (e: DragStartEvent) => setDragging(cards.find((c) => c.id === e.active.id) ?? null);
@@ -97,22 +122,36 @@ function DropZone({ stage, label, tone, active }: { stage: Stage; label: string;
   );
 }
 
+/**
+ * Mouse and touch drag the whole card; keyboard users focus the grip button ("Move …", Space to pick up, arrows, Space
+ * to drop). The card itself isn't a button, so its link isn't nested inside another control (WCAG 4.1.2).
+ */
 function DraggableCard({ card, disabled }: { card: BoardCard; disabled: boolean }) {
-  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({ id: card.id, disabled });
+  const { attributes, listeners, setNodeRef, setActivatorNodeRef, isDragging } = useDraggable({ id: card.id, disabled });
+  const { onKeyDown, ...pointer } = (listeners ?? {}) as Record<string, (e: unknown) => void>;
+  const handle = disabled ? null : (
+    <button type="button" ref={setActivatorNodeRef} {...attributes} onKeyDown={onKeyDown} aria-label={`Move ${card.title}`} title="Drag to another stage"
+      className="-mr-1 -mt-0.5 inline-flex size-6 shrink-0 cursor-grab items-center justify-center rounded text-muted hover:bg-[var(--surface-2)] hover:text-[var(--text)]">
+      <GripVertical className="size-3.5" />
+    </button>
+  );
   return (
-    <div ref={setNodeRef} {...listeners} {...attributes} className={cn('touch-manipulation', isDragging && 'opacity-30')} aria-roledescription="Draggable card">
-      <CardBody card={card} />
+    <div ref={setNodeRef} {...pointer} className={cn('touch-manipulation', isDragging && 'opacity-30')}>
+      <CardBody card={card} handle={handle} />
     </div>
   );
 }
 
-function CardBody({ card, overlay }: { card: BoardCard; overlay?: boolean }) {
+function CardBody({ card, overlay, handle }: { card: BoardCard; overlay?: boolean; handle?: ReactNode }) {
   const due = card.nextActivity ? dueLabel(card.nextActivity.dueAt) : null;
   const idleDays = Math.floor((Date.now() - new Date(card.stageChangedAt).getTime()) / 864e5);
   const rotting = card.rotDays && idleDays >= card.rotDays;
   return (
     <article className={cn('surface rounded-lg border border-base p-3 shadow-xs transition-shadow hover:shadow-md', overlay && 'rotate-1 shadow-xl')}>
-      <Link to={card.href} className="block text-sm font-medium leading-snug hover:text-brand-700 dark:hover:text-brand-200" onClick={(e) => overlay && e.preventDefault()}>{card.title}</Link>
+      <div className="flex items-start gap-1">
+        <Link to={card.href} className="block min-w-0 flex-1 text-sm font-medium leading-snug hover:text-brand-700 dark:hover:text-brand-200" onClick={(e) => overlay && e.preventDefault()}>{card.title}</Link>
+        {handle}
+      </div>
       {card.subtitle && <p className="mt-0.5 truncate text-xs text-muted">{card.subtitle}</p>}
       <div className="mt-2 flex items-center justify-between gap-2">
         <span className="text-sm font-semibold tabular">{card.amount && Number(card.amount) > 0 ? money(card.amount, card.currency) : <span className="font-normal text-muted">No value</span>}</span>

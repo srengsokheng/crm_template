@@ -303,7 +303,14 @@ The research behind every decision is in this folder:
   Inbox threads ("Load older messages", 50 at a time). The short logs keep a fixed size and say so (webhook deliveries
   and failed emails: the 50 most recent); CSV exports state their row limits.
 
-**Quality:** 203 Vitest tests (API against real PostgreSQL), 50 Playwright tests (desktop, tablet, phone), lint and
+- **Accessibility** (`e2e/a11y.spec.ts`, `@axe-core/playwright`): axe scans (WCAG 2.1 A/AA) of every main screen in
+  light and dark, phone layouts and open dialogs/menus; serious or critical violations fail CI. Fixed in this pass:
+  text contrast (muted grey `#5b6779`; `text-*-600` remapped per theme in `styles.css`; 700-shade avatars and green
+  buttons; brand links lightened in dark mode), the search button's name, and the deal/lead board: cards are no longer
+  a focusable wrapper around links (a "Move …" grip button is the keyboard handle) and the arrow keys jump between
+  stage columns and the Won/Lost zones (before, keyboard moving only nudged the card 25px and never reached a column).
+
+**Quality:** 203 Vitest tests (API against real PostgreSQL), 53 Playwright tests (desktop, tablet, phone), lint and
 typecheck clean, `npm audit` = 0, GitHub Actions CI in `.github/workflows/ci.yml`.
 
 ## 3. Not built yet — suggested next work (in priority order)
