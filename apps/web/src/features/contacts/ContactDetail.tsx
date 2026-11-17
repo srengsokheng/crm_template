@@ -10,7 +10,7 @@ import { Button, Card, IconButton, Input, Select, Textarea } from '../../compone
 import { Menu } from '../../components/ui/overlays.tsx';
 import { MultiEntityPicker, type PickerItem } from '../../components/ui/EntityPicker.tsx';
 import { useCreate } from '../../app/create.tsx';
-import { DictSelect, MethodsEditor, methodsPayload, UserSelect } from '../records/form.tsx';
+import { AddressEditor, addressPayload, DictSelect, formatAddress, MethodsEditor, methodsPayload, UserSelect, type Address } from '../records/form.tsx';
 import { CustomFieldsRows, EditRow, RecordError, RecordShell, RecordSkeleton, useDeleteWithUndo } from '../records/record.tsx';
 import { MethodsView } from '../records/MethodsView.tsx';
 import { RelatedDeals, type RelatedDeal } from '../records/RelatedDeals.tsx';
@@ -22,7 +22,7 @@ import { MergeUndoBanner } from '../records/MergeUndoBanner.tsx';
 
 interface Contact {
   id: number; version: number; firstName: string | null; lastName: string | null; jobTitle: string | null; birthday: string | null; typeId: number | null;
-  sourceId: number | null; ownerId: number; visibility: string; description: string | null; custom: Record<string, unknown>; createdAt: string;
+  sourceId: number | null; ownerId: number; visibility: string; description: string | null; address: Address | null; custom: Record<string, unknown>; createdAt: string;
   methods: Method[]; companies: { id: number; name: string }[]; deals: RelatedDeal[]; primaryCompanyId: number | null;
 }
 
@@ -79,6 +79,7 @@ export function ContactDetail() {
             <EditRow label="Birthday" value={c.birthday ?? ''} canEdit={edit} locked={locked('contact', 'birthday')} display={date(c.birthday)} renderEditor={(v, s) => <Input type="date" value={v} onChange={(e) => s(e.target.value)} />} onSave={(v) => patch({ birthday: v || null })} />
             <EditRow label="Owner" value={c.ownerId} canEdit={edit} locked={locked('contact', 'ownerId')} display={userName(c.ownerId)} renderEditor={(v, s) => <UserSelect value={v} onChange={(x) => s(x ?? v)} />} onSave={(v) => patch({ ownerId: v })} />
             <EditRow label="Visibility" value={c.visibility} canEdit={edit} locked={locked('contact', 'visibility')} display={c.visibility === 'private' ? 'Private (owner & admins)' : 'Shared'} renderEditor={(v, s) => <Select value={v} onChange={(e) => s(e.target.value)}><option value="shared">Shared</option><option value="private">Private</option></Select>} onSave={(v) => patch({ visibility: v })} />
+            <EditRow label="Address" value={(c.address ?? {}) as Address} canEdit={edit} locked={locked('contact', 'address')} display={formatAddress(c.address) || <span className="text-muted">—</span>} renderEditor={(v, s) => <AddressEditor value={v} onChange={s} />} onSave={(v) => patch({ address: addressPayload(v) })} />
             <EditRow label="Notes" value={c.description ?? ''} canEdit={edit} locked={locked('contact', 'description')} display={c.description ? <span className="whitespace-pre-wrap">{c.description}</span> : <span className="text-muted">—</span>} renderEditor={(v, s) => <Textarea autoFocus value={v} onChange={(e) => s(e.target.value)} />} onSave={(v) => patch({ description: v || null })} />
             <CustomFieldsRows entity="contact" custom={c.custom} canEdit={edit} onSave={(p) => patch({ custom: p })} />
           </div>

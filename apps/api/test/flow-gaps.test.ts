@@ -98,3 +98,32 @@ describe('product categories and custom-field order', () => {
     expect((await rep.c.post('/fields/reorder', { ids: [a.id, b.id, g.id] })).status).toBe(403);
   });
 });
+
+describe('history names related records, only when you may see them', () => {
+  it('shows a related deal\'s title to people who can see it, and a neutral line to others', async () => {
+    const { c } = await signup();
+    const rep = await inviteUser(c, 'Sales rep', 'Rita');
+    const contact = (await c.post('/contacts', { firstName: 'Ada' })).body;
+    await c.post('/deals', { title: 'Open deal', contactIds: [contact.id], ownerId: rep.id }); // the rep's own deal
+    await c.post('/deals', { title: 'Secret deal', contactIds: [contact.id], visibility: 'private' });
+    const titles = (r: any) => r.body.items.filter((i: any) => i.type === 'event' && i.data.entityType === 'deal').map((i: any) => i.data.entityTitle);
+    expect(titles(await c.get(`/timeline/contact/${contact.id}`)).sort()).toEqual(['Open deal', 'Secret deal']);
+    const seen = titles(await rep.c.get(`/timeline/contact/${contact.id}`));
+    expect(seen).toContain('Open deal');
+    expect(seen).not.toContain('Secret deal'); // its event may show, without the title
+  });
+
+  it('saves and clears addresses on companies, contacts and leads', async () => {
+    const { c } = await signup();
+    const co = (await c.post('/companies', { name: 'Globex' })).body;
+    const addr = { street: '12 Riverside', city: 'Phnom Penh', region: null, postalCode: '12000', country: 'Cambodia' };
+    expect((await c.patch(`/companies/${co.id}`, { address: addr })).status).toBe(200);
+    expect((await c.get(`/companies/${co.id}`)).body.address).toMatchObject({ street: '12 Riverside', city: 'Phnom Penh', country: 'Cambodia' });
+    expect((await c.patch(`/companies/${co.id}`, { address: null })).status).toBe(200);
+    expect((await c.get(`/companies/${co.id}`)).body.address).toBeNull();
+    const ct = (await c.post('/contacts', { firstName: 'Ada', address: addr })).body;
+    expect((await c.get(`/contacts/${ct.id}`)).body.address.city).toBe('Phnom Penh');
+    const ld = (await c.post('/leads', { title: 'L', address: addr })).body;
+    expect((await c.get(`/leads/${ld.id}`)).body.address.postalCode).toBe('12000');
+  });
+});

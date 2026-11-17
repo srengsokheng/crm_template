@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { Link } from 'react-router';
 import { useInfiniteQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { ArrowRightLeft, Bot, CalendarClock, CheckCircle2, Circle, Mail, MessageSquare, Phone, Pin, PinOff, Trash2, Users, Flag, CheckSquare, History } from 'lucide-react';
@@ -249,7 +250,9 @@ function FeedItem({ it, recordType, recordId, onChange }: { it: TimelineItem; re
   const userName = (id: number) => meta?.users.find((u) => u.id === id)?.name ?? 'Unknown';
   const d = it.data;
   const foreign = d.entityType && (d.entityType !== recordType || Number(d.entityId) !== recordId);
-  const via = foreign ? <span className="text-muted"> · on related {d.entityType}</span> : null;
+  const via = !foreign ? null : d.entityTitle
+    ? <span className="text-muted"> · on {d.entityType} <Link className="text-brand-600 hover:underline dark:text-brand-200" to={`/${d.entityType}s/${d.entityId}`}>{d.entityTitle}</Link></span>
+    : <span className="text-muted"> · on a related {d.entityType}</span>;
   if (it.type === 'note') {
     const toggle = async () => { try { await api.patch(`/notes/${d.id}`, { isPinned: !d.isPinned }); onChange(); } catch (e) { toast.error(errorMessage(e)); } };
     const del = async () => { try { await api.del(`/notes/${d.id}`); onChange(); toast.success('Note deleted'); } catch (e) { toast.error(errorMessage(e)); } };

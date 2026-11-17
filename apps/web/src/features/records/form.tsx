@@ -187,3 +187,27 @@ export function DuplicateHint({ emails = [], phones = [], name, companyName, exc
     </div>
   );
 }
+
+export interface Address { street?: string | null; city?: string | null; region?: string | null; postalCode?: string | null; country?: string | null }
+const ADDRESS_PARTS: [keyof Address, string, string][] = [
+  ['street', 'Street', 'street-address'], ['city', 'City', 'address-level2'], ['region', 'State / province', 'address-level1'],
+  ['postalCode', 'Postal code', 'postal-code'], ['country', 'Country', 'country-name'],
+];
+/** One line for display ("12 Main St, Phnom Penh, Cambodia"); '' when empty. */
+export const formatAddress = (a: Address | null | undefined) =>
+  a ? [a.street, [a.postalCode, a.city].filter(Boolean).join(' '), a.region, a.country].map((x) => (x ?? '').trim()).filter(Boolean).join(', ') : '';
+/** Address payload for the API: null when every part is empty. */
+export const addressPayload = (a: Address) => {
+  const clean = Object.fromEntries(ADDRESS_PARTS.map(([k]) => [k, (a[k] ?? '').trim() || null]));
+  return Object.values(clean).some(Boolean) ? clean : null;
+};
+export function AddressEditor({ value, onChange }: { value: Address; onChange: (v: Address) => void }) {
+  return (
+    <div className="grid gap-2 sm:grid-cols-2">
+      {ADDRESS_PARTS.map(([k, label, auto]) => (
+        <Input key={k} aria-label={label} placeholder={label} autoComplete={auto} maxLength={k === 'street' ? 200 : 100}
+          className={k === 'street' ? 'sm:col-span-2' : undefined} value={value[k] ?? ''} onChange={(e) => onChange({ ...value, [k]: e.target.value })} />
+      ))}
+    </div>
+  );
+}

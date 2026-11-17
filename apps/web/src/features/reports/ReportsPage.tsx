@@ -65,7 +65,7 @@ export function ReportsPage() {
     <div>
       <PageHeader title="Reports" subtitle="Understand your pipeline and team performance" />
       <div className="grid gap-4 lg:grid-cols-[240px_minmax(0,1fr)]">
-        <nav aria-label="Reports" className="flex gap-1 overflow-x-auto lg:flex-col">
+        <nav aria-label="Reports" className="flex gap-1 overflow-x-auto md:flex-wrap md:overflow-visible lg:flex-col lg:flex-nowrap">
           {REPORTS.map((r) => (
             <button key={r.key} type="button" onClick={() => lp.set({ report: r.key === 'won-deals' ? null : r.key })}
               className={cn('whitespace-nowrap rounded-md px-3 py-2 text-left text-[13px] font-medium', r.key === key ? 'bg-brand-50 text-brand-700 dark:bg-brand-600/20 dark:text-brand-100' : 'text-muted hover:bg-[var(--surface-2)] hover:text-[var(--text)]')}>

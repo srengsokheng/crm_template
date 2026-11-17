@@ -62,3 +62,15 @@ test('a deal shows what automation did on it', async ({ page }) => {
   await expect(card.getByText('Add a note')).toBeVisible({ timeout: 15_000 });
   await expect(card.getByText('when created')).toBeVisible();
 });
+
+test('edit a company address on its page', async ({ page }) => {
+  await signUp(page);
+  const co = await api(page, 'POST', '/companies', { name: 'Globex' });
+  await page.goto(`/companies/${co.id}`);
+  await page.getByRole('button', { name: /Edit Address/ }).click();
+  await page.getByLabel('Street').fill('12 Riverside');
+  await page.getByLabel('City').fill('Phnom Penh');
+  await page.getByLabel('Country').fill('Cambodia');
+  await page.getByRole('button', { name: 'Save' }).click();
+  await expect(page.getByText('12 Riverside, Phnom Penh, Cambodia')).toBeVisible();
+});

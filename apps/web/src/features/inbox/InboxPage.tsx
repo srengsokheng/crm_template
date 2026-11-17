@@ -7,7 +7,7 @@ import { api, ApiError, errorMessage } from '../../lib/api.ts';
 import { fileSize } from '../records/Attachments.tsx';
 import { cn } from '../../lib/cn.ts';
 import { dateTime, relative } from '../../lib/format.ts';
-import { useCan, useDebounced, useMe, useMeta } from '../../lib/hooks.ts';
+import { useCan, useDebounced, useMe, useMediaQuery, useMeta } from '../../lib/hooks.ts';
 import { Avatar, Badge, Button, EmptyState, ErrorState, IconButton, Input, Segmented, Select, Spinner, Textarea } from '../../components/ui/primitives.tsx';
 import { Dialog } from '../../components/ui/overlays.tsx';
 import { usePollInterval } from './live.ts';
@@ -272,6 +272,7 @@ function Composer({ conversationId, canReply, reason, onSent, customerName }: { 
   const [file, setFile] = useState<File | null>(null);
   const [sending, setSending] = useState(false);
   const picker = useRef<HTMLInputElement>(null);
+  const wide = useMediaQuery('(min-width: 768px)');
   if (!canReply) return <p className="border-t border-base px-4 py-3 text-sm text-muted">{reason}</p>;
   const send = async (e?: FormEvent) => {
     e?.preventDefault();
@@ -298,7 +299,7 @@ function Composer({ conversationId, canReply, reason, onSent, customerName }: { 
       <input ref={picker} type="file" className="hidden" aria-label="File to send" onChange={(e) => { setFile(e.target.files?.[0] ?? null); e.target.value = ''; }} />
       <IconButton label="Attach a file" onClick={() => picker.current?.click()}><Paperclip className="size-4" /></IconButton>
       <SavedRepliesMenu name={customerName} onInsert={(t) => setBody((b) => (b.trim() ? `${b.trimEnd()}\n${t}` : t))} />
-      <Textarea aria-label="Reply" rows={2} maxLength={4000} placeholder={file ? 'Add a caption (optional)' : 'Write a reply… (Enter to send, Shift+Enter for a new line)'} value={body}
+      <Textarea aria-label="Reply" rows={2} maxLength={4000} placeholder={file ? 'Add a caption (optional)' : wide ? 'Write a reply… (Enter to send, Shift+Enter for a new line)' : 'Write a reply…'} value={body}
         onChange={(e) => setBody(e.target.value)} onKeyDown={onKey} className="min-h-[2.75rem] min-w-0 flex-1 resize-none" />
       <Button type="submit" variant="primary" disabled={(!body.trim() && !file) || sending} icon={sending ? <Spinner className="size-4 text-white" /> : <Send className="size-4" />}>Send</Button>
     </form>

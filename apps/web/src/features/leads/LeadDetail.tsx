@@ -10,7 +10,7 @@ import type { LineItem, Method } from '../../lib/types.ts';
 import { Badge, Button, Card, IconButton, Input, Select, Textarea } from '../../components/ui/primitives.tsx';
 import { Menu } from '../../components/ui/overlays.tsx';
 import { StageBar } from '../../components/ui/StageBar.tsx';
-import { DictSelect, MethodsEditor, methodsPayload, UserSelect } from '../records/form.tsx';
+import { AddressEditor, addressPayload, DictSelect, formatAddress, MethodsEditor, methodsPayload, UserSelect, type Address } from '../records/form.tsx';
 import { CustomFieldsRows, EditRow, RecordError, RecordShell, RecordSkeleton, useDeleteWithUndo } from '../records/record.tsx';
 import { MethodsView } from '../records/MethodsView.tsx';
 import { Timeline } from '../records/Timeline.tsx';
@@ -26,7 +26,7 @@ import { MergeUndoBanner } from '../records/MergeUndoBanner.tsx';
 interface Lead {
   id: number; version: number; title: string; firstName: string | null; lastName: string | null; jobTitle: string | null; companyName: string | null;
   stageId: number; pipelineId: number; status: 'open' | 'won' | 'lost'; sourceId: number | null; sourceDetails: string | null; amount: string | null; currency: string;
-  ownerId: number; visibility: string; description: string | null; custom: Record<string, unknown>; methods: Method[]; lineItems: LineItem[];
+  ownerId: number; visibility: string; description: string | null; address: Address | null; custom: Record<string, unknown>; methods: Method[]; lineItems: LineItem[];
   converted: { deal: { id: number; title: string } | null; contact: { id: number; name: string } | null; company: { id: number; name: string } | null };
 }
 
@@ -101,6 +101,7 @@ export function LeadDetail() {
             <EditRow label="Source details" value={l.sourceDetails ?? ''} canEdit={edit} locked={locked('lead', 'sourceDetails')} display={l.sourceDetails ?? <span className="text-muted">—</span>} renderEditor={(v, s) => <Input value={v} onChange={(e) => s(e.target.value)} />} onSave={(v) => patch({ sourceDetails: v || null })} />
             <EditRow label="Owner" value={l.ownerId} canEdit={edit} locked={locked('lead', 'ownerId')} display={userName(l.ownerId)} renderEditor={(v, s) => <UserSelect value={v} onChange={(x) => s(x ?? v)} />} onSave={(v) => patch({ ownerId: v })} />
             <EditRow label="Visibility" value={l.visibility} canEdit={edit} locked={locked('lead', 'visibility')} display={l.visibility === 'private' ? 'Private (owner & admins)' : 'Shared'} renderEditor={(v, s) => <Select value={v} onChange={(e) => s(e.target.value)}><option value="shared">Shared</option><option value="private">Private</option></Select>} onSave={(v) => patch({ visibility: v })} />
+            <EditRow label="Address" value={(l.address ?? {}) as Address} canEdit={edit} locked={locked('lead', 'address')} display={formatAddress(l.address) || <span className="text-muted">—</span>} renderEditor={(v, s) => <AddressEditor value={v} onChange={s} />} onSave={(v) => patch({ address: addressPayload(v) })} />
             <EditRow label="Notes" value={l.description ?? ''} canEdit={edit} locked={locked('lead', 'description')} display={l.description ? <span className="whitespace-pre-wrap">{l.description}</span> : <span className="text-muted">—</span>} renderEditor={(v, s) => <Textarea autoFocus value={v} onChange={(e) => s(e.target.value)} />} onSave={(v) => patch({ description: v || null })} />
             <CustomFieldsRows entity="lead" custom={l.custom} stageId={l.stageId} canEdit={edit} onSave={(p) => patch({ custom: p })} />
           </div>

@@ -58,9 +58,9 @@ export function DealsPage() {
     { key: 'title', header: 'Deal', sortKey: 'title', cell: (r) => <div className="min-w-0"><div className="truncate font-medium">{r.title}</div><div className="truncate text-xs text-muted">{[r.companyName, r.contactName].filter(Boolean).join(' · ')}</div></div> },
     { key: 'stage', header: 'Stage', sortKey: 'stage', cell: (r) => <StageBadge name={r.stageName} color={r.stageColor} /> },
     { key: 'amount', header: 'Amount', sortKey: 'amount', align: 'right', cell: (r) => money(r.amount, r.currency) },
-    { key: 'next', header: 'Next step', hideOnMobile: true, cell: (r) => r.nextActivity ? <span className="text-[13px]">{r.nextActivity.subject} <span className="text-muted">· {relative(r.nextActivity.dueAt)}</span></span> : r.status === 'open' ? <Badge tone="amber">None</Badge> : <span className="text-muted">—</span> },
+    { key: 'next', header: 'Next step', hideOnMobile: true, className: 'max-w-[16rem] truncate', cell: (r) => r.nextActivity ? <span className="text-[13px]">{r.nextActivity.subject} <span className="text-muted">· {relative(r.nextActivity.dueAt)}</span></span> : r.status === 'open' ? <Badge tone="amber">None</Badge> : <span className="text-muted">—</span> },
     { key: 'close', header: 'Expected close', sortKey: 'expectedCloseDate', hideOnMobile: true, cell: (r) => <span className={r.status === 'open' && r.expectedCloseDate && r.expectedCloseDate < new Date().toISOString().slice(0, 10) ? 'text-rose-600' : ''}>{date(r.expectedCloseDate)}</span> },
-    { key: 'owner', header: 'Owner', sortKey: 'owner', hideOnMobile: true, cell: (r) => r.ownerName ?? '—' },
+    { key: 'owner', header: 'Owner', sortKey: 'owner', hideOnMobile: true, className: 'whitespace-nowrap', cell: (r) => r.ownerName ?? '—' },
   ];
   const statusOptions = [{ value: 'open', label: 'Open' }, { value: 'won', label: 'Won' }, { value: 'lost', label: 'Lost' }];
   return (

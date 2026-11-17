@@ -273,8 +273,13 @@ export async function activityRoutes(app: FastifyInstance) {
             WHERE a.deleted_at IS NULL AND a.status <> 'open' AND EXISTS (SELECT 1 FROM activity_links al WHERE al.activity_id = a.id AND ${relMatch('al')})
               ${after('coalesce(a.completed_at, a.updated_at)', 2, 'a.id')}
             ORDER BY coalesce(a.completed_at, a.updated_at) DESC, a.id DESC LIMIT ${limit + 1}`) : none,
-      kind === 'all' || kind === 'event' ? q(sql`SELECT e.id, ${us('e.created_at')} AS feed_us, e.entity_type, e.entity_id, e.action, e.changes, e.actor_type, e.actor_id, e.created_at, u.name AS actor_name
+      kind === 'all' || kind === 'event' ? q(sql`SELECT e.id, ${us('e.created_at')} AS feed_us, e.entity_type, e.entity_id, e.action, e.changes, e.actor_type, e.actor_id, e.created_at, u.name AS actor_name,
+              -- Events from related records name that record, but only when the user may see it.
+              CASE WHEN rd.id IS NOT NULL AND ${scopeWhere(ctx, 'deal', 'view', 'rd')} THEN rd.title
+                   WHEN rl.id IS NOT NULL AND ${scopeWhere(ctx, 'lead', 'view', 'rl')} THEN rl.title END AS entity_title
             FROM audit_events e LEFT JOIN users u ON u.id = e.actor_id
+              LEFT JOIN deals rd ON e.entity_type = 'deal' AND rd.id = e.entity_id AND rd.workspace_id = e.workspace_id
+              LEFT JOIN leads rl ON e.entity_type = 'lead' AND rl.id = e.entity_id AND rl.workspace_id = e.workspace_id
             WHERE e.workspace_id = ${ctx.workspaceId} AND ${relMatch('e')}
               AND (e.entity_type = ${type} AND e.entity_id = ${id} OR e.action IN ('created','won','lost','converted','disqualified'))
               AND e.action NOT LIKE 'activity\\_%' ${after('e.created_at', 3, 'e.id')}

@@ -10,15 +10,15 @@ test('undo a merge from the kept contact: the other contact comes back with its 
 
   await page.goto(`/contacts/${a.id}`);
   await expect(page.getByText(/Merged with “Ada L\.”/)).toBeVisible();
-  await expect(page.getByRole('link', { name: 'Engines for Ada' })).toBeVisible();
+  await expect(page.getByRole('link', { name: /^Engines for Ada New/ }) /* the Deals card (history also links it) */).toBeVisible();
   await page.getByRole('button', { name: 'Undo merge' }).click();
   await page.getByRole('dialog').getByRole('button', { name: 'Undo merge' }).click();
   await expect(page.getByText('Merge undone — “Ada L.” is back')).toBeVisible();
   await expect(page.getByRole('button', { name: 'Undo merge' })).toHaveCount(0); // banner gone (history still mentions the merge)
-  await expect(page.getByRole('link', { name: 'Engines for Ada' })).toHaveCount(0);
+  await expect(page.getByRole('link', { name: /^Engines for Ada New/ }) /* the Deals card (history also links it) */).toHaveCount(0);
 
   await page.goto(`/contacts/${b.id}`);
   await expect(page.getByRole('heading', { name: 'Ada L.' })).toBeVisible();
-  await expect(page.getByRole('link', { name: 'Engines for Ada' })).toBeVisible();
+  await expect(page.getByRole('link', { name: /^Engines for Ada New/ }) /* the Deals card (history also links it) */).toBeVisible();
   await expect(page.getByText(/the merge into Ada Lovelace was undone/)).toBeVisible();
 });

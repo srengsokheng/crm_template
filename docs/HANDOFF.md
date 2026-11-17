@@ -325,7 +325,13 @@ The research behind every decision is in this folder:
   old address is told. The answer is the same whether or not the new address already has an account (its owner gets a
   note instead of a link), so the form can't be used to find out which emails are registered.
 
-**Quality:** 212 Vitest tests (API against real PostgreSQL), 58 Playwright tests (desktop, tablet, phone), lint and
+- **UI review pass** (every screen at 390 / 834 / 1440, light and dark, with realistic data): **addresses** of contacts,
+  companies and leads can now be seen and edited on their pages (they were stored and printed on invoices, but no screen
+  showed them); related-record lines in History name the record with a link ("on deal Umbrella forklifts"), only when
+  the user may see it; tablet: report tabs and the Settings menu wrap instead of cutting words, deals-list cells stay on
+  one line; phone: shorter Inbox reply placeholder.
+
+**Quality:** 214 Vitest tests (API against real PostgreSQL), 60 Playwright tests (desktop, tablet, phone), lint and
 typecheck clean, `npm audit` = 0, GitHub Actions CI in `.github/workflows/ci.yml`.
 
 ## 3. Not built yet — suggested next work (in priority order)
