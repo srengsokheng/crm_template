@@ -15,6 +15,7 @@ import { metaHookRoutes } from './metaHooks.ts';
 import { callRoutes } from './calls.ts';
 import { targetRoutes } from './targets.ts';
 import { publicDocumentRoutes } from './publicDocuments.ts';
+import { accountTelegramRoutes } from './accountTelegram.ts';
 import { savedReplyRoutes } from './savedReplies.ts';
 import { leadRoutes } from './leads.ts';
 import { mergeRoutes } from './merge.ts';
@@ -55,6 +56,7 @@ export async function registerRoutes(app: FastifyInstance) {
   await app.register(callRoutes);
   await app.register(targetRoutes);
   await app.register(publicDocumentRoutes);
+  await app.register(accountTelegramRoutes);
   await app.register(savedReplyRoutes);
   await app.register(recycleRoutes); // generic DELETE /:entity/:id last
 }

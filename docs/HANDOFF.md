@@ -418,7 +418,14 @@ The research behind every decision is in this folder:
   quotes can’t be accepted — and pays an invoice by **KHQR** when set up. The first open and every answer notify the
   deal’s owner and the document’s creator and are written to the deal’s history ("accepted online by …").
 
-**Quality:** 237 Vitest tests (API against real PostgreSQL), 67 Playwright tests (desktop, tablet, phone), lint and
+- **Team notifications on Telegram** (migration 0033, `inbox/teamAlerts.ts`): Settings → Your account → Telegram
+  notifications → "Connect Telegram" makes a one-time link (15 min; also shown as a QR to scan with a phone) to the
+  workspace’s first active Telegram bot; tapping Start sends "/start <code>" — linked, answered in Telegram, kept out
+  of the Inbox. From then on the worker forwards every new in-app notification of that person (assigned chats, quote
+  opened/accepted, reminders…) with a link into the CRM. "Turn off" unlinks; blocking the bot unlinks automatically.
+  The e2e server now talks to a fake Bot API (`TELEGRAM_API_URL` in playwright.config.ts), never to Telegram.
+
+**Quality:** 239 Vitest tests (API against real PostgreSQL), 68 Playwright tests (desktop, tablet, phone), lint and
 typecheck clean, `npm audit` = 0, GitHub Actions CI in `.github/workflows/ci.yml`.
 
 ## 3. Not built yet — suggested next work (in priority order)

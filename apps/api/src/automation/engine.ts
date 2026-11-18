@@ -12,6 +12,7 @@ import { fetchIncomingFile, setStatus as setFileStatus } from '../inbox/files.ts
 import { pollTelegram } from '../inbox/telegram.ts';
 import { stopTelegramUsers, syncTelegramUsers } from '../inbox/telegramUser.ts';
 import { endEmptyCalls, purgeCalls } from '../calls/calls.ts';
+import { pushNotifications } from '../inbox/teamAlerts.ts';
 import { files } from '../lib/files.ts';
 import { deliverWebhook, type Delivery } from '../lib/webhooks.ts';
 import { config } from '../config.ts';
@@ -375,6 +376,7 @@ export async function purge() {
   await q(sql`DELETE FROM webhook_deliveries WHERE created_at < now() - interval '30 days'`);
   await q(sql`DELETE FROM merge_snapshots WHERE created_at < now() - interval '30 days'`);
   await purgeCalls();
+  await q(sql`DELETE FROM telegram_link_codes WHERE expires_at < now() - interval '1 day'`);
 }
 
 /** Long-running loop used by the API process (inline) or the dedicated worker. */
@@ -394,6 +396,7 @@ export function startWorker(log: (m: string) => void = () => {}): () => void {
       if (now - lastDigest > 300_000) { lastDigest = now; const n = await sendDigests(); if (n) log(`queued ${n} daily digest(s)`); }
       if (now - lastPurge > 3_600_000) { lastPurge = now; await purge(); await releaseStuckJobs(); }
       if (now - lastPoll > 3_000) { lastPoll = now; const m = await pollTelegram(); if (m) log(`stored ${m} Telegram message(s)`); }
+      { const pushed = await pushNotifications(); if (pushed) log(`sent ${pushed} notification(s) to Telegram`); }
       if (now - lastCalls > 10_000) { lastCalls = now; const ended = await endEmptyCalls(); if (ended.length) log(`ended ${ended.length} empty call(s)`); }
       if (now - lastTgUser > 5_000) { lastTgUser = now; const m = await syncTelegramUsers(log); if (m) log(`caught up ${m} Telegram account message(s)`); }
       const n = (await processOutbox()) + (await processJobs());

@@ -15,6 +15,7 @@ import { AppError } from '../lib/errors.ts';
 import { openSecret } from '../lib/secrets.ts';
 import { recordInbound, type ChannelRow } from './store.ts';
 import { fileRefOf, queueIncomingFile } from './files.ts';
+import { handleLinkStart } from './teamAlerts.ts';
 
 export class TelegramError extends Error {
   status: number;
@@ -87,6 +88,8 @@ export function describeMessage(m: TgMessage): string | null {
 export async function ingestUpdate(db: Db, channel: ChannelRow, u: TgUpdate): Promise<boolean> {
   const m = u.message;
   if (!m || m.from?.is_bot || m.chat.type === 'channel') return false;
+  // A team member connecting their Telegram for notifications: not an Inbox message.
+  if (await handleLinkStart(db, channel, m)) return false;
   const body = describeMessage(m);
   if (body === null) return false;
   const group = m.chat.type !== 'private';

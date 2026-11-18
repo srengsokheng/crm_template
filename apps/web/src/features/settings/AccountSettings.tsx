@@ -4,6 +4,7 @@ import { toast } from 'sonner';
 import { api, ApiError, errorMessage } from '../../lib/api.ts';
 import { useMe } from '../../lib/hooks.ts';
 import { Button, Card, Field, Input, Skeleton } from '../../components/ui/primitives.tsx';
+import { TelegramAlertsCard } from './TelegramAlertsCard.tsx';
 
 /** Settings → Your account (everyone): display name and password. */
 export function AccountSettings() {
@@ -14,6 +15,7 @@ export function AccountSettings() {
       <ProfileCard name={me.user.name} />
       <EmailCard email={me.user.email} />
       <PasswordCard />
+      <TelegramAlertsCard />
     </div>
   );
 }
