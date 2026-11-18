@@ -28,7 +28,16 @@
   request('GET', '').then(start, function () { /* channel disabled or unknown: show nothing */ });
 
   function start(settings) {
+    // Texts in the workspace's customer language (Settings → Quotes & invoices), English when missing.
+    var EN = { chatOpen: 'Open chat', chatClose: 'Close chat', chatName: 'Your name (optional)', chatEmail: 'Email (optional)', chatMessage: 'Write a message…',
+      chatSend: 'Send', chatAttach: 'Attach a photo or PDF', chatFile: 'Photo or PDF to send', chatTyping: '{name} is typing…', chatErrTooMany: 'Too many messages — please wait a minute.',
+      chatErrSend: 'Your message could not be sent. Please try again.', chatErrType: 'Only photos (PNG, JPEG, GIF, WebP) and PDF files can be sent.',
+      chatErrFiles: 'Too many files — please wait and try again later.', chatErrSize: 'Files can be up to 5 MB.', chatErrFile: 'The file could not be sent. Please try again.' };
+    var T = function (k) { return (settings.texts && settings.texts[k]) || EN[k]; };
+    var ESC = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' };
+    var esc = function (s) { return String(s).replace(/[&<>"]/g, function (ch) { return ESC[ch]; }); };
     var host = document.createElement('div');
+    if (settings.lang) host.setAttribute('lang', settings.lang);
     host.setAttribute('data-crm-chat', '');
     var root = host.attachShadow({ mode: 'open' });
     var color = /^#[0-9a-f]{6}$/i.test(settings.color) ? settings.color : '#4f46e5';
@@ -52,11 +61,11 @@
       '.f{display:block;max-width:80%;font-size:14px;color:var(--fg);text-decoration:none;word-break:break-all;border:1px solid var(--line);border-radius:12px;padding:8px 12px;background:var(--bg)}.f:hover{background:var(--bubble)}.f.in{align-self:flex-end}.f.out{align-self:flex-start}.f:has(img){padding:0;border:0;background:none}' +
       '.f img{display:block;max-width:100%;max-height:200px;border-radius:12px;border:1px solid var(--line)}' +
       '</style>' +
-      '<div class="panel" role="dialog" aria-label="Chat"><div class="head"><span class="title"></span><button class="x" type="button" aria-label="Close chat">×</button></div>' +
+      '<div class="panel" role="dialog" aria-label="Chat"><div class="head"><span class="title"></span><button class="x" type="button" aria-label="' + esc(T('chatClose')) + '">×</button></div>' +
       '<div class="list" aria-live="polite"></div><div class="typing" aria-live="polite"></div>' +
-      '<form class="form"><div class="row id"><input name="name" placeholder="Your name (optional)" autocomplete="name" maxlength="100"><input name="email" type="email" placeholder="Email (optional)" autocomplete="email" maxlength="200"></div>' +
-      '<div class="row"><button class="att" type="button" aria-label="Attach a photo or PDF" title="Attach a photo or PDF"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg></button><input type="file" class="file" hidden accept="image/png,image/jpeg,image/gif,image/webp,application/pdf" aria-label="Photo or PDF to send"><textarea name="body" rows="2" placeholder="Write a message…" aria-label="Message" maxlength="4000" required></textarea><button class="send" type="submit">Send</button></div><div class="err" role="alert"></div></form></div>' +
-      '<button class="btn" type="button" aria-label="Open chat" aria-expanded="false"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></button>';
+      '<form class="form"><div class="row id"><input name="name" placeholder="' + esc(T('chatName')) + '" autocomplete="name" maxlength="100"><input name="email" type="email" placeholder="' + esc(T('chatEmail')) + '" autocomplete="email" maxlength="200"></div>' +
+      '<div class="row"><button class="att" type="button" aria-label="' + esc(T('chatAttach')) + '" title="' + esc(T('chatAttach')) + '"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg></button><input type="file" class="file" hidden accept="image/png,image/jpeg,image/gif,image/webp,application/pdf" aria-label="' + esc(T('chatFile')) + '"><textarea name="body" rows="2" placeholder="' + esc(T('chatMessage')) + '" aria-label="' + esc(T('chatMessage')) + '" maxlength="4000" required></textarea><button class="send" type="submit">' + esc(T('chatSend')) + '</button></div><div class="err" role="alert"></div></form></div>' +
+      '<button class="btn" type="button" aria-label="' + esc(T('chatOpen')) + '" aria-expanded="false"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></button>';
     document.body.appendChild(host);
 
     var $ = function (s) { return root.querySelector(s); };
@@ -67,7 +76,7 @@
     var timer = null, live = null, typingTimer = null, lastTyping = 0;
     var typingEl = $('.typing');
     function showTyping(name) {
-      typingEl.textContent = (name || 'Someone') + ' is typing…';
+      typingEl.textContent = T('chatTyping').replace('{name}', name || '…');
       clearTimeout(typingTimer);
       typingTimer = setTimeout(function () { typingEl.textContent = ''; }, 6000);
     }
@@ -125,7 +134,7 @@
     function toggle(open) {
       panel.classList.toggle('open', open);
       btn.setAttribute('aria-expanded', String(open));
-      btn.setAttribute('aria-label', open ? 'Close chat' : 'Open chat');
+      btn.setAttribute('aria-label', open ? T('chatClose') : T('chatOpen'));
       if (timer) { clearInterval(timer); timer = null; }
       disconnect();
       if (open) { refresh(); poll(4000); connect(); bodyIn.focus(); }
@@ -161,7 +170,7 @@
         render(r.messages);
         connect();
       }, function (x) {
-        err.textContent = x.message === '429' ? 'Too many messages — please wait a minute.' : 'Your message could not be sent. Please try again.';
+        err.textContent = x.message === '429' ? T('chatErrTooMany') : T('chatErrSend');
       }).then(function () { send.disabled = false; });
     });
 
@@ -173,7 +182,7 @@
       fileIn.value = '';
       if (!f) return;
       err.textContent = '';
-      if (f.size > 5 * 1024 * 1024) { err.textContent = 'Files can be up to 5 MB.'; return; }
+      if (f.size > 5 * 1024 * 1024) { err.textContent = T('chatErrSize'); return; }
       att.disabled = true;
       var url = api + '/files?fileName=' + encodeURIComponent(f.name) + (token ? '&token=' + encodeURIComponent(token) : '');
       fetch(url, { method: 'POST', body: f, headers: { 'content-type': 'application/octet-stream', 'x-file-type': f.type || 'application/octet-stream' } })
@@ -185,9 +194,7 @@
           render(r.messages);
           connect();
         }, function (x) {
-          err.textContent = x.message === '415' ? 'Only photos (PNG, JPEG, GIF, WebP) and PDF files can be sent.'
-            : x.message === '429' ? 'Too many files — please wait and try again later.'
-            : x.message === '413' ? 'Files can be up to 5 MB.' : 'The file could not be sent. Please try again.';
+          err.textContent = x.message === '415' ? T('chatErrType') : x.message === '429' ? T('chatErrFiles') : x.message === '413' ? T('chatErrSize') : T('chatErrFile');
         })
         .then(function () { att.disabled = false; });
     });

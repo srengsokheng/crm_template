@@ -6,7 +6,7 @@ import { Button, Card, Checkbox, ErrorState, Field, Input, Select, Skeleton, Tex
 import { AdminOnly } from './SettingsLayout.tsx';
 
 interface K { enabled: boolean; accountId: string; merchantName: string; city: string; accountType: 'individual' | 'merchant'; merchantId: string; acquiringBank: string; validDays: number }
-interface S { companyDetails: string; footer: string; quotePrefix: string; invoicePrefix: string; quoteValidDays: number; paymentTermsDays: number; khqr: K }
+interface S { companyDetails: string; footer: string; quotePrefix: string; invoicePrefix: string; quoteValidDays: number; paymentTermsDays: number; khqr: K; customerLanguage: 'en' | 'km' | 'both' }
 
 /** What appears on quote and invoice PDFs, and how they are numbered. */
 export function DocumentSettings() {
@@ -33,6 +33,13 @@ export function DocumentSettings() {
           : f && (
             <div className="space-y-4">
               <p className="text-sm text-muted">The workspace name is printed at the top of every quote and invoice. Numbers are given when a document is first marked as sent, so deleted drafts never leave gaps.</p>
+              <Field label="Language for customers" htmlFor="ds-lang" hint="Quote and invoice PDFs, the customer’s page, the email button, the website chat and video calls. The team’s screens stay in English.">
+                <Select id="ds-lang" value={f.customerLanguage} onChange={(e) => set({ customerLanguage: e.target.value as S['customerLanguage'] })}>
+                  <option value="en">English</option>
+                  <option value="km">ខ្មែរ (Khmer)</option>
+                  <option value="both">ខ្មែរ + English (bilingual PDFs)</option>
+                </Select>
+              </Field>
               <Field label="Your company details" htmlFor="ds-details" hint="Address, tax ID, phone, email — printed under your name" error={errors.companyDetails}>
                 <Textarea id="ds-details" rows={4} value={f.companyDetails} onChange={(e) => set({ companyDetails: e.target.value })} placeholder={'12 Main Street\nPhnom Penh, Cambodia\nVAT: K001-123456789'} />
               </Field>

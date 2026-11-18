@@ -437,6 +437,8 @@ export const documentSettingsSchema = z.object({
   paymentTermsDays: z.coerce.number().int().min(0).max(365).default(14),
   /** KHQR (Bakong) payment QR on invoices in KHR or USD. */
   khqr: khqrSettingsSchema.prefault({}),
+  /** What customers read (PDFs, the customer page, email button, website chat, video-call page): English, Khmer, or both. */
+  customerLanguage: z.enum(['en', 'km', 'both']).default('en'),
 });
 
 // ───────── Field-level permissions ─────────

@@ -441,7 +441,13 @@ The research behind every decision is in this folder:
   Your account → "App on your phone": install button where the browser offers it, instructions otherwise. Chrome’s own
   installability check reports no errors.
 
-**Quality:** 242 Vitest tests (API against real PostgreSQL), 70 Playwright tests (desktop, tablet, phone), lint and
+- **Khmer for customers** (`packages/shared/src/customerText.ts`): Settings → Quotes & invoices → *Language for
+  customers*: English, ខ្មែរ, or ខ្មែរ + English. It sets every customer-facing text — PDF labels (bilingual column
+  headers stack Khmer over English; dates with Khmer month names), the customer page for quotes/invoices, the email
+  button, the website chat widget (texts sent with its settings; English built in as fallback) and the guest video-call
+  page. The team’s screens stay English. **All wording lives in one file — have a native speaker review the Khmer.**
+
+**Quality:** 245 Vitest tests (API against real PostgreSQL), 71 Playwright tests (desktop, tablet, phone), lint and
 typecheck clean, `npm audit` = 0, GitHub Actions CI in `.github/workflows/ci.yml`.
 
 ## 3. Not built yet — suggested next work (in priority order)

@@ -1,5 +1,6 @@
 /** Lays out a quote or invoice on A4 pages with the tiny PDF writer. */
 import qrcode from 'qrcode-generator';
+import { ct, ctLabel, customerDate, type CustomerLanguage, type TextKey } from '@crm/shared';
 import { A4, fitSize, PdfDoc, textWidth, winAnsi, wrapText } from './pdf.ts';
 
 export interface PdfInput {
@@ -19,6 +20,8 @@ export interface PdfInput {
   seller: { name: string; details: string; footer: string };
   /** Invoices: a KHQR (Bakong) payment QR for the balance due. */
   khqr?: { payload: string; expiresAt: string };
+  /** Language of the labels (Settings → Quotes & invoices); English when not given. */
+  lang?: CustomerLanguage;
 }
 
 const GREY: [number, number, number] = [0.42, 0.44, 0.5];
@@ -42,7 +45,12 @@ export function formatDate(d: string | null): string {
 const qty = (v: string | number) => String(Number(v));
 
 export function renderDocumentPdf(d: PdfInput): Buffer {
-  const title = d.kind === 'quote' ? 'Quote' : 'Invoice';
+  const lang: CustomerLanguage = d.lang ?? 'en';
+  const L = (k: TextKey, vars?: Record<string, string | number>) => ctLabel(lang, k, vars);
+  /** Small section headings: capitals in English; Khmer has no case. */
+  const H = (k: TextKey) => (lang === 'en' ? ct('en', k).toUpperCase() : lang === 'km' ? ct('km', k) : `${ct('km', k)} / ${ct('en', k).toUpperCase()}`);
+  const date = (v: string | null) => customerDate(lang, v);
+  const title = ct('en', d.kind);
   const pdf = new PdfDoc(`${title} ${d.number ?? '(draft)'}`);
   const money = (v: string | number) => formatMoney(v, d.currency);
 
@@ -52,21 +60,21 @@ export function renderDocumentPdf(d: PdfInput): Buffer {
   let ly = y + 22;
   for (const line of wrapText(d.seller.details, 9, 260)) { pdf.text(M, ly, line, { size: 9, color: GREY }); ly += 12; }
 
-  pdf.text(RIGHT, y, title.toUpperCase(), { size: 20, bold: true, color: BRAND, align: 'right' });
+  pdf.text(RIGHT, y, H(d.kind), { size: lang === 'both' ? 17 : 20, bold: true, color: BRAND, align: 'right' });
   let ry = y + 28;
   const fact = (label: string, value: string) => {
-    pdf.text(RIGHT - 110, ry, label, { size: 9, color: GREY, align: 'right' });
+    pdf.text(RIGHT - 110, ry, label, { size: fitSize(label, 9, 180), color: GREY, align: 'right' });
     pdf.text(RIGHT, ry, value, { size: 9, bold: true, align: 'right' });
     ry += 13;
   };
-  fact('Number', d.number ?? 'Draft');
-  fact('Date', formatDate(d.issueDate));
-  fact(d.kind === 'quote' ? 'Valid until' : 'Due date', formatDate(d.dueDate));
-  if (d.status !== 'sent') fact('Status', d.status.charAt(0).toUpperCase() + d.status.slice(1));
+  fact(L('number'), d.number ?? ct(lang, 'draft'));
+  fact(L('date'), date(d.issueDate));
+  fact(L(d.kind === 'quote' ? 'validUntil' : 'dueDate'), date(d.dueDate));
+  if (d.status !== 'sent' && ['draft', 'accepted', 'declined', 'paid', 'void'].includes(d.status)) fact(L('status'), ct(lang, d.status as TextKey));
   y = Math.max(ly, ry) + 18;
 
   // ── Bill to ──
-  pdf.text(M, y, d.kind === 'quote' ? 'PREPARED FOR' : 'BILL TO', { size: 8, bold: true, color: GREY });
+  pdf.text(M, y, H(d.kind === 'quote' ? 'preparedFor' : 'billTo'), { size: 8, bold: true, color: GREY });
   y += 13;
   if (d.billToName) { pdf.text(M, y, d.billToName, { size: 11, bold: true }); y += 15; }
   for (const line of wrapText(d.billToDetails, 9, 300)) { if (line) pdf.text(M, y, line, { size: 9, color: GREY }); y += 12; }
@@ -78,21 +86,28 @@ export function renderDocumentPdf(d: PdfInput): Buffer {
   const ITEM_W = 180;
   const W = { qty: 52, price: 84, tax: 46, amount: col.amount - col.tax - 10 };
   const header = () => {
-    pdf.rect(M, y, RIGHT - M, 20, [0.95, 0.95, 0.98]);
+    // Bilingual: Khmer above English in a taller header row (side by side wouldn't fit the number columns).
+    const both = lang === 'both';
+    pdf.rect(M, y, RIGHT - M, both ? 30 : 20, [0.95, 0.95, 0.98]);
     const o = { size: 8, bold: true, color: GREY };
-    pdf.text(col.item, y + 6, 'ITEM', o);
-    pdf.text(col.qty, y + 6, 'QTY', { ...o, align: 'right' });
-    pdf.text(col.price, y + 6, 'UNIT PRICE', { ...o, align: 'right' });
-    pdf.text(col.tax, y + 6, 'TAX', { ...o, align: 'right' });
-    pdf.text(col.amount, y + 6, 'AMOUNT', { ...o, align: 'right' });
-    y += 26;
+    const cell = (x: number, k: TextKey, align?: 'right') => {
+      if (!both) { pdf.text(x, y + 6, H(k), { ...o, align }); return; }
+      pdf.text(x, y + 4, ct('km', k), { ...o, align });
+      pdf.text(x, y + 16, ct('en', k).toUpperCase(), { ...o, size: 7, align });
+    };
+    cell(col.item, 'item');
+    cell(col.qty, 'qty', 'right');
+    cell(col.price, 'unitPrice', 'right');
+    cell(col.tax, 'tax', 'right');
+    cell(col.amount, 'amount', 'right');
+    y += both ? 36 : 26;
   };
   const bottom = A4.height - M - 40;
   header();
   for (const it of d.items) {
     const nameLines = wrapText(it.name, 9.5, ITEM_W, true);
     const extra: string[] = [];
-    if (it.discountType && Number(it.discountValue) > 0) extra.push(`Discount ${it.discountType === 'percent' ? `${Number(it.discountValue)}%` : money(it.discountValue ?? 0)}`);
+    if (it.discountType && Number(it.discountValue) > 0) extra.push(`${ct(lang, 'discount')} ${it.discountType === 'percent' ? `${Number(it.discountValue)}%` : money(it.discountValue ?? 0)}`);
     const h = nameLines.length * 12 + extra.length * 11 + 8;
     if (y + h > bottom) { pdf.addPage(); y = M; header(); }
     nameLines.forEach((l, i) => pdf.text(col.item, y + i * 12, l, { size: 9.5, bold: true }));
@@ -109,11 +124,11 @@ export function renderDocumentPdf(d: PdfInput): Buffer {
   }
 
   // ── Totals ──
-  const rows: [string, string, boolean][] = [['Subtotal', money(d.listTotal), false]];
-  if (Number(d.discount) > 0) rows.push(['Discount', `-${money(d.discount)}`, false]);
-  rows.push(['Tax', money(d.tax), false], ['Total', money(d.total), true]);
+  const rows: [string, string, boolean][] = [[L('subtotal'), money(d.listTotal), false]];
+  if (Number(d.discount) > 0) rows.push([L('discount'), `-${money(d.discount)}`, false]);
+  rows.push([L('tax'), money(d.tax), false], [L('total'), money(d.total), true]);
   if (d.paidAmount && Number(d.paidAmount) > 0) {
-    rows.push(['Paid', `-${money(d.paidAmount)}`, false], ['Balance due', money((Number(d.total) - Number(d.paidAmount)).toFixed(2)), true]);
+    rows.push([L('paidAmount'), `-${money(d.paidAmount)}`, false], [L('balanceDue'), money((Number(d.total) - Number(d.paidAmount)).toFixed(2)), true]);
   }
   if (y + rows.length * 18 + 10 > bottom) { pdf.addPage(); y = M; }
   y += 8;
@@ -131,7 +146,7 @@ export function renderDocumentPdf(d: PdfInput): Buffer {
     const lines = wrapText(d.notes.trim(), 9, RIGHT - M);
     if (y + 30 + lines.length * 12 > bottom) { pdf.addPage(); y = M; }
     y += 14;
-    pdf.text(M, y, 'NOTES', { size: 8, bold: true, color: GREY });
+    pdf.text(M, y, H('notes'), { size: 8, bold: true, color: GREY });
     y += 13;
     for (const l of lines) {
       if (y > bottom) { pdf.addPage(); y = M; }
@@ -149,8 +164,8 @@ export function renderDocumentPdf(d: PdfInput): Buffer {
     const cell = size / n;
     if (y + size + 40 > bottom) { pdf.addPage(); y = M; }
     y += 18;
-    pdf.text(M, y, 'PAY WITH KHQR', { size: 8, bold: true, color: GREY });
-    y += 8;
+    pdf.text(M, y, H('payWithKhqr'), { size: 8, bold: true, color: GREY });
+    y += 12;
     const top = y;
     // Dark modules as squares, run-length merged per row (smaller file, no hairline gaps in viewers).
     for (let r = 0; r < n; r++) {
@@ -165,9 +180,9 @@ export function renderDocumentPdf(d: PdfInput): Buffer {
     const tx = M + size + 16;
     const balance = d.paidAmount && Number(d.paidAmount) > 0 ? (Number(d.total) - Number(d.paidAmount)).toFixed(2) : d.total;
     pdf.text(tx, top + 14, money(balance), { size: 14, bold: true });
-    pdf.text(tx, top + 32, 'Scan with any Bakong member bank app', { size: 9 });
-    pdf.text(tx, top + 45, '(ABA, ACLEDA, Wing, Canadia, …) to pay this invoice.', { size: 9, color: GREY });
-    pdf.text(tx, top + 64, `Valid until ${formatDate(d.khqr.expiresAt.slice(0, 10))}`, { size: 9, color: GREY });
+    pdf.text(tx, top + 32, ct(lang, 'scanLine1'), { size: fitSize(ct(lang, 'scanLine1'), 9, RIGHT - tx) });
+    pdf.text(tx, top + 45, ct(lang, 'scanLine2'), { size: fitSize(ct(lang, 'scanLine2'), 9, RIGHT - tx), color: GREY });
+    pdf.text(tx, top + 64, `${ct(lang, 'validUntil')} ${date(d.khqr.expiresAt.slice(0, 10))}`, { size: 9, color: GREY });
     y = top + size + 8;
   }
 
@@ -178,7 +193,7 @@ export function renderDocumentPdf(d: PdfInput): Buffer {
     const fy = A4.height - M - 6;
     pdf.line(M, fy - 8, RIGHT, fy - 8);
     footer.forEach((l, i) => pdf.text(M, fy + i * 10, l, { size: 8, color: GREY }));
-    pdf.text(RIGHT, fy, `Page ${p + 1} of ${pdf.pageCount}`, { size: 8, color: GREY, align: 'right' });
+    pdf.text(RIGHT, fy, ct(lang, 'page', { n: p + 1, total: pdf.pageCount }), { size: 8, color: GREY, align: 'right' });
   }
   return pdf.toBuffer();
 }

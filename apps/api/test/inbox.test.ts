@@ -211,7 +211,7 @@ describe('inbox: website chat', () => {
     };
     const settings = await pub('GET', '');
     expect(settings.status).toBe(200);
-    expect(settings.body).toEqual({ name: 'Acme support', greeting: 'Hi there', color: '#4f46e5' });
+    expect(settings.body).toMatchObject({ name: 'Acme support', greeting: 'Hi there', color: '#4f46e5', lang: 'en', texts: { chatSend: 'Send' } });
     expect(settings.headers['access-control-allow-origin']).toBe('*');
     expect(settings.headers['cross-origin-resource-policy']).toBe('cross-origin');
     expect((await pub('OPTIONS', '/messages')).status).toBe(204);

@@ -7,6 +7,7 @@ import { useMe } from '../../lib/hooks.ts';
 import { Button, EmptyState, ErrorState, Field, Input, Skeleton } from '../../components/ui/primitives.tsx';
 import { CallRoom } from './CallRoom.tsx';
 import type { Transport } from './useCallRoom.ts';
+import { ct, type CustomerLanguage } from '@crm/shared';
 
 interface CallInfo { id: number; title: string; status: 'open' | 'ended'; activityId: number | null; conversationId: number | null; guestUrl: string | null; minutes: number | null; createdBy?: number }
 
@@ -44,8 +45,8 @@ export function GuestCallPage() {
   const [name, setName] = useState('');
   const info = useQuery({ queryKey: ['guest-call', token], retry: false, queryFn: async () => {
     const r = await fetch(`/api/v1/public/calls/${encodeURIComponent(token)}`);
-    if (!r.ok) throw new Error(r.status === 404 ? 'This call link isn’t valid. Ask for a new one.' : 'The call couldn’t be loaded. Try again.');
-    return (await r.json()) as { title: string; status: 'open' | 'ended'; host: string };
+    if (!r.ok) throw new Error(r.status === 404 ? `${ct('km', 'callBadLink')} ${ct('en', 'callBadLink')}` : `${ct('km', 'somethingWrong')} ${ct('en', 'somethingWrong')}`);
+    return (await r.json()) as { title: string; status: 'open' | 'ended'; host: string; lang: CustomerLanguage };
   } });
   const transport = useMemo<Transport>(() => {
     const post = async (path: string, body: unknown) => {
@@ -64,14 +65,14 @@ export function GuestCallPage() {
   return (
     <main className="mx-auto min-h-screen max-w-5xl px-4 py-6">
       {info.isLoading ? <Skeleton className="h-96" />
-        : info.isError ? <EmptyState title="Can’t open this call" description={(info.error as Error).message} />
-        : info.data!.status === 'ended' ? <EmptyState title="This call has ended" description={`Thanks for talking with ${info.data!.host}.`} />
+        : info.isError ? <EmptyState title={`${ct('km', 'callCantOpen')} · ${ct('en', 'callCantOpen')}`} description={(info.error as Error).message} />
+        : info.data!.status === 'ended' ? <EmptyState title={ct(info.data!.lang, 'callEnded')} description={ct(info.data!.lang, 'callThanks', { host: info.data!.host })} />
         : (
           <>
-            <p className="mb-2 text-sm text-muted">Video call with {info.data!.host}</p>
-            <CallRoom transport={transport} title={info.data!.title} myName={name.trim() || 'You'}
-              extra={<Field label="Your name" htmlFor="guest-name" required><Input id="guest-name" autoComplete="name" maxLength={80} value={name} onChange={(e) => setName(e.target.value)} /></Field>}
-              joinLabel={name.trim() ? 'Join call' : 'Enter your name to join'} />
+            <p className="mb-2 text-sm text-muted" lang={info.data!.lang === 'en' ? 'en' : 'km'}>{ct(info.data!.lang, 'callWith', { host: info.data!.host })}</p>
+            <CallRoom transport={transport} title={info.data!.title} myName={name.trim() || '…'} lang={info.data!.lang}
+              extra={<Field label={ct(info.data!.lang, 'callYourName')} htmlFor="guest-name" required><Input id="guest-name" autoComplete="name" maxLength={80} value={name} onChange={(e) => setName(e.target.value)} /></Field>}
+              joinLabel={name.trim() ? ct(info.data!.lang, 'callJoin') : ct(info.data!.lang, 'callEnterName')} />
           </>
         )}
     </main>

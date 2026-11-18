@@ -13,7 +13,7 @@ import { openSecret, sealSecret } from '../lib/secrets.ts';
  */
 import type { FastifyInstance } from 'fastify';
 import type { z } from 'zod';
-import { calcLine, calcTotals, documentCreateSchema, documentEmailSchema, documentSettingsSchema, documentStatusSchema, documentUpdateSchema, lineItemSchema, listQuerySchema, moneyCompare, moneyMinus, paymentSchema } from '@crm/shared';
+import { calcLine, calcTotals, documentCreateSchema, documentEmailSchema, documentSettingsSchema, documentStatusSchema, documentUpdateSchema, lineItemSchema, listQuerySchema, moneyCompare, moneyMinus, paymentSchema, ctLabel } from '@crm/shared';
 import { config } from '../config.ts';
 import { likeTerm, qs, runList } from '../lib/list.ts';
 import { documentMail, queueMail, workspaceSender } from '../lib/mailer.ts';
@@ -184,7 +184,7 @@ export async function renderPdf(ctx: Ctx, doc: Doc, db: Db = pool): Promise<{ bu
     listTotal: doc.list_total, discount: doc.discount, tax: doc.tax, total: doc.total,
     paidAmount: doc.kind === 'invoice' ? doc.paid_amount : undefined,
     khqr: (() => { const k = invoiceKhqr(doc, s.khqr); return k.available ? { payload: k.payload, expiresAt: k.expiresAt } : undefined; })(),
-    items: camelAll(items) as never, seller: { name: s.sellerName, details: s.companyDetails, footer: s.footer },
+    items: camelAll(items) as never, seller: { name: s.sellerName, details: s.companyDetails, footer: s.footer }, lang: s.customerLanguage,
   });
   return { buffer, filename: `${doc.number ?? `Draft ${doc.kind}`}.pdf`.replace(/[^\w .-]/g, '_') };
 }
@@ -334,7 +334,7 @@ export async function documentRoutes(app: FastifyInstance) {
       await queueMail({
         ...documentMail({ to: body.to, replyTo: ctx.email, subject: body.subject, message: body.message, sender: ctx.userName, workspace: ws!.name,
           pdf: { filename: pdf.filename, base64: pdf.buffer.toString('base64') },
-          button: { label: doc.kind === 'quote' ? 'View and accept online' : 'View and pay online', url: link } }),
+          button: { label: ctLabel((await documentSettings(ctx.workspaceId, db)).customerLanguage, doc.kind === 'quote' ? 'viewAccept' : 'viewPay'), url: link } }),
         fromName: await workspaceSender(ctx.workspaceId, db),
       }, db, { workspaceId: ctx.workspaceId });
       const after = (await q1<Doc>(sql`UPDATE documents SET last_emailed_at = now() WHERE id = ${doc.id} RETURNING *`, db))!;

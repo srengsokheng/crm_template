@@ -6,7 +6,7 @@
  * Permissions: like invoices — people who may edit the deal set up and change schedules; who may see the deal sees them.
  */
 import type { FastifyInstance } from 'fastify';
-import { recurringCreateSchema, recurringUpdateSchema } from '@crm/shared';
+import { ctLabel, recurringCreateSchema, recurringUpdateSchema } from '@crm/shared';
 import { pool, q, q1, sql, tx, type Db } from '../db/index.ts';
 import { audit } from '../lib/audit.ts';
 import { systemCtx, type Ctx } from '../lib/context.ts';
@@ -16,7 +16,7 @@ import { documentMail, queueMail, workspaceSender } from '../lib/mailer.ts';
 import { canOnRecord, scopeWhere } from '../lib/permissions.ts';
 import { camel, camelAll } from '../lib/records.ts';
 import { parse } from '../lib/validate.ts';
-import { asItems, changeStatus, ensureLink, loadDeal, renderPdf, writeItems, type Doc } from './documents.ts';
+import { asItems, changeStatus, documentSettings, ensureLink, loadDeal, renderPdf, writeItems, type Doc } from './documents.ts';
 
 interface Schedule {
   id: number; workspace_id: number; deal_id: number; source_id: number | null; every_months: number; start_on: string; next_run: string;
@@ -52,7 +52,7 @@ async function runOnce(db: Db, s: Schedule): Promise<Doc> {
         to: s.email_to, replyTo: creator.email, subject: `Invoice ${doc.number} from ${ws!.name}`,
         message: s.message || `Hello${s.bill_to_name ? ` ${s.bill_to_name}` : ''},\n\nPlease find invoice ${doc.number} attached.${doc.due_date ? ` Payment is due by ${doc.due_date}.` : ''}\n\nKind regards,\n${creator.name}`,
         sender: creator.name, workspace: ws!.name, pdf: { filename: pdf.filename, base64: pdf.buffer.toString('base64') },
-        button: { label: 'View and pay online', url: link },
+        button: { label: ctLabel((await documentSettings(s.workspace_id, db)).customerLanguage, 'viewPay'), url: link },
       }),
       fromName: await workspaceSender(s.workspace_id, db),
     }, db, { workspaceId: s.workspace_id });

@@ -63,6 +63,7 @@ export async function publicDocumentRoutes(app: FastifyInstance) {
       listTotal: d.list_total, discount: d.discount, tax: d.tax, total: d.total, paidAmount: d.paid_amount, balance,
       items: camelAll(await loadItems(d.id)).map((i) => ({ name: i.name, quantity: i.quantity, unit: i.unit, unitPrice: i.unitPrice, discountType: i.discountType, discountValue: i.discountValue, taxRate: i.taxRate, lineTotal: i.lineTotal })),
       seller: { name: s.sellerName, details: s.companyDetails },
+      lang: s.customerLanguage,
       expired: expired(d), canRespond: d.kind === 'quote' && d.status === 'sent' && !expired(d),
       response: d.responded_at ? { at: d.responded_at, by: d.responded_by_name, note: d.customer_note } : null,
       khqr: k?.available ? { payload: k.payload, amount: k.amount, currency: k.currency, expiresAt: k.expiresAt, merchantName: k.merchantName, accountId: k.accountId } : null,

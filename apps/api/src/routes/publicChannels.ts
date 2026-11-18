@@ -4,7 +4,8 @@
  */
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
-import { webchatMessageSchema } from '@crm/shared';
+import { customerTexts, webchatMessageSchema } from '@crm/shared';
+import { documentSettings } from './documents.ts';
 import { q, q1, sql, tx } from '../db/index.ts';
 import { config } from '../config.ts';
 import { AppError, badRequest, forbidden, notFound } from '../lib/errors.ts';
@@ -126,7 +127,10 @@ export async function publicChannelRoutes(app: FastifyInstance) {
   /** Widget settings. */
   app.get<KeyParams>('/public/webchat/:key', { config: { rateLimit: { max: 120, timeWindow: '1 minute' } } }, async (req, reply) => {
     const c = await webchat(req, reply);
-    return { name: c.name, greeting: c.config.greeting ?? '', color: c.config.color ?? '#4f46e5' };
+    const lang = (await documentSettings(c.workspace_id)).customerLanguage;
+    const all = customerTexts(lang);
+    const texts = Object.fromEntries(Object.entries(all).filter(([k]) => k.startsWith('chat')));
+    return { name: c.name, greeting: c.config.greeting ?? '', color: c.config.color ?? '#4f46e5', lang: lang === 'en' ? 'en' : 'km', texts };
   });
 
   /** The visitor's conversation (token from their first message, kept in their browser). */

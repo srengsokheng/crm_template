@@ -21,6 +21,7 @@ import {
   relaySignal, stopCallListening, subscribeCall, type CallEvent, type CallRow,
 } from '../calls/calls.ts';
 import { canTouchActivity } from './activities.ts';
+import { documentSettings } from './documents.ts';
 
 type IdParams = { Params: { id: string } };
 type TokenParams = { Params: { token: string } };
@@ -148,7 +149,7 @@ export async function callRoutes(app: FastifyInstance) {
   app.get<TokenParams>('/public/calls/:token', { config: { rateLimit: { max: 60, timeWindow: '1 minute' } } }, async (req) => {
     const c = await guestCall(req.params.token);
     const ws = await q1<{ name: string }>(sql`SELECT name FROM workspaces WHERE id = ${c.workspace_id}`);
-    return { title: c.title, status: c.status, host: ws?.name ?? '' };
+    return { title: c.title, status: c.status, host: ws?.name ?? '', lang: (await documentSettings(c.workspace_id)).customerLanguage };
   });
 
   app.post<TokenParams>('/public/calls/:token/join', { config: { rateLimit: { max: config.isTest ? 1000 : 10, timeWindow: '1 minute' } } }, async (req) => {
