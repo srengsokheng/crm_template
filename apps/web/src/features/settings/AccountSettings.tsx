@@ -5,6 +5,7 @@ import { api, ApiError, errorMessage } from '../../lib/api.ts';
 import { useMe } from '../../lib/hooks.ts';
 import { Button, Card, Field, Input, Skeleton } from '../../components/ui/primitives.tsx';
 import { TelegramAlertsCard } from './TelegramAlertsCard.tsx';
+import { InstallAppCard } from './InstallAppCard.tsx';
 
 /** Settings → Your account (everyone): display name and password. */
 export function AccountSettings() {
@@ -16,6 +17,7 @@ export function AccountSettings() {
       <EmailCard email={me.user.email} />
       <PasswordCard />
       <TelegramAlertsCard />
+      <InstallAppCard />
     </div>
   );
 }

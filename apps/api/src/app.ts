@@ -87,7 +87,7 @@ export async function buildApp(opts: { logger?: boolean } = {}): Promise<Fastify
   // Serve the built SPA (production). Unknown non-API paths fall back to index.html.
   const types: Record<string, string> = {
     '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml',
-    '.png': 'image/png', '.ico': 'image/x-icon', '.woff2': 'font/woff2', '.json': 'application/json',
+    '.png': 'image/png', '.ico': 'image/x-icon', '.woff2': 'font/woff2', '.json': 'application/json', '.webmanifest': 'application/manifest+json',
   };
   app.setNotFoundHandler(async (req, reply) => {
     const path = req.url.split('?')[0];

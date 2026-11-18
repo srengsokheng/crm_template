@@ -432,7 +432,16 @@ The research behind every decision is in this folder:
   that passed) / Stop on the invoice’s "Repeats" card and in Quotes & invoices → Recurring. The creator is notified
   each time (also on Telegram, #51).
 
-**Quality:** 242 Vitest tests (API against real PostgreSQL), 69 Playwright tests (desktop, tablet, phone), lint and
+- **Installable app (PWA)** (`apps/web/public/manifest.webmanifest`, `sw.js`, `offline.html`, `lib/install.ts`):
+  add to the home screen (Android, iPhone via Safari → Share → Add to Home Screen) or install on desktop Chrome/Edge;
+  opens full-screen with its own icon (192/512, maskable, Apple 180 — rendered from the logo) and shortcuts to Inbox,
+  Deals and Activities. The service worker (production builds) keeps `/assets/` files after the first load (they’re
+  content-hashed), always fetches pages from the server, shows a friendly offline page without a connection (reloads by
+  itself when it’s back), and **never caches /api/** — data is always live and nothing private stays on the device.
+  Your account → "App on your phone": install button where the browser offers it, instructions otherwise. Chrome’s own
+  installability check reports no errors.
+
+**Quality:** 242 Vitest tests (API against real PostgreSQL), 70 Playwright tests (desktop, tablet, phone), lint and
 typecheck clean, `npm audit` = 0, GitHub Actions CI in `.github/workflows/ci.yml`.
 
 ## 3. Not built yet — suggested next work (in priority order)
