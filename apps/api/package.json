@@ -22,6 +22,7 @@
     "harfbuzzjs": "1.6.4",
     "nodemailer": "10.5.0",
     "pg": "8.23.1",
+    "qrcode-generator": "2.0.4",
     "telegram": "2.26.22",
     "zod": "4.6.7"
   },

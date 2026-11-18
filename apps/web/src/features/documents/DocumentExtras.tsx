@@ -70,7 +70,8 @@ export function PaymentDialog({ doc, open, onOpenChange, onSaved }: { doc: DocFu
           <Input id="pay-amount" inputMode="decimal" autoFocus value={f.amount} onChange={(e) => setF({ ...f, amount: e.target.value })} />
         </Field>
         <Field label="Paid on" htmlFor="pay-date" error={errors.paidOn}><Input id="pay-date" type="date" value={f.paidOn} onChange={(e) => setF({ ...f, paidOn: e.target.value })} /></Field>
-        <Field label="Method" htmlFor="pay-method" hint="e.g. Bank transfer, Cash, ABA"><Input id="pay-method" value={f.method} onChange={(e) => setF({ ...f, method: e.target.value })} /></Field>
+        <Field label="Method" htmlFor="pay-method" hint="Pick one or type your own"><Input id="pay-method" list="pay-methods" value={f.method} onChange={(e) => setF({ ...f, method: e.target.value })} />
+          <datalist id="pay-methods">{['KHQR', 'ABA', 'ACLEDA', 'Wing', 'Bank transfer', 'Cash', 'Card', 'Cheque'].map((m) => <option key={m} value={m} />)}</datalist></Field>
         <Field label="Note" htmlFor="pay-note"><Input id="pay-note" value={f.note} onChange={(e) => setF({ ...f, note: e.target.value })} placeholder="Reference number…" /></Field>
       </div>
     </Dialog>

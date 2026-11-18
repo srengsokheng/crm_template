@@ -1,4 +1,5 @@
 /** Lays out a quote or invoice on A4 pages with the tiny PDF writer. */
+import qrcode from 'qrcode-generator';
 import { A4, fitSize, PdfDoc, textWidth, winAnsi, wrapText } from './pdf.ts';
 
 export interface PdfInput {
@@ -16,6 +17,8 @@ export interface PdfInput {
   paidAmount?: string;
   items: { name: string; quantity: string | number; unit: string; unitPrice: string; discountType: string | null; discountValue: string | number | null; taxRate: string | number | null; taxIncluded: boolean; lineTotal: string }[];
   seller: { name: string; details: string; footer: string };
+  /** Invoices: a KHQR (Bakong) payment QR for the balance due. */
+  khqr?: { payload: string; expiresAt: string };
 }
 
 const GREY: [number, number, number] = [0.42, 0.44, 0.5];
@@ -134,6 +137,38 @@ export function renderDocumentPdf(d: PdfInput): Buffer {
       if (y > bottom) { pdf.addPage(); y = M; }
       pdf.text(M, y, l, { size: 9 }); y += 12;
     }
+  }
+
+  // ── Pay with KHQR ──
+  if (d.khqr) {
+    const qr = qrcode(0, 'M');
+    qr.addData(d.khqr.payload);
+    qr.make();
+    const n = qr.getModuleCount();
+    const size = 116;
+    const cell = size / n;
+    if (y + size + 40 > bottom) { pdf.addPage(); y = M; }
+    y += 18;
+    pdf.text(M, y, 'PAY WITH KHQR', { size: 8, bold: true, color: GREY });
+    y += 8;
+    const top = y;
+    // Dark modules as squares, run-length merged per row (smaller file, no hairline gaps in viewers).
+    for (let r = 0; r < n; r++) {
+      for (let c = 0; c < n;) {
+        if (!qr.isDark(r, c)) { c++; continue; }
+        let e = c;
+        while (e < n && qr.isDark(r, e)) e++;
+        pdf.rect(M + c * cell, top + r * cell, (e - c) * cell + 0.05, cell + 0.05, [0, 0, 0]);
+        c = e;
+      }
+    }
+    const tx = M + size + 16;
+    const balance = d.paidAmount && Number(d.paidAmount) > 0 ? (Number(d.total) - Number(d.paidAmount)).toFixed(2) : d.total;
+    pdf.text(tx, top + 14, money(balance), { size: 14, bold: true });
+    pdf.text(tx, top + 32, 'Scan with any Bakong member bank app', { size: 9 });
+    pdf.text(tx, top + 45, '(ABA, ACLEDA, Wing, Canadia, …) to pay this invoice.', { size: 9, color: GREY });
+    pdf.text(tx, top + 64, `Valid until ${formatDate(d.khqr.expiresAt.slice(0, 10))}`, { size: 9, color: GREY });
+    y = top + size + 8;
   }
 
   // ── Footer on every page ──

@@ -24,6 +24,7 @@ import { ctxOf } from '../lib/http.ts';
 import { assertOnRecord, canOnRecord, requireAdmin, requireAny, scopeWhere } from '../lib/permissions.ts';
 import { assertRefs, camel, camelAll } from '../lib/records.ts';
 import { parse } from '../lib/validate.ts';
+import { invoiceKhqr } from '../lib/invoiceKhqr.ts';
 
 type Kind = 'quote' | 'invoice';
 interface Doc {
@@ -163,6 +164,7 @@ async function renderPdf(ctx: Ctx, doc: Doc, db: Db = pool): Promise<{ buffer: B
     billToName: doc.bill_to_name, billToDetails: doc.bill_to_details, notes: doc.notes,
     listTotal: doc.list_total, discount: doc.discount, tax: doc.tax, total: doc.total,
     paidAmount: doc.kind === 'invoice' ? doc.paid_amount : undefined,
+    khqr: (() => { const k = invoiceKhqr(doc, s.khqr); return k.available ? { payload: k.payload, expiresAt: k.expiresAt } : undefined; })(),
     items: camelAll(items) as never, seller: { name: s.sellerName, details: s.companyDetails, footer: s.footer },
   });
   return { buffer, filename: `${doc.number ?? `Draft ${doc.kind}`}.pdf`.replace(/[^\w .-]/g, '_') };
@@ -256,6 +258,13 @@ export async function documentRoutes(app: FastifyInstance) {
       FROM documents d JOIN deals dl ON dl.id = d.deal_id WHERE ${and(visible)} AND d.kind = 'invoice' AND d.status = 'sent'`);
     return { ...r, data: camelAll(r.data as Record<string, unknown>[]), baseCurrency: ctx.baseCurrency,
       totals: { outstanding: owed?.outstanding ?? '0', overdue: owed?.overdue ?? '0', overdueCount: owed?.overdue_count ?? 0, missingRates: owed?.missing ?? [] } };
+  });
+
+  /** The KHQR payment QR for the invoice's balance due (or why there is none). A fresh one each time. */
+  app.get<{ Params: { id: string } }>('/documents/:id/khqr', async (req) => {
+    const ctx = ctxOf(req);
+    const { doc } = await loadDoc(pool, ctx, Number(req.params.id), 'view');
+    return invoiceKhqr(doc, (await documentSettings(ctx.workspaceId)).khqr);
   });
 
   // ── Payments ──

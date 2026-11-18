@@ -2,10 +2,11 @@ import { useEffect, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { api, ApiError, errorMessage } from '../../lib/api.ts';
-import { Button, Card, ErrorState, Field, Input, Skeleton, Textarea } from '../../components/ui/primitives.tsx';
+import { Button, Card, Checkbox, ErrorState, Field, Input, Select, Skeleton, Textarea } from '../../components/ui/primitives.tsx';
 import { AdminOnly } from './SettingsLayout.tsx';
 
-interface S { companyDetails: string; footer: string; quotePrefix: string; invoicePrefix: string; quoteValidDays: number; paymentTermsDays: number }
+interface K { enabled: boolean; accountId: string; merchantName: string; city: string; accountType: 'individual' | 'merchant'; merchantId: string; acquiringBank: string; validDays: number }
+interface S { companyDetails: string; footer: string; quotePrefix: string; invoicePrefix: string; quoteValidDays: number; paymentTermsDays: number; khqr: K }
 
 /** What appears on quote and invoice PDFs, and how they are numbered. */
 export function DocumentSettings() {
@@ -16,6 +17,8 @@ export function DocumentSettings() {
   const [saving, setSaving] = useState(false);
   useEffect(() => { if (q.data) setF(q.data); }, [q.data]);
   const set = (patch: Partial<S>) => setF((v) => (v ? { ...v, ...patch } : v));
+  const setK = (patch: Partial<K>) => setF((v) => (v ? { ...v, khqr: { ...v.khqr, ...patch } } : v));
+  const kErr = (k: string) => errors[`khqr.${k}`] ?? (k === 'accountId' ? errors.khqr : undefined);
   const save = async () => {
     if (!f) return;
     setSaving(true); setErrors({});
@@ -42,6 +45,24 @@ export function DocumentSettings() {
                 <Field label="Quotes are valid for (days)" htmlFor="ds-qv" error={errors.quoteValidDays}><Input id="ds-qv" type="number" min={1} max={365} value={f.quoteValidDays} onChange={(e) => set({ quoteValidDays: Number(e.target.value) })} /></Field>
                 <Field label="Invoices are due after (days)" htmlFor="ds-pt" error={errors.paymentTermsDays}><Input id="ds-pt" type="number" min={0} max={365} value={f.paymentTermsDays} onChange={(e) => set({ paymentTermsDays: Number(e.target.value) })} /></Field>
               </div>
+              <fieldset className="space-y-3 rounded-md border border-base p-3">
+                <legend className="px-1 text-sm font-medium">KHQR payments (Bakong)</legend>
+                <Checkbox checked={f.khqr.enabled} onChange={(v) => setK({ enabled: v })} label="Show a KHQR on sent invoices in riel or dollars, for the balance due" />
+                <p className="text-xs text-muted">Customers scan it with any Bakong member bank app (ABA, ACLEDA, Wing, …) and the money goes straight to your account. Record the payment here when it arrives.</p>
+                {f.khqr.enabled && (
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <Field label="Bakong account ID" htmlFor="kq-id" required hint="In your bank app, e.g. name@aclb or name@abaa" error={kErr('accountId')}><Input id="kq-id" autoComplete="off" spellCheck={false} value={f.khqr.accountId} onChange={(e) => setK({ accountId: e.target.value })} /></Field>
+                    <Field label="Name the payer sees" htmlFor="kq-name" required hint="Up to 25 English letters" error={kErr('merchantName')}><Input id="kq-name" maxLength={25} value={f.khqr.merchantName} onChange={(e) => setK({ merchantName: e.target.value })} /></Field>
+                    <Field label="City" htmlFor="kq-city" error={kErr('city')}><Input id="kq-city" maxLength={15} value={f.khqr.city} onChange={(e) => setK({ city: e.target.value })} /></Field>
+                    <Field label="Account type" htmlFor="kq-type"><Select id="kq-type" value={f.khqr.accountType} onChange={(e) => setK({ accountType: e.target.value as K['accountType'] })}><option value="individual">Personal account</option><option value="merchant">Merchant account</option></Select></Field>
+                    {f.khqr.accountType === 'merchant' && <>
+                      <Field label="Merchant ID" htmlFor="kq-mid" hint="From your bank" error={kErr('merchantId')}><Input id="kq-mid" value={f.khqr.merchantId} onChange={(e) => setK({ merchantId: e.target.value })} /></Field>
+                      <Field label="Bank" htmlFor="kq-bank" hint="e.g. ABA Bank" error={kErr('acquiringBank')}><Input id="kq-bank" value={f.khqr.acquiringBank} onChange={(e) => setK({ acquiringBank: e.target.value })} /></Field>
+                    </>}
+                    <Field label="A QR stays valid for (days)" htmlFor="kq-days" hint="Banks refuse expired ones; each view or PDF makes a fresh one" error={kErr('validDays')}><Input id="kq-days" type="number" min={1} max={90} value={f.khqr.validDays} onChange={(e) => setK({ validDays: Number(e.target.value) })} /></Field>
+                  </div>
+                )}
+              </fieldset>
               <div className="flex justify-end"><Button variant="primary" loading={saving} onClick={save}>Save</Button></div>
             </div>
           )}

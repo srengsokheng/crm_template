@@ -395,6 +395,22 @@ export const documentEmailSchema = z.object({
   subject: trimmed(200).min(1, 'Required'),
   message: z.string().max(5000).default(''),
 });
+/** Banks show these KHQR fields as typed: plain English letters, digits and punctuation. */
+const khqrText = (max: number) => z.string().trim().max(max, `At most ${max} characters`).regex(/^[\x20-\x7E]*$/, 'Use English letters, digits and punctuation only — banks show this as typed');
+export const khqrSettingsSchema = z.object({
+  enabled: z.boolean().default(false),
+  /** Bakong account ID, like name@aclb (shown in the bank app under the account / Bakong ID). */
+  accountId: z.string().trim().max(32, 'At most 32 characters').regex(/^([^\s@]+@[^\s@]+)?$/, 'Use the Bakong account ID, like name@aclb').default(''),
+  merchantName: khqrText(25).default(''),
+  city: khqrText(15).default('Phnom Penh'),
+  accountType: z.enum(['individual', 'merchant']).default('individual'),
+  merchantId: khqrText(32).default(''),
+  acquiringBank: khqrText(32).default(''),
+  /** Days a QR on an invoice stays valid (banks refuse expired ones; a new one is made each time it's shown). */
+  validDays: z.coerce.number().int().min(1).max(90).default(14),
+}).refine((k) => !k.enabled || (k.accountId && k.merchantName), { message: 'Enter the Bakong account ID and the name banks show', path: ['accountId'] });
+export type KhqrSettings = z.infer<typeof khqrSettingsSchema>;
+
 export const documentSettingsSchema = z.object({
   companyDetails: z.string().max(2000).default(''),
   footer: z.string().max(1000).default(''),
@@ -402,6 +418,8 @@ export const documentSettingsSchema = z.object({
   invoicePrefix: trimmed(12).default('INV-'),
   quoteValidDays: z.coerce.number().int().min(1).max(365).default(30),
   paymentTermsDays: z.coerce.number().int().min(0).max(365).default(14),
+  /** KHQR (Bakong) payment QR on invoices in KHR or USD. */
+  khqr: khqrSettingsSchema.prefault({}),
 });
 
 // ───────── Field-level permissions ─────────

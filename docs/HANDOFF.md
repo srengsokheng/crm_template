@@ -393,7 +393,16 @@ The research behind every decision is in this folder:
   default Google's public STUN. **Add a TURN server** (e.g. coturn) for people behind strict firewalls or some mobile
   networks — without one, those calls may not connect.
 
-**Quality:** 228 Vitest tests (API against real PostgreSQL), 64 Playwright tests (desktop, tablet, phone), lint and
+- **KHQR (Bakong) payments on invoices** (`lib/khqr.ts`, `lib/invoiceKhqr.ts`): Settings → Quotes & invoices → KHQR:
+  Bakong account ID (name@bank), the name payers see (≤25 plain characters), city, personal or merchant account
+  (merchant ID, bank), days a QR stays valid. Every **sent** invoice in **KHR or USD** with money owing shows "Pay with
+  KHQR" — on its page (`GET /documents/:id/khqr`) and on the PDF — for the **balance due** (after part payments, only
+  the rest). The QR is the EMVCo/KHQR format byte-for-byte as the official Bakong SDK builds it (tests compare with SDK
+  output; the printed QR decodes back to the same text), with an expiry banks require for amounts. Payments still need
+  recording by hand (method suggestions include KHQR); automatic confirmation would need the Bakong Open API token.
+- **Money formatting fix:** amounts with cents always show two decimals ($1,250.50, never $1,250.5).
+
+**Quality:** 233 Vitest tests (API against real PostgreSQL), 65 Playwright tests (desktop, tablet, phone), lint and
 typecheck clean, `npm audit` = 0, GitHub Actions CI in `.github/workflows/ci.yml`.
 
 ## 3. Not built yet — suggested next work (in priority order)
@@ -412,6 +421,8 @@ The earlier list is done (see section 2). Known follow-ups, collected from the p
    media headers or values in buttons.
 5. Video calls: a TURN server for strict networks; recording; more than ~4 people would need a media server (SFU, e.g.
    LiveKit or mediasoup).
+6. KHQR: confirm payments automatically through the Bakong Open API (needs a token from the NBC); scan a printed QR
+   with a real bank app before relying on it.
 
 Import limits and choices: 5 MB / 10,000 rows / 100 columns per file; lead rows only match *open* leads; list
 values (type, source, industry, size, deal type, category) must already exist unless an admin ticks "Add values that aren't in

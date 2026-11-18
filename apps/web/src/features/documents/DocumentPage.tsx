@@ -11,6 +11,7 @@ import { RecordError, RecordShell, RecordSkeleton } from '../records/record.tsx'
 import { itemsPayload, LineItemsEditor } from '../products/LineItemsEditor.tsx';
 import { dateOnly, DocStatus, docTitle, kindLabel, type DocFull } from './common.tsx';
 import { EmailDialog, PaymentDialog, PaymentsCard } from './DocumentExtras.tsx';
+import { KhqrCard } from './Khqr.tsx';
 
 /** The next steps offered for each status (the server enforces the same rules). */
 const ACTIONS: Record<string, Record<string, { status: string; label: string; primary?: boolean; danger?: boolean }[]>> = {
@@ -109,6 +110,7 @@ export function DocumentPage() {
         </Card>
       </>}
       right={<>
+        {d.kind === 'invoice' && d.status === 'sent' && <KhqrCard docId={d.id} balance={d.balance} />}
         {d.kind === 'invoice' && d.status !== 'draft' && <PaymentsCard doc={d} onChange={refresh} onRecord={() => setDialog('payment')} />}
         <LineItemsEditor title="Items" items={d.items} currency={d.currency} canEdit={editable}
           onSave={async (items) => { await api.patch(`/documents/${id}`, { items: itemsPayload(items) }); await refresh(); toast.success('Items saved'); }} />

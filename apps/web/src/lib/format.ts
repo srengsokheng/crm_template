@@ -1,21 +1,22 @@
 const moneyFmt = new Map<string, Intl.NumberFormat>();
 
+/** Money: whole amounts without cents ($1,250), otherwise always two decimals ($1,250.50 — never $1,250.5). */
 export function money(value: string | number | null | undefined, currency = 'USD', opts: { compact?: boolean } = {}): string {
   if (value === null || value === undefined || value === '') return '—';
-  const key = `${currency}:${opts.compact ? 'c' : 'f'}`;
+  const n = Number(value);
+  const cents = !opts.compact && !Number.isInteger(Math.round(n * 100) / 100);
+  const key = `${currency}:${opts.compact ? 'c' : cents ? 'f' : 'w'}`;
   let f = moneyFmt.get(key);
   if (!f) {
+    const digits = opts.compact ? { maximumFractionDigits: 1, minimumFractionDigits: 0 } : cents ? { maximumFractionDigits: 2, minimumFractionDigits: 2 } : { maximumFractionDigits: 0, minimumFractionDigits: 0 };
     try {
-      f = new Intl.NumberFormat('en-US', {
-        style: 'currency', currency, maximumFractionDigits: opts.compact ? 1 : 2, minimumFractionDigits: 0,
-        notation: opts.compact ? 'compact' : 'standard',
-      });
+      f = new Intl.NumberFormat('en-US', { style: 'currency', currency, ...digits, notation: opts.compact ? 'compact' : 'standard' });
     } catch {
-      f = new Intl.NumberFormat('en-US', { maximumFractionDigits: 2 });
+      f = new Intl.NumberFormat('en-US', digits);
     }
     moneyFmt.set(key, f);
   }
-  return f.format(Number(value));
+  return f.format(n);
 }
 
 export const number = (v: number | string | null | undefined) => (v === null || v === undefined ? '—' : new Intl.NumberFormat('en-US').format(Number(v)));
