@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 
 import { Link, useNavigate, useParams } from 'react-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { AlertCircle, ArrowLeft, Camera, Clock, FileText, Globe, Inbox, Link2, MessageCircle, Paperclip, Phone, RotateCcw, Search, Send, UserPlus, Users, X } from 'lucide-react';
+import { AlertCircle, ArrowLeft, Camera, Clock, FileText, Globe, Inbox, Link2, MessageCircle, Paperclip, Phone, Video, RotateCcw, Search, Send, UserPlus, Users, X } from 'lucide-react';
 import { api, ApiError, errorMessage } from '../../lib/api.ts';
 import { fileSize } from '../records/Attachments.tsx';
 import { cn } from '../../lib/cn.ts';
@@ -12,6 +12,7 @@ import { Avatar, Badge, Button, EmptyState, ErrorState, IconButton, Input, Segme
 import { Dialog } from '../../components/ui/overlays.tsx';
 import { usePollInterval, useTyping } from './live.ts';
 import { TemplateDialog } from './TemplateDialog.tsx';
+import { startCall } from '../calls/CallPages.tsx';
 import { FeedList, useFeed } from '../../components/ui/FeedList.tsx';
 import { SavedRepliesMenu } from './SavedReplies.tsx';
 import { EntityPicker, type PickerItem } from '../../components/ui/EntityPicker.tsx';
@@ -216,6 +217,16 @@ function Thread({ id }: { id: number }) {
             {d.canEdit && <IconButton size="sm" label="Unlink lead" onClick={() => update({ leadId: null }, 'Lead unlinked')}><X className="size-3" /></IconButton>}</span>
         )}
         {d.canEdit && <Button size="sm" variant="ghost" icon={<Link2 className="size-3.5" />} onClick={() => setLinkOpen(true)}>Link…</Button>}
+        {d.canReply && d.kind === 'direct' && (
+          <Button size="sm" variant="ghost" icon={<Video className="size-3.5" />} onClick={async () => {
+            // Start a call and send the customer its link in this conversation, then open the call.
+            try {
+              const c = await startCall({ conversationId: id });
+              await api.post(`/inbox/conversations/${id}/messages`, { body: `Join our video call: ${c.guestUrl}` });
+              nav(`/calls/${c.id}`);
+            } catch (e) { toast.error(errorMessage(e)); }
+          }}>Video call</Button>
+        )}
         {d.canEdit && !d.contactId && d.kind === 'direct' && can('contact', 'create') && (
           <Button size="sm" variant="ghost" icon={<UserPlus className="size-3.5" />} onClick={async () => {
             try { const r = await api.post<{ id: number }>(`/inbox/conversations/${id}/contact`, {}); refresh(); toast.success('Contact created', { action: { label: 'Open', onClick: () => nav(`/contacts/${r.id}`) } }); }

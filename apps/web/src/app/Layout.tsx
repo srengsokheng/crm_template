@@ -2,8 +2,9 @@ import { Suspense, useEffect, useState, type ReactNode } from 'react';
 import { Link, NavLink, Navigate, Outlet, useLocation, useNavigate } from 'react-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
-  BarChart3, Bell, BellOff, BellRing, Building2, CheckSquare, Handshake, Home, LogOut, Menu as MenuIcon, Moon, Package, Plus, Search, Settings, Sun, Users, Zap, Monitor, X, Mail, FileText, MessageCircle, UserCog } from 'lucide-react';
+  BarChart3, Bell, BellOff, BellRing, Building2, CheckSquare, Handshake, Home, LogOut, Menu as MenuIcon, Moon, Package, Plus, Search, Settings, Sun, Users, Zap, Monitor, X, Mail, FileText, MessageCircle, UserCog, Video } from 'lucide-react';
 import { toast } from 'sonner';
+import { startCall } from '../features/calls/CallPages.tsx';
 import { api, ApiError, errorMessage } from '../lib/api.ts';
 import { cn } from '../lib/cn.ts';
 import { relative } from '../lib/format.ts';
@@ -199,6 +200,7 @@ function TopBar({ onSearch }: { onSearch: () => void }) {
           { label: 'Contact', icon: <Users className="size-4" />, onSelect: () => create.open('contact'), hidden: !can('contact', 'create') },
           { label: 'Company', icon: <Building2 className="size-4" />, onSelect: () => create.open('company'), hidden: !can('company', 'create') },
           { label: 'Activity', icon: <CheckSquare className="size-4" />, onSelect: () => create.open('activity'), hidden: !can('activity', 'create') },
+          { label: 'Video call', icon: <Video className="size-4" />, onSelect: async () => { try { nav(`/calls/${(await startCall({})).id}`); } catch (e) { toast.error(errorMessage(e)); } } },
         ]} />
       <Notifications />
       <Menu trigger={<button type="button" className="rounded-full" aria-label="Account menu"><Avatar name={me?.user.name} /></button>}

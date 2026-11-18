@@ -380,7 +380,20 @@ The research behind every decision is in this folder:
   - The MTProto client sits behind `TgUserDriver` (`telegramUserGram.ts`); tests and the e2e server use the fake in
     `apps/api/test/fakes/telegramUser.ts`.
 
-**Quality:** 224 Vitest tests (API against real PostgreSQL), 62 Playwright tests (desktop, tablet, phone), lint and
+- **Video calls in the app** (WebRTC, peer to peer; `calls/calls.ts`, `routes/calls.ts`, `features/calls`, migration
+  0030): start one from **+ New → Video call**, the camera button on a **meeting** in Activities, or **Video call** in
+  an Inbox conversation (the customer gets "Join our video call: <link>" in that chat). Camera preview, then a grid with
+  mute, camera off, **screen sharing**, "Copy guest link", Leave, and "End for everyone" (whoever started it, or an
+  admin). **Guests** join at `/join/<token>` with just a name (token stored hashed + encrypted). Up to 6 people (a mesh:
+  best for about 4). The server only relays set-up messages (`call_signals` + `pg_notify('calls')`) and tracks who
+  is in the call; audio/video go browser to browser and nothing is recorded. Leaving or refreshing doesn't end a call:
+  the worker ends calls empty for a minute, timed until the last person left, and the meeting activity is marked done
+  with "Video call, 12 min, with Grace, Sreng". Team members may open a call if they may see its meeting/conversation
+  (a call on its own: anyone in the workspace with the link). `CALL_ICE_SERVERS` (JSON) sets STUN/TURN servers;
+  default Google's public STUN. **Add a TURN server** (e.g. coturn) for people behind strict firewalls or some mobile
+  networks — without one, those calls may not connect.
+
+**Quality:** 228 Vitest tests (API against real PostgreSQL), 64 Playwright tests (desktop, tablet, phone), lint and
 typecheck clean, `npm audit` = 0, GitHub Actions CI in `.github/workflows/ci.yml`.
 
 ## 3. Not built yet — suggested next work (in priority order)
@@ -397,6 +410,8 @@ The earlier list is done (see section 2). Known follow-ups, collected from the p
    has no API for personal Messenger/Instagram inboxes, so those stay out.
 4. Inbox, Meta: test against Meta itself with a real app (only a fake Graph API has been used so far); templates with
    media headers or values in buttons.
+5. Video calls: a TURN server for strict networks; recording; more than ~4 people would need a media server (SFU, e.g.
+   LiveKit or mediasoup).
 
 Import limits and choices: 5 MB / 10,000 rows / 100 columns per file; lead rows only match *open* leads; list
 values (type, source, industry, size, deal type, category) must already exist unless an admin ticks "Add values that aren't in

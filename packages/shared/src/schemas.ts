@@ -192,6 +192,16 @@ const activityBase = {
 };
 export const activityCreateSchema = z.object(activityBase);
 export const activityUpdateSchema = z.object(activityBase).partial();
+/** Video calls: start one (on a meeting activity, an Inbox conversation, or on its own). */
+export const callCreateSchema = z.object({ title: trimmed(200).optional(), activityId: optId, conversationId: optId });
+export const callGuestJoinSchema = z.object({ name: trimmed(80).min(1, 'Enter your name') });
+export const callPeerSchema = z.object({ peer: z.string().regex(/^[A-Za-z0-9_-]{8,40}$/), secret: z.string().regex(/^[A-Za-z0-9_-]{20,64}$/) });
+export const callSignalSchema = callPeerSchema.extend({
+  to: z.string().regex(/^[A-Za-z0-9_-]{8,40}$/),
+  kind: z.enum(['offer', 'answer', 'candidate']),
+  /** An SDP description or an ICE candidate; bounded so the relay can't be used to store large data. */
+  data: z.record(z.string(), z.unknown()).refine((d) => JSON.stringify(d).length <= 30_000, 'Too large'),
+});
 export const noteCreateSchema = z.object({
   entityType: z.enum(RECORD_TYPES), entityId: idSchema, body: trimmed(10000).min(1, 'Required'), isPinned: z.boolean().optional(),
 });

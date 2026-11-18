@@ -57,7 +57,20 @@ export const config = {
   telegram: { apiUrl: env.TELEGRAM_API_URL ?? 'https://api.telegram.org' },
   /** Meta Graph API (Messenger, Instagram, WhatsApp). META_GRAPH_URL is only changed for tests. */
   meta: { graphUrl: env.META_GRAPH_URL ?? 'https://graph.facebook.com/v21.0' },
+  /**
+   * Video calls: STUN/TURN servers the browsers use to find a way to each other, as JSON (RTCIceServer[]), e.g.
+   * [{"urls":"stun:stun.example.com:3478"},{"urls":"turn:turn.example.com:3478","username":"u","credential":"p"}].
+   * Default: Google's public STUN server. A TURN relay is needed when people are behind strict firewalls.
+   */
+  calls: { iceServers: parseIceServers(env.CALL_ICE_SERVERS) },
 };
+
+function parseIceServers(v: string | undefined): { urls: string | string[]; username?: string; credential?: string }[] {
+  if (v === undefined || v.trim() === '') return [{ urls: 'stun:stun.l.google.com:19302' }];
+  const parsed = JSON.parse(v) as unknown;
+  if (!Array.isArray(parsed)) throw new Error('CALL_ICE_SERVERS must be a JSON array');
+  return parsed as { urls: string | string[]; username?: string; credential?: string }[];
+}
 
 function parseTrustProxy(v: string | undefined): boolean | string[] | ((address: string, hop: number) => boolean) {
   const t = (v ?? '').trim();

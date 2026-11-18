@@ -11,6 +11,7 @@ import { deliverMessage, markFailed } from '../inbox/send.ts';
 import { fetchIncomingFile, setStatus as setFileStatus } from '../inbox/files.ts';
 import { pollTelegram } from '../inbox/telegram.ts';
 import { stopTelegramUsers, syncTelegramUsers } from '../inbox/telegramUser.ts';
+import { endEmptyCalls, purgeCalls } from '../calls/calls.ts';
 import { files } from '../lib/files.ts';
 import { deliverWebhook, type Delivery } from '../lib/webhooks.ts';
 import { config } from '../config.ts';
@@ -373,6 +374,7 @@ export async function purge() {
   await q(sql`DELETE FROM outbox_events WHERE processed_at < now() - interval '14 days'`);
   await q(sql`DELETE FROM webhook_deliveries WHERE created_at < now() - interval '30 days'`);
   await q(sql`DELETE FROM merge_snapshots WHERE created_at < now() - interval '30 days'`);
+  await purgeCalls();
 }
 
 /** Long-running loop used by the API process (inline) or the dedicated worker. */
@@ -383,6 +385,7 @@ export function startWorker(log: (m: string) => void = () => {}): () => void {
   let lastPurge = 0;
   let lastPoll = 0;
   let lastTgUser = 0;
+  let lastCalls = 0;
   const tick = async () => {
     if (stopped) return;
     try {
@@ -391,6 +394,7 @@ export function startWorker(log: (m: string) => void = () => {}): () => void {
       if (now - lastDigest > 300_000) { lastDigest = now; const n = await sendDigests(); if (n) log(`queued ${n} daily digest(s)`); }
       if (now - lastPurge > 3_600_000) { lastPurge = now; await purge(); await releaseStuckJobs(); }
       if (now - lastPoll > 3_000) { lastPoll = now; const m = await pollTelegram(); if (m) log(`stored ${m} Telegram message(s)`); }
+      if (now - lastCalls > 10_000) { lastCalls = now; const ended = await endEmptyCalls(); if (ended.length) log(`ended ${ended.length} empty call(s)`); }
       if (now - lastTgUser > 5_000) { lastTgUser = now; const m = await syncTelegramUsers(log); if (m) log(`caught up ${m} Telegram account message(s)`); }
       const n = (await processOutbox()) + (await processJobs());
       if (n) log(`worker processed ${n} items`);

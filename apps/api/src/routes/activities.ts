@@ -65,7 +65,7 @@ export async function getActivity(db: Db, ctx: Ctx, id: number) {
   return camel(row);
 }
 
-function canTouchActivity(ctx: Ctx, action: 'view' | 'edit' | 'delete', row: { assignee_id: number | null; created_by: number | null }) {
+export function canTouchActivity(ctx: Ctx, action: 'view' | 'edit' | 'delete', row: { assignee_id: number | null; created_by: number | null }) {
   if (ctx.isAdmin) return true;
   const s = scopeOf(ctx, 'activity', action);
   const people = [row.assignee_id, row.created_by].filter((x): x is number => x !== null);

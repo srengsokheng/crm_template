@@ -33,6 +33,7 @@ import { ImportStart } from '../features/imports/ImportStart.tsx';
 import { ImportDetail } from '../features/imports/ImportDetail.tsx';
 import { DuplicatesPage } from '../features/duplicates/DuplicatesPage.tsx';
 import { InboxPage } from '../features/inbox/InboxPage.tsx';
+import { CallPage, GuestCallPage } from '../features/calls/CallPages.tsx';
 import { ChannelsSettings } from '../features/settings/ChannelsSettings.tsx';
 import { AccountSettings } from '../features/settings/AccountSettings.tsx';
 
@@ -43,6 +44,7 @@ export const router = createBrowserRouter([
   { path: '/forgot-password', element: <ForgotPasswordPage /> },
   { path: '/reset-password/:token', element: <ResetPasswordPage /> },
   { path: '/confirm-email/:token', element: <ConfirmEmailPage /> },
+  { path: '/join/:token', element: <GuestCallPage /> },
   {
     path: '/',
     element: <AppLayout />,
@@ -53,6 +55,7 @@ export const router = createBrowserRouter([
       { path: 'leads/:id', element: <LeadDetail /> },
       { path: 'deals', element: <DealsPage /> },
       { path: 'deals/:id', element: <DealDetail /> },
+      { path: 'calls/:id', element: <CallPage /> },
       { path: 'inbox', element: <InboxPage /> },
       { path: 'inbox/:id', element: <InboxPage /> },
       { path: 'documents', element: <DocumentsPage /> },
