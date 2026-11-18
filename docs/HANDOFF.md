@@ -390,8 +390,8 @@ The earlier list is done (see section 2). Known follow-ups, collected from the p
 1. PDFs: Chinese/Japanese/Korean if needed — Noto Sans CJK is a CFF (OpenType/PostScript) font of 10+ MB per weight:
    it would need `FontFile3`/`CIDFontType0` embedding next to the TrueType path, and the font kept outside the repo
    (subsetting already exists). Other scripts with TrueType Noto fonts are one line in `SCRIPTS` (`lib/pdfFonts.ts`).
-2. Copy & paste of Khmer from PDFs: the file carries the exact text (`/ActualText`), but MuPDF's text extraction
-   repeats some fragments where marks step back over a base letter; check in Acrobat / browser viewers.
+2. (Checked 2026-11-18: copying Khmer from our PDFs in Chrome's PDF engine, PDFium, gives exactly the original
+   text; the repeated fragments seen earlier were a MuPDF extraction quirk. Acrobat not checked.)
 3. Inbox, Telegram account: try it with a real account (only the fake driver has run; the GramJS driver is
    type-checked against GramJS). Unofficial WhatsApp-Web libraries break WhatsApp's terms and get numbers banned; Meta
    has no API for personal Messenger/Instagram inboxes, so those stay out.
