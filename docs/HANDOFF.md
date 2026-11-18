@@ -447,7 +447,24 @@ The research behind every decision is in this folder:
   button, the website chat widget (texts sent with its settings; English built in as fallback) and the guest video-call
   page. The team’s screens stay English. **All wording lives in one file — have a native speaker review the Khmer.**
 
-**Quality:** 245 Vitest tests (API against real PostgreSQL), 71 Playwright tests (desktop, tablet, phone), lint and
+- **Broadcasts** (migration 0035, `routes/broadcasts.ts`, `features/broadcasts/Broadcasts.tsx`; admins only, sidebar
+  → Broadcasts): one message to many customers. **Telegram bot**: text to everyone who chatted with the bot privately
+  (groups left out). **WhatsApp**: an approved template only (Meta allows nothing else outside the 24-hour window);
+  blanks can use `{{first_name}}`. **Email**: subject + text to contacts with an address (optionally one contact
+  type), one email per address, with an unsubscribe link in the footer and `List-Unsubscribe` / one-click
+  `List-Unsubscribe-Post` headers. Messenger/Instagram (Meta forbids marketing), the personal Telegram account (bulk
+  sending gets accounts banned) and website chat are deliberately not offered. `{{name}}` / `{{first_name}}` are
+  filled per person; the editor shows the audience count, opted-out count and a preview. Send now or schedule; the
+  audience is fixed when sending starts; the worker sends 200 per round per broadcast through the normal delivery
+  queue (chat messages appear in each conversation, without moving it to the top of the Inbox). Progress page:
+  delivered / failed / still sending, the list of people (paged, "Failed" filter with the platform’s reason); Stop
+  while scheduled or sending. Sent broadcasts stay as a record (no edit/delete).
+  **Opt-out:** a chat message that is only `STOP` / `/stop` / `unsubscribe` / `ឈប់` marks that conversation opted out
+  and answers in the customer language; `START` undoes it. The email link opens `/unsubscribe/<token>`, which asks
+  before unsubscribing (mail scanners open links) and offers "Subscribe again"; it marks every contact with that
+  address. Tokens are random, stored only as SHA-256 hashes; the page shows the address partly masked.
+
+**Quality:** 250 Vitest tests (API against real PostgreSQL), 72 Playwright tests (desktop, tablet, phone), lint and
 typecheck clean, `npm audit` = 0, GitHub Actions CI in `.github/workflows/ci.yml`.
 
 ## 3. Not built yet — suggested next work (in priority order)
@@ -466,7 +483,11 @@ The earlier list is done (see section 2). Known follow-ups, collected from the p
    media headers or values in buttons.
 5. Video calls: a TURN server for strict networks; recording; more than ~4 people would need a media server (SFU, e.g.
    LiveKit or mediasoup).
-6. KHQR: confirm payments automatically through the Bakong Open API (needs a token from the NBC); scan a printed QR
+6. Broadcasts: only fake Telegram/Graph APIs and the mail queue have been used. Before large sends, check the
+   platforms' limits (Telegram ~30 messages/second per bot; WhatsApp tiers by number quality) and the SMTP provider's
+   bulk-mail rules (SPF/DKIM/DMARC for the sending domain). No per-contact "unsubscribed" toggle in the contact
+   screen yet (the audience card shows the count; resubscribing is done by the customer's own link).
+7. KHQR: confirm payments automatically through the Bakong Open API (needs a token from the NBC); scan a printed QR
    with a real bank app before relying on it.
 
 Import limits and choices: 5 MB / 10,000 rows / 100 columns per file; lead rows only match *open* leads; list

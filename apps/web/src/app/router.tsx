@@ -36,6 +36,7 @@ import { InboxPage } from '../features/inbox/InboxPage.tsx';
 import { CallPage, GuestCallPage } from '../features/calls/CallPages.tsx';
 import { TargetsSettings } from '../features/targets/Targets.tsx';
 import { CustomerDocumentPage } from '../features/documents/CustomerPage.tsx';
+import { BroadcastRoute, BroadcastsPage, UnsubscribePage } from '../features/broadcasts/Broadcasts.tsx';
 import { ChannelsSettings } from '../features/settings/ChannelsSettings.tsx';
 import { AccountSettings } from '../features/settings/AccountSettings.tsx';
 
@@ -48,6 +49,7 @@ export const router = createBrowserRouter([
   { path: '/confirm-email/:token', element: <ConfirmEmailPage /> },
   { path: '/join/:token', element: <GuestCallPage /> },
   { path: '/d/:token', element: <CustomerDocumentPage /> },
+  { path: '/unsubscribe/:token', element: <UnsubscribePage /> },
   {
     path: '/',
     element: <AppLayout />,
@@ -61,6 +63,9 @@ export const router = createBrowserRouter([
       { path: 'calls/:id', element: <CallPage /> },
       { path: 'inbox', element: <InboxPage /> },
       { path: 'inbox/:id', element: <InboxPage /> },
+      { path: 'broadcasts', element: <BroadcastsPage /> },
+      { path: 'broadcasts/new', element: <BroadcastRoute /> },
+      { path: 'broadcasts/:id', element: <BroadcastRoute /> },
       { path: 'documents', element: <DocumentsPage /> },
       { path: 'documents/:id', element: <DocumentPage /> },
       { path: 'contacts', element: <ContactsPage /> },

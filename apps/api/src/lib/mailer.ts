@@ -20,6 +20,8 @@ export interface Mail {
   replyTo?: string | null;
   /** Files, base64-encoded (kept small: quotes and invoices). */
   attachments?: { filename: string; contentType: string; content: string }[];
+  /** Bulk mail (broadcasts): the one-click unsubscribe URL (List-Unsubscribe + List-Unsubscribe-Post headers). */
+  unsubscribeUrl?: string;
 }
 export interface Transport { name: 'console' | 'smtp' | 'memory'; send(mail: Mail, from: string): Promise<void> }
 export interface SmtpConfig { host: string; port: number; secure: boolean; user?: string; pass?: string }
@@ -57,6 +59,7 @@ export function createSmtpTransport(cfg: SmtpConfig): Transport {
       await t.sendMail({
         from, to: mail.to, subject: mail.subject, text: mail.text, html: mail.html, replyTo: mail.replyTo ?? undefined,
         attachments: mail.attachments?.map((a) => ({ filename: a.filename, contentType: a.contentType, content: a.content, encoding: 'base64' })),
+        ...(mail.unsubscribeUrl ? { list: { unsubscribe: mail.unsubscribeUrl }, headers: { 'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click' } } : {}),
       });
     },
   };
@@ -243,6 +246,14 @@ export function documentMail(o: { to: string[]; replyTo: string; subject: string
       ...(o.button ? { button: o.button } : {}),
       footer: `Sent by ${o.sender} from ${o.workspace}. The document is attached as a PDF. Reply to this email to reach ${o.sender}.`,
     }),
+  };
+}
+
+/** A broadcast email: the text as paragraphs, and a footer with the unsubscribe link (also in the headers). */
+export function broadcastMail(o: { to: string; subject: string; body: string; footer: string; unsubscribeUrl: string; replyTo?: string | null }): Mail {
+  return {
+    to: o.to, subject: oneLine(o.subject), replyTo: o.replyTo ?? null, unsubscribeUrl: o.unsubscribeUrl,
+    ...layout({ heading: oneLine(o.subject), lines: o.body.split(/\r?\n/).filter((l, i, all) => l.trim() || (i > 0 && all[i - 1].trim())), footer: o.footer }),
   };
 }
 

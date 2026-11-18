@@ -476,3 +476,33 @@ export const LOCKABLE_FIELDS: Record<FieldEntity, { key: string; label: string }
 export const fieldRulesSchema = z.partialRecord(z.enum(FIELD_ENTITIES),
   z.record(z.string().regex(/^(custom\.[a-z0-9_]{1,60}|[a-zA-Z]{1,40})$/), z.enum(['readonly', 'hidden'])));
 export type FieldRules = z.infer<typeof fieldRulesSchema>;
+/**
+ * Broadcasts: one message to many customers. Telegram bot: text to everyone who chatted with the bot; WhatsApp: an
+ * approved template (Meta allows nothing else outside the 24-hour window); email: subject and text to contacts.
+ * {{name}} and {{first_name}} are filled in per person. People who opted out are never included.
+ */
+export const BROADCAST_CHANNELS = ['telegram_bot', 'whatsapp', 'email'] as const;
+export const broadcastSchema = z.object({
+  name: trimmed(120).min(1, 'Required'),
+  channelKind: z.enum(BROADCAST_CHANNELS),
+  channelId: idSchema.nullable().default(null),
+  subject: z.string().trim().max(200).default(''),
+  body: z.string().trim().max(4000, 'Up to 4000 characters').default(''),
+  template: z.object({ name: z.string().min(1).max(512), language: z.string().min(1).max(20), params: z.array(z.string().max(1000)).max(20).default([]) }).nullable().default(null),
+  contactTypeId: idSchema.nullable().default(null),
+}).superRefine((v, c) => {
+  if (v.channelKind === 'email') {
+    if (!v.subject) c.addIssue({ code: 'custom', path: ['subject'], message: 'Required' });
+    if (!v.body) c.addIssue({ code: 'custom', path: ['body'], message: 'Write the message' });
+  } else if (!v.channelId) c.addIssue({ code: 'custom', path: ['channelId'], message: 'Pick a channel' });
+  if (v.channelKind === 'telegram_bot' && !v.body) c.addIssue({ code: 'custom', path: ['body'], message: 'Write the message' });
+  if (v.channelKind === 'whatsapp' && !v.template) c.addIssue({ code: 'custom', path: ['template'], message: 'Pick an approved template' });
+});
+export type BroadcastInput = z.infer<typeof broadcastSchema>;
+/** Send now (no sendAt) or at a time in the future. */
+export const broadcastSendSchema = z.object({ sendAt: z.iso.datetime({ offset: true }).nullable().default(null) });
+/** {{name}} / {{first_name}} for one person (missing name: "there" in English texts would be wrong in Khmer, so empty). */
+export function personalize(text: string, name: string): string {
+  const full = name.trim();
+  return text.replace(/\{\{\s*(name|first_name)\s*\}\}/g, (_m, k: string) => (k === 'name' ? full : full.split(/\s+/)[0] ?? ''));
+}

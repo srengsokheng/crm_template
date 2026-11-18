@@ -41,7 +41,7 @@ test('every main screen passes the accessibility scan, light and dark', async ({
     ['home', '/'], ['inbox', `/inbox/${s.conv.id}`], ['activities', '/activities'], ['leads', '/leads'], ['lead', `/leads/${s.lead.id}`],
     ['deals', '/deals'], ['deal', `/deals/${s.deal.id}`], ['contacts', '/contacts'], ['contact', `/contacts/${s.contact.id}`],
     ['companies', '/companies'], ['company', `/companies/${s.co.id}`], ['products', '/products'], ['invoices', '/documents'],
-    ['invoice', `/documents/${s.doc.id}`], ['reports', '/reports'], ['import', '/import/contact'],
+    ['invoice', `/documents/${s.doc.id}`], ['reports', '/reports'], ['import', '/import/contact'], ['broadcasts', '/broadcasts'], ['new broadcast', '/broadcasts/new'],
     ['settings/account', '/settings/account'], ['settings/workspace', '/settings/workspace'], ['settings/pipelines', '/settings/pipelines'], ['settings/fields', '/settings/fields'],
     ['settings/lists', '/settings/lists'], ['settings/currencies', '/settings/currencies'], ['settings/documents', '/settings/documents'],
     ['settings/channels', '/settings/channels'], ['settings/users', '/settings/users'], ['settings/roles', '/settings/roles'],

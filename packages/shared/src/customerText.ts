@@ -1,6 +1,6 @@
 /**
  * Everything customers read, in English and Khmer: PDFs, the quote/invoice page, the email button, the website chat
- * widget and the video-call page. The workspace picks English, Khmer, or both (Settings → Quotes & invoices).
+ * widget, the video-call page and broadcast opt-outs. The workspace picks English, Khmer, or both (Settings → Quotes & invoices).
  *
  * Khmer wording: drafted for this CRM — have a native speaker review it; change it only here.
  */
@@ -35,6 +35,13 @@ const en = {
   callThanks: 'Thanks for talking with {host}.', callCantOpen: 'Can’t open this call', callBadLink: 'This call link isn’t valid. Ask for a new one.',
   callMute: 'Mute', callUnmute: 'Unmute', callCamOff: 'Camera off', callCamOn: 'Camera on', callShare: 'Share screen', callStopShare: 'Stop sharing', callLeave: 'Leave',
   callWaiting: 'Waiting for others to join…', callYou: '{name} (you)', callLeft: 'You left the call', callRejoin: 'Rejoin', callJoining: 'Joining…', callMutedNote: 'muted', callSharingNote: 'sharing screen',
+  // Broadcasts: STOP/START replies in chats, the email footer and the unsubscribe page
+  optOutDone: 'You won’t get broadcast messages from {company} any more. Send START to get them again.',
+  optInDone: 'You’ll get messages from {company} again. Send STOP to stop them.',
+  unsubTitle: 'Unsubscribe from {company} emails', unsubButton: 'Unsubscribe', unsubUndo: 'Subscribe again',
+  unsubHelp: 'You’ll stop getting news and offers from {company} at {email}. Invoices and replies to your messages still come.',
+  unsubDone: 'You’re unsubscribed. You won’t get these emails any more.', unsubResubscribed: 'You’re subscribed again.',
+  unsubFooter: 'You get this email because you’re a customer of {company}. Unsubscribe: {url}', unsubBadLink: 'This unsubscribe link isn’t valid.',
 };
 export type TextKey = keyof typeof en;
 
@@ -64,6 +71,12 @@ const km: Record<TextKey, string> = {
   callThanks: 'សូមអរគុណដែលបាននិយាយជាមួយ {host}។', callCantOpen: 'មិនអាចបើកការហៅនេះបានទេ', callBadLink: 'តំណការហៅនេះមិនត្រឹមត្រូវ។ សូមស្នើសុំតំណថ្មី។',
   callMute: 'បិទសំឡេង', callUnmute: 'បើកសំឡេង', callCamOff: 'បិទកាមេរ៉ា', callCamOn: 'បើកកាមេរ៉ា', callShare: 'ចែករំលែកអេក្រង់', callStopShare: 'ឈប់ចែករំលែក', callLeave: 'ចាកចេញ',
   callWaiting: 'កំពុងរង់ចាំអ្នកផ្សេងចូលរួម…', callYou: '{name} (អ្នក)', callLeft: 'អ្នកបានចាកចេញពីការហៅ', callRejoin: 'ចូលរួមម្តងទៀត', callJoining: 'កំពុងចូលរួម…', callMutedNote: 'បិទសំឡេង', callSharingNote: 'កំពុងចែករំលែកអេក្រង់',
+  optOutDone: 'អ្នកនឹងលែងទទួលសារផ្សព្វផ្សាយពី {company} ទៀតហើយ។ ផ្ញើ START ដើម្បីទទួលវាម្តងទៀត។',
+  optInDone: 'អ្នកនឹងទទួលសារពី {company} ម្តងទៀត។ ផ្ញើ STOP ដើម្បីឈប់ទទួល។',
+  unsubTitle: 'ឈប់ទទួលអ៊ីមែលពី {company}', unsubButton: 'ឈប់ទទួល', unsubUndo: 'ទទួលម្តងទៀត',
+  unsubHelp: 'អ្នកនឹងឈប់ទទួលព័ត៌មាន និងការផ្តល់ជូនពី {company} តាម {email}។ វិក្កយបត្រ និងការឆ្លើយតបនឹងសាររបស់អ្នក នៅតែផ្ញើមកដដែល។',
+  unsubDone: 'អ្នកបានឈប់ទទួលហើយ។ អ្នកនឹងលែងទទួលអ៊ីមែលទាំងនេះទៀត។', unsubResubscribed: 'អ្នកបានចុះឈ្មោះទទួលម្តងទៀតហើយ។',
+  unsubFooter: 'អ្នកទទួលអ៊ីមែលនេះ ព្រោះអ្នកជាអតិថិជនរបស់ {company}។ ឈប់ទទួល៖ {url}', unsubBadLink: 'តំណឈប់ទទួលនេះមិនត្រឹមត្រូវទេ។',
 };
 
 const fill = (s: string, vars?: Record<string, string | number>) => (vars ? s.replace(/\{(\w+)\}/g, (m, k) => (k in vars ? String(vars[k]) : m)) : s);

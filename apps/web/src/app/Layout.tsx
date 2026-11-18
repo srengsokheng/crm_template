@@ -2,7 +2,7 @@ import { Suspense, useEffect, useState, type ReactNode } from 'react';
 import { Link, NavLink, Navigate, Outlet, useLocation, useNavigate } from 'react-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
-  BarChart3, Bell, BellOff, BellRing, Building2, CheckSquare, Handshake, Home, LogOut, Menu as MenuIcon, Moon, Package, Plus, Search, Settings, Sun, Users, Zap, Monitor, X, Mail, FileText, MessageCircle, UserCog, Video } from 'lucide-react';
+  BarChart3, Bell, BellOff, BellRing, Building2, CheckSquare, Handshake, Home, LogOut, Menu as MenuIcon, Moon, Package, Plus, Search, Settings, Sun, Users, Zap, Monitor, X, Mail, FileText, MessageCircle, UserCog, Video, Megaphone } from 'lucide-react';
 import { toast } from 'sonner';
 import { startCall } from '../features/calls/CallPages.tsx';
 import { api, ApiError, errorMessage } from '../lib/api.ts';
@@ -28,6 +28,7 @@ function useNav(): NavItem[] {
   return [
     { to: '/', label: 'Home', icon: <Home className="size-[18px]" /> },
     { to: '/inbox', label: 'Inbox', icon: <MessageCircle className="size-[18px]" />, badge: inbox.data?.unread, show: can('conversation', 'view') },
+    { to: '/broadcasts', label: 'Broadcasts', icon: <Megaphone className="size-[18px]" />, show: !!me?.role.isAdmin },
     { to: '/activities', label: 'Activities', icon: <CheckSquare className="size-[18px]" />, badge: counts.data?.overdue },
     { to: '/leads', label: 'Leads', icon: <Zap className="size-[18px]" />, show: !!me?.workspace.useLeads && can('lead', 'view') },
     { to: '/deals', label: 'Deals', icon: <Handshake className="size-[18px]" />, show: can('deal', 'view') },

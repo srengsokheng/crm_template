@@ -1,6 +1,7 @@
 /** Writing incoming messages into the Inbox, shared by all channels. */
 import { q, q1, sql, type Db } from '../db/index.ts';
 import { notifyInbox } from './events.ts';
+import { ct, type CustomerLanguage } from '@crm/shared';
 
 export interface ChannelRow {
   id: number; workspace_id: number; kind: 'webchat' | 'telegram_bot' | 'messenger' | 'instagram' | 'whatsapp' | 'telegram_user'; name: string; public_key: string;
@@ -62,8 +63,33 @@ export async function recordInbound(db: Db, m: Inbound): Promise<{ conversationI
       WHERE NOT EXISTS (SELECT 1 FROM notifications WHERE user_id = ${c.assignee_id} AND entity_type = 'conversation'
                         AND entity_id = ${c.id} AND read_at IS NULL)`, db);
   }
+  if (m.kind === 'direct' && (m.channel.kind === 'telegram_bot' || m.channel.kind === 'whatsapp')) await optOutReply(db, m.channel, c.id, m.body);
   await notifyInbox(db, c.id);
   return { conversationId: c.id, messageId: msg.id };
+}
+
+/** Words that stop or restart broadcasts (a message that is only this word, any case; Telegram commands too). */
+export const STOP_WORDS = ['stop', '/stop', 'unsubscribe', 'ឈប់'];
+export const START_WORDS = ['start', '/start', 'subscribe'];
+const keyword = (body: string) => body.trim().toLowerCase().replace(/[.!។]+$/u, '');
+
+/**
+ * Broadcast opt-out: "STOP" marks the chat as opted out (no broadcast reaches it again), "START" undoes it. When the
+ * state changes, the customer gets a confirmation in the workspace's customer language. Normal replies still work.
+ */
+async function optOutReply(db: Db, ch: ChannelRow, conversationId: number, body: string): Promise<void> {
+  const k = keyword(body);
+  const stop = STOP_WORDS.includes(k);
+  if (!stop && !START_WORDS.includes(k)) return;
+  const changed = await q1(sql`UPDATE conversations SET opted_out_at = ${stop ? sql`now()` : null}
+    WHERE id = ${conversationId} AND (opted_out_at IS NULL) = ${stop} RETURNING id`, db);
+  if (!changed) return;
+  const ws = await q1<{ name: string; lang: string | null }>(sql`SELECT name, settings->'documents'->>'customerLanguage' AS lang FROM workspaces WHERE id = ${ch.workspace_id}`, db);
+  const lang = (['en', 'km', 'both'].includes(ws?.lang ?? '') ? ws!.lang : 'en') as CustomerLanguage;
+  const text = ct(lang, stop ? 'optOutDone' : 'optInDone', { company: ws?.name ?? '' });
+  const out = await q1<{ id: number }>(sql`INSERT INTO messages (workspace_id, conversation_id, direction, sender_name, body, status)
+    VALUES (${ch.workspace_id}, ${conversationId}, 'out', ${ws?.name ?? ''}, ${text}, 'pending') RETURNING id`, db);
+  await q(sql`INSERT INTO jobs (type, payload) VALUES ('inbox.send', ${JSON.stringify({ messageId: out!.id })})`, db);
 }
 
 /** The one contact with this phone number (as +country… or the same digits without +); null if none or several. */
