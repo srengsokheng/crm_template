@@ -12,6 +12,7 @@ import { useCreate } from '../../app/create.tsx';
 import { MissingRates } from '../settings/MissingRates.tsx';
 import { useIsDark } from '../../app/theme.ts';
 import { ACTIVITY_ICON } from '../records/Timeline.tsx';
+import { TargetsCard } from '../targets/Targets.tsx';
 
 interface Dashboard {
   period: { from: string; to: string };
@@ -124,6 +125,7 @@ export function HomePage() {
           </Card>
         </div>
         <div className="space-y-4">
+          <TargetsCard />
           <Card title={<span className="flex items-center gap-1.5"><CalendarClock className="size-4 text-brand-600" />My day</span>} padded={false}
             actions={can('activity', 'create') && <Button size="sm" variant="ghost" icon={<Plus className="size-3.5" />} onClick={() => create.open('activity')}>Add</Button>}>
             {!q.data ? <div className="p-4"><Skeleton className="h-24" /></div> : q.data.myDay.length ? (

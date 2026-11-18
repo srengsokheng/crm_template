@@ -202,6 +202,12 @@ export const callSignalSchema = callPeerSchema.extend({
   /** An SDP description or an ICE candidate; bounded so the relay can't be used to store large data. */
   data: z.record(z.string(), z.unknown()).refine((d) => JSON.stringify(d).length <= 30_000, 'Too large'),
 });
+/** Sales targets: one month (YYYY-MM), amounts in the base currency; null removes a target. userId null = the whole team. */
+export const targetMonthSchema = z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/, 'Use a month like 2026-11');
+export const targetsUpdateSchema = z.object({
+  month: targetMonthSchema,
+  targets: z.array(z.object({ userId: z.union([idSchema, z.null()]), amount: z.union([moneySchema.refine((v) => Number(v) > 0, 'Must be more than 0'), z.null()]) })).max(500),
+});
 export const noteCreateSchema = z.object({
   entityType: z.enum(RECORD_TYPES), entityId: idSchema, body: trimmed(10000).min(1, 'Required'), isPinned: z.boolean().optional(),
 });
