@@ -17,6 +17,7 @@ import { RelatedDeals, type RelatedDeal } from '../records/RelatedDeals.tsx';
 import { Timeline } from '../records/Timeline.tsx';
 import { Attachments } from '../records/Attachments.tsx';
 import { LinkedConversations } from '../inbox/LinkedConversations.tsx';
+import { ContactBroadcasts } from '../broadcasts/ContactBroadcasts.tsx';
 import { MergeDialog } from '../records/MergeDialog.tsx';
 import { MergeUndoBanner } from '../records/MergeUndoBanner.tsx';
 
@@ -47,6 +48,7 @@ export function ContactDetail() {
     await qc.invalidateQueries({ queryKey: ['contact', id] });
     qc.invalidateQueries({ queryKey: ['timeline', 'contact', id] });
     qc.invalidateQueries({ queryKey: ['contacts'] });
+    qc.invalidateQueries({ queryKey: ['contact-marketing', id] });
   };
   const name = personName(c.firstName, c.lastName);
   return (
@@ -86,6 +88,7 @@ export function ContactDetail() {
         </Card>
         <RelatedDeals deals={c.deals} onAdd={can('deal', 'create') ? () => create.open('deal', { contacts: [{ id, label: name }], stay: true }) : undefined} />
         <LinkedConversations contactId={id} />
+        <ContactBroadcasts contactId={id} />
         <Attachments entityType="contact" entityId={id} canEdit={edit} />
       </>}
       right={<Timeline type="contact" id={id} />} />

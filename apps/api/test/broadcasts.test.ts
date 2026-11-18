@@ -149,6 +149,30 @@ describe('broadcasts', () => {
     const list = (await c.get('/broadcasts')).body;
     expect(list.data.map((b: any) => b.name)).toEqual(['New arms']);
     expect(list.nextCursor).toBeNull();
+
+    // On the contact page: Bob's chat, what he received, and a team member recording his wish.
+    const bobConv = (await pool.query(`SELECT id FROM conversations WHERE channel_id = $1 AND external_id = '222'`, [bot.body.id])).rows[0].id;
+    const bobContact = (await c.post('/contacts', { firstName: 'Bob' })).body;
+    await c.patch(`/inbox/conversations/${bobConv}`, { contactId: bobContact.id });
+    let mk = (await c.get(`/contacts/${bobContact.id}/marketing`)).body;
+    expect(mk.chats).toMatchObject([{ id: bobConv, channelKind: 'telegram_bot', channelName: '@shop_bot', optedOutAt: null, canEdit: true }]);
+    expect(mk.received).toEqual([]); // he had opted out when it went out
+    expect((await c.post(`/contacts/${bobContact.id}/chat-opt-out`, { conversationId: bobConv, optedOut: true })).status).toBe(200);
+    expect((await c.get(`/broadcasts/audience?channelKind=telegram_bot&channelId=${bot.body.id}`)).body.optedOut).toBe(1);
+    // A conversation of another contact can't be changed through Bob.
+    const adaConv = (await pool.query(`SELECT id FROM conversations WHERE channel_id = $1 AND external_id = '111'`, [bot.body.id])).rows[0].id;
+    expect((await c.post(`/contacts/${bobContact.id}/chat-opt-out`, { conversationId: adaConv, optedOut: true })).status).toBe(404);
+    // Bob says START himself: noted on his timeline as his own reply.
+    tgSays(bob.chat, bob.from, 'START');
+    await pollTelegram();
+    mk = (await c.get(`/contacts/${bobContact.id}/marketing`)).body;
+    expect(mk.chats[0].optedOutAt).toBeNull();
+    const events = (await c.get(`/timeline/contact/${bobContact.id}`)).body.items.filter((i: any) => i.type === 'event').map((i: any) => [i.data.action, i.data.changes.via]);
+    expect(events).toEqual(expect.arrayContaining([['chat_opted_out', 'team'], ['chat_opted_in', 'customer']]));
+    // Ada's contact lists the broadcast she got.
+    const adaContact = (await c.post('/contacts', { firstName: 'Ada' })).body;
+    await c.patch(`/inbox/conversations/${adaConv}`, { contactId: adaContact.id });
+    expect((await c.get(`/contacts/${adaContact.id}/marketing`)).body.received).toMatchObject([{ name: 'New arms', channelKind: 'telegram_bot', status: 'sent' }]);
   });
 
   it('WhatsApp: only approved templates, filled in per person; Khmer confirmation for STOP', async () => {
@@ -234,6 +258,46 @@ describe('broadcasts', () => {
     const b3 = (await c.post('/broadcasts', { name: 'Draft', channelKind: 'email', subject: 'S', body: 'B' })).body;
     expect((await c.post(`/broadcasts/${b3.id}/cancel`)).status).toBe(409);
     expect((await c.del(`/broadcasts/${b3.id}`)).status).toBe(204);
+  });
+
+  it('contact page: email opt-out by the team or the customer’s link, on every contact with the address; permissions', async () => {
+    const { c } = await signup();
+    const a = (await c.post('/contacts', { firstName: 'Ada', methods: [{ kind: 'email', value: 'ada@initech.test' }] })).body;
+    const twin = (await c.post('/contacts', { firstName: 'Ada (2)', methods: [{ kind: 'email', value: 'Ada@Initech.test' }] })).body;
+    const plain = (await c.post('/contacts', { firstName: 'Nobody' })).body;
+    expect((await c.get(`/contacts/${a.id}/marketing`)).body).toEqual({ canEdit: true, email: { addresses: ['ada@initech.test'], optedOutAt: null }, chats: [], received: [] });
+    expect((await c.post(`/contacts/${a.id}/email-opt-out`, { optedOut: 'yes' })).status).toBe(400);
+    await c.post(`/contacts/${a.id}/email-opt-out`, { optedOut: true });
+    expect((await c.get(`/contacts/${twin.id}/marketing`)).body.email.optedOutAt).not.toBeNull();
+    expect((await c.get('/broadcasts/audience?channelKind=email')).body).toEqual({ count: 0, optedOut: 2 });
+    const tl = (await c.get(`/timeline/contact/${a.id}`)).body.items.filter((i: any) => i.type === 'event' && i.data.action === 'email_unsubscribed');
+    expect(tl).toHaveLength(1);
+    expect(tl[0].data.changes.via).toBe('team');
+    await c.post(`/contacts/${a.id}/email-opt-out`, { optedOut: false });
+    expect((await c.get('/broadcasts/audience?channelKind=email')).body.count).toBe(1);
+    // A contact without an address keeps the choice too.
+    await c.post(`/contacts/${plain.id}/email-opt-out`, { optedOut: true });
+    expect((await c.get(`/contacts/${plain.id}/marketing`)).body.email.optedOutAt).not.toBeNull();
+
+    // The customer's own link shows on the timeline as theirs.
+    const b = (await c.post('/broadcasts', { name: 'News', channelKind: 'email', subject: 'S', body: 'B' })).body;
+    const before = (await pool.query(`SELECT coalesce(max(id), 0) AS id FROM jobs`)).rows[0].id;
+    await c.post(`/broadcasts/${b.id}/send`, {});
+    await drainBroadcasts();
+    const mail = (await pool.query(`SELECT payload FROM jobs WHERE type = 'email.send' AND id > $1 AND payload->>'to' = 'ada@initech.test'`, [before])).rows[0].payload;
+    const app = await getApp();
+    await app.inject({ method: 'POST', url: `/api/v1/public/unsubscribe/${mail.unsubscribeUrl.split('/').pop()}`, headers: { 'content-type': 'application/json' }, payload: '{}' });
+    const linkEv = (await c.get(`/timeline/contact/${a.id}`)).body.items.filter((i: any) => i.type === 'event' && i.data.action === 'email_unsubscribed');
+    expect(linkEv[0]).toMatchObject({ data: { changes: { via: 'link' }, actorType: 'system' } });
+    expect((await c.get(`/contacts/${a.id}/marketing`)).body.received).toMatchObject([{ name: 'News', channelKind: 'email', status: 'sent' }]);
+
+    // Viewers see it but can't change it; other workspaces see nothing.
+    const { c: viewer } = await inviteUser(c, 'Viewer');
+    expect((await viewer.get(`/contacts/${a.id}/marketing`)).body.canEdit).toBe(false);
+    expect((await viewer.post(`/contacts/${a.id}/email-opt-out`, { optedOut: false })).status).toBe(403);
+    const other = await signup();
+    expect((await other.c.get(`/contacts/${a.id}/marketing`)).status).toBe(404);
+    expect((await other.c.post(`/contacts/${a.id}/email-opt-out`, { optedOut: false })).status).toBe(404);
   });
 
   it('admins only; other workspaces see nothing', async () => {

@@ -188,6 +188,7 @@ export function UpcomingRow({ a, onChange, showLinks }: { a: Activity; onChange:
   );
 }
 
+const CHAT_CHANNEL: Record<string, string> = { telegram_bot: 'Telegram', whatsapp: 'WhatsApp' };
 const FIELD_LABELS: Record<string, string> = {
   first_name: 'First name', last_name: 'Last name', job_title: 'Job title', owner_id: 'Owner', amount: 'Amount', title: 'Title', name: 'Name',
   expected_close_date: 'Expected close', probability: 'Probability', company_id: 'Company', company_name: 'Company name', source_id: 'Source',
@@ -233,6 +234,10 @@ export function describeEvent(d: Record<string, any>, userName: (id: number) => 
       const chosen = Object.keys(ch).filter((k) => !['merged', 'movedMethods'].includes(k) && !k.startsWith('_')).map((k) => FIELD_LABELS[k] ?? k.replace(/^custom\./, ''));
       return { icon: History, text: `Merged with ${ch.merged?.name ?? 'a duplicate'} (#${ch.merged?.id})${chosen.length ? ` — took ${[...new Set(chosen)].join(', ')}` : ''}` };
     }
+    case 'email_unsubscribed': return { icon: Flag, text: ch.via === 'link' ? 'Unsubscribed from broadcast emails (their unsubscribe link)' : 'Opted out of broadcast emails' };
+    case 'email_resubscribed': return { icon: History, text: ch.via === 'link' ? 'Subscribed to broadcast emails again (their link)' : 'Opted back in to broadcast emails' };
+    case 'chat_opted_out': return { icon: Flag, text: `${ch.via === 'customer' ? 'Replied STOP: no more broadcasts' : 'Opted out of broadcasts'} on ${CHAT_CHANNEL[String(ch.channel)] ?? 'chat'}${ch.channelName ? ` (${ch.channelName})` : ''}` };
+    case 'chat_opted_in': return { icon: History, text: `${ch.via === 'customer' ? 'Replied START: broadcasts again' : 'Opted back in to broadcasts'} on ${CHAT_CHANNEL[String(ch.channel)] ?? 'chat'}${ch.channelName ? ` (${ch.channelName})` : ''}` };
     case 'owner_changed': return { icon: Users, text: `Owner changed to ${userName(Number(ch.owner?.[1]))}` };
     case 'updated': {
       const parts = Object.entries(ch).filter(([k]) => !k.startsWith('_')).map(([k, v]) => {

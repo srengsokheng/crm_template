@@ -26,7 +26,7 @@ import { camel, camelAll } from '../lib/records.ts';
 import { parse } from '../lib/validate.ts';
 import { listTemplates, renderTemplate, type Template } from '../inbox/meta.ts';
 import type { ChannelRow } from '../inbox/store.ts';
-import type { Ctx } from '../lib/context.ts';
+import { systemCtx, type Ctx } from '../lib/context.ts';
 
 interface Broadcast {
   id: number; workspace_id: number; name: string; channel_kind: 'telegram_bot' | 'whatsapp' | 'email'; channel_id: number | null;
@@ -367,11 +367,21 @@ async function byToken(token: string) {
     WHERE r.token_hash = ${hashToken(token)}`);
 }
 
-/** Every contact of the workspace with this address (people often exist twice). */
-async function setOptOut(workspaceId: number, address: string, out: boolean) {
-  await q(sql`UPDATE contacts c SET email_opt_out_at = ${out ? sql`coalesce(c.email_opt_out_at, now())` : null}
-    WHERE c.workspace_id = ${workspaceId} AND c.id IN (SELECT m.party_id FROM contact_methods m WHERE m.workspace_id = ${workspaceId}
-      AND m.party_type = 'contact' AND m.kind = 'email' AND m.normalized = ${address.trim().toLowerCase()})`);
+/**
+ * Opts every contact of the workspace with one of these addresses out of (or back into) broadcast emails — people
+ * often exist twice — and notes it on each contact's timeline. `via`: the customer's link, or a team member.
+ */
+export async function setEmailOptOut(db: Db, ctx: Ctx, addresses: string[], out: boolean, via: 'link' | 'team'): Promise<number[]> {
+  const norm = [...new Set(addresses.map((a) => a.trim().toLowerCase()).filter(Boolean))];
+  if (!norm.length) return [];
+  const changed = await q<{ id: number }>(sql`UPDATE contacts c SET email_opt_out_at = ${out ? sql`now()` : null}
+    WHERE c.workspace_id = ${ctx.workspaceId} AND (c.email_opt_out_at IS NULL) = ${out} AND c.id IN (SELECT m.party_id FROM contact_methods m
+      WHERE m.workspace_id = ${ctx.workspaceId} AND m.party_type = 'contact' AND m.kind = 'email' AND m.normalized = ANY(${norm}))
+    RETURNING c.id`, db);
+  for (const { id } of changed) {
+    await audit(db, ctx, 'contact', id, out ? 'email_unsubscribed' : 'email_resubscribed', { via }, via === 'link' ? 'system' : 'user');
+  }
+  return changed.map((r) => r.id);
 }
 
 export async function publicUnsubscribeRoutes(app: FastifyInstance) {
@@ -392,7 +402,7 @@ export async function publicUnsubscribeRoutes(app: FastifyInstance) {
     const r = await byToken(req.params.token);
     if (!r) throw notFound('Link');
     const again = (req.body as { subscribe?: unknown } | null)?.subscribe === true;
-    await setOptOut(r.workspace_id, r.address, !again);
+    await tx((db) => setEmailOptOut(db, systemCtx(r.workspace_id, 0), [r.address], !again, 'link'));
     return reply.send({ unsubscribed: !again });
   });
 }

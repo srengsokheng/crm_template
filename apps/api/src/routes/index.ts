@@ -18,6 +18,7 @@ import { publicDocumentRoutes } from './publicDocuments.ts';
 import { accountTelegramRoutes } from './accountTelegram.ts';
 import { recurringRoutes } from './recurring.ts';
 import { broadcastRoutes, publicUnsubscribeRoutes } from './broadcasts.ts';
+import { contactMarketingRoutes } from './contactMarketing.ts';
 import { savedReplyRoutes } from './savedReplies.ts';
 import { leadRoutes } from './leads.ts';
 import { mergeRoutes } from './merge.ts';
@@ -62,6 +63,7 @@ export async function registerRoutes(app: FastifyInstance) {
   await app.register(recurringRoutes);
   await app.register(broadcastRoutes);
   await app.register(publicUnsubscribeRoutes);
+  await app.register(contactMarketingRoutes);
   await app.register(savedReplyRoutes);
   await app.register(recycleRoutes); // generic DELETE /:entity/:id last
 }

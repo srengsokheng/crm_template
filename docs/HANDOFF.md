@@ -463,8 +463,13 @@ The research behind every decision is in this folder:
   and answers in the customer language; `START` undoes it. The email link opens `/unsubscribe/<token>`, which asks
   before unsubscribing (mail scanners open links) and offers "Subscribe again"; it marks every contact with that
   address. Tokens are random, stored only as SHA-256 hashes; the page shows the address partly masked.
+  **On the contact page** (`routes/contactMarketing.ts`, `ContactBroadcasts.tsx`): a "Broadcasts" card shows whether
+  the contact gets broadcast emails and each linked Telegram/WhatsApp chat (only chats the user may see), and the last
+  10 broadcasts they received. People who may edit the contact can record an opt-out the customer asked for, or undo
+  one at their request (the email choice covers every contact with the same address). Every change — the customer’s
+  STOP/START or link, or a team member — is on the contact’s timeline.
 
-**Quality:** 250 Vitest tests (API against real PostgreSQL), 72 Playwright tests (desktop, tablet, phone), lint and
+**Quality:** 251 Vitest tests (API against real PostgreSQL), 72 Playwright tests (desktop, tablet, phone), lint and
 typecheck clean, `npm audit` = 0, GitHub Actions CI in `.github/workflows/ci.yml`.
 
 ## 3. Not built yet — suggested next work (in priority order)
@@ -485,8 +490,7 @@ The earlier list is done (see section 2). Known follow-ups, collected from the p
    LiveKit or mediasoup).
 6. Broadcasts: only fake Telegram/Graph APIs and the mail queue have been used. Before large sends, check the
    platforms' limits (Telegram ~30 messages/second per bot; WhatsApp tiers by number quality) and the SMTP provider's
-   bulk-mail rules (SPF/DKIM/DMARC for the sending domain). No per-contact "unsubscribed" toggle in the contact
-   screen yet (the audience card shows the count; resubscribing is done by the customer's own link).
+   bulk-mail rules (SPF/DKIM/DMARC for the sending domain).
 7. KHQR: confirm payments automatically through the Bakong Open API (needs a token from the NBC); scan a printed QR
    with a real bank app before relying on it.
 

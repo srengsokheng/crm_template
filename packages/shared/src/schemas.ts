@@ -499,6 +499,9 @@ export const broadcastSchema = z.object({
   if (v.channelKind === 'whatsapp' && !v.template) c.addIssue({ code: 'custom', path: ['template'], message: 'Pick an approved template' });
 });
 export type BroadcastInput = z.infer<typeof broadcastSchema>;
+/** A team member records that a customer asked to stop (or restart) broadcast emails or chat messages. */
+export const contactEmailOptOutSchema = z.object({ optedOut: z.boolean() });
+export const contactChatOptOutSchema = z.object({ conversationId: idSchema, optedOut: z.boolean() });
 /** Send now (no sendAt) or at a time in the future. */
 export const broadcastSendSchema = z.object({ sendAt: z.iso.datetime({ offset: true }).nullable().default(null) });
 /** {{name}} / {{first_name}} for one person (missing name: "there" in English texts would be wrong in Khmer, so empty). */

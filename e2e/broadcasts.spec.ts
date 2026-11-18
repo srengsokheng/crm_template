@@ -20,7 +20,7 @@ test('broadcast by email: write, check who gets it, send, see progress; the cust
   await signUp(page);
   const ada = `${uniq('ada')}@umbrella.test`;
   const bo = `${uniq('bo')}@globex.test`;
-  await api(page, 'POST', '/contacts', { firstName: 'Ada', lastName: 'Lovelace', methods: [{ kind: 'email', value: ada }] });
+  const adaContact = await api(page, 'POST', '/contacts', { firstName: 'Ada', lastName: 'Lovelace', methods: [{ kind: 'email', value: ada }] });
   await api(page, 'POST', '/contacts', { firstName: 'Bo', methods: [{ kind: 'email', value: bo }] });
 
   await page.getByRole('link', { name: 'Broadcasts', exact: true }).locator('visible=true').first().click();
@@ -67,4 +67,16 @@ test('broadcast by email: write, check who gets it, send, see progress; the cust
   await page.getByRole('button', { name: 'New broadcast' }).click();
   await expect(page.getByText('1 person')).toBeVisible();
   await expect(page.getByText('1 opted out and won’t get it.')).toBeVisible();
+
+  // Ada's contact page: opted out by her own link (also on the timeline), what she received; the team opts her back in at her request.
+  await page.goto(`/contacts/${adaContact.id}`);
+  const card = page.locator('section', { has: page.getByRole('heading', { name: 'Broadcasts' }) });
+  await expect(card.getByText('Opted out', { exact: true })).toBeVisible();
+  await expect(card.getByRole('list', { name: 'Broadcasts received' }).getByText('November offer')).toBeVisible();
+  await expect(page.getByText('Unsubscribed from broadcast emails (their unsubscribe link)')).toBeVisible();
+  await card.getByRole('button', { name: 'Opt back in' }).click();
+  await expect(page.getByRole('dialog')).toContainText('Only do this if the customer asked for it.');
+  await page.getByRole('dialog').getByRole('button', { name: 'Opt back in' }).click();
+  await expect(card.getByText('Gets broadcasts')).toBeVisible();
+  await expect(page.getByText('Opted back in to broadcast emails')).toBeVisible();
 });

@@ -2,6 +2,8 @@
 import { q, q1, sql, type Db } from '../db/index.ts';
 import { notifyInbox } from './events.ts';
 import { ct, type CustomerLanguage } from '@crm/shared';
+import { audit } from '../lib/audit.ts';
+import { systemCtx } from '../lib/context.ts';
 
 export interface ChannelRow {
   id: number; workspace_id: number; kind: 'webchat' | 'telegram_bot' | 'messenger' | 'instagram' | 'whatsapp' | 'telegram_user'; name: string; public_key: string;
@@ -81,9 +83,13 @@ async function optOutReply(db: Db, ch: ChannelRow, conversationId: number, body:
   const k = keyword(body);
   const stop = STOP_WORDS.includes(k);
   if (!stop && !START_WORDS.includes(k)) return;
-  const changed = await q1(sql`UPDATE conversations SET opted_out_at = ${stop ? sql`now()` : null}
-    WHERE id = ${conversationId} AND (opted_out_at IS NULL) = ${stop} RETURNING id`, db);
+  const changed = await q1<{ id: number; contact_id: number | null }>(sql`UPDATE conversations SET opted_out_at = ${stop ? sql`now()` : null}
+    WHERE id = ${conversationId} AND (opted_out_at IS NULL) = ${stop} RETURNING id, contact_id`, db);
   if (!changed) return;
+  if (changed.contact_id) {
+    await audit(db, systemCtx(ch.workspace_id, 0), 'contact', changed.contact_id, stop ? 'chat_opted_out' : 'chat_opted_in',
+      { channel: ch.kind, channelName: ch.name, conversationId, via: 'customer' }, 'system');
+  }
   const ws = await q1<{ name: string; lang: string | null }>(sql`SELECT name, settings->'documents'->>'customerLanguage' AS lang FROM workspaces WHERE id = ${ch.workspace_id}`, db);
   const lang = (['en', 'km', 'both'].includes(ws?.lang ?? '') ? ws!.lang : 'en') as CustomerLanguage;
   const text = ct(lang, stop ? 'optOutDone' : 'optInDone', { company: ws?.name ?? '' });
