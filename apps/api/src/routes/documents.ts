@@ -46,7 +46,7 @@ const NEXT: Record<Kind, Record<string, string[]>> = {
   invoice: { draft: ['sent'], sent: ['paid', 'void'], paid: [], void: [] },
 };
 
-async function loadDeal(db: Db, ctx: Ctx, dealId: number, action: 'view' | 'edit') {
+export async function loadDeal(db: Db, ctx: Ctx, dealId: number, action: 'view' | 'edit') {
   if (!Number.isInteger(dealId)) throw notFound('Deal');
   const deal = await q1<{ id: number; owner_id: number; visibility: string; pipeline_id: number; title: string; currency: string; company_id: number | null }>(sql`
     SELECT id, owner_id, visibility, pipeline_id, title, currency, company_id FROM deals
@@ -74,7 +74,7 @@ export const loadItems = (docId: number, db: Db = pool) => q<Record<string, unkn
   discount_value, tax_rate, tax_included, line_total, sort FROM document_items WHERE document_id = ${docId} ORDER BY sort, id`, db);
 
 /** Replaces the items and stores freshly computed totals (the server is the source of truth). */
-async function writeItems(db: Db, ctx: Ctx, docId: number, items: Item[]) {
+export async function writeItems(db: Db, ctx: Ctx, docId: number, items: Item[]) {
   await assertRefs(ctx, [{ table: 'products', ids: items.map((i) => i.productId), label: 'Product' }], db);
   await q(sql`DELETE FROM document_items WHERE document_id = ${docId}`, db);
   let sort = 0;
@@ -89,7 +89,7 @@ async function writeItems(db: Db, ctx: Ctx, docId: number, items: Item[]) {
 }
 
 /** Items stored in the database → the shape the schema/calculations use. */
-const asItems = (rows: Record<string, unknown>[]): Item[] => rows.map((r) => ({
+export const asItems = (rows: Record<string, unknown>[]): Item[] => rows.map((r) => ({
   productId: (r.product_id as number | null) ?? null, name: String(r.name), unitPrice: String(r.unit_price), quantity: Number(r.quantity), unit: String(r.unit),
   discountType: (r.discount_type as 'percent' | 'amount' | null) ?? null, discountValue: r.discount_type ? Number(r.discount_value) : null,
   taxRate: r.tax_rate === null ? null : Number(r.tax_rate), taxIncluded: Boolean(r.tax_included),
@@ -145,7 +145,7 @@ async function syncPayments(db: Db, docId: number): Promise<Doc> {
 }
 
 /** Status change (also used when a draft is emailed: it is sent first). Numbers are taken when first sent. */
-async function changeStatus(db: Db, ctx: Ctx, doc: Doc, status: string): Promise<Doc> {
+export async function changeStatus(db: Db, ctx: Ctx, doc: Doc, status: string): Promise<Doc> {
   if (!NEXT[doc.kind][doc.status]?.includes(status)) throw conflict(`A ${doc.status} ${doc.kind} can’t be marked as ${status}`);
   if (status === 'void' && Number(doc.paid_amount) > 0) throw conflict('This invoice has payments; delete them before voiding it');
   if (status === 'sent' && !doc.number) {

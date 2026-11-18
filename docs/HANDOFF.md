@@ -425,7 +425,14 @@ The research behind every decision is in this folder:
   opened/accepted, reminders…) with a link into the CRM. "Turn off" unlinks; blocking the bot unlinks automatically.
   The e2e server now talks to a fake Bot API (`TELEGRAM_API_URL` in playwright.config.ts), never to Telegram.
 
-**Quality:** 239 Vitest tests (API against real PostgreSQL), 68 Playwright tests (desktop, tablet, phone), lint and
+- **Recurring invoices** (migration 0034, `routes/recurring.ts`): "Repeat…" on an invoice → every 1/2/3/6/12 months
+  from a start date, forever or N times; each new invoice is a **draft** to check or **sent by email** (PDF, customer
+  link). Dates keep the start day (short months use their last day). The worker (every 10 minutes) catches up missed
+  dates; a schedule that can’t run (deal deleted, creator left) pauses with the reason. Pause / Resume (skips dates
+  that passed) / Stop on the invoice’s "Repeats" card and in Quotes & invoices → Recurring. The creator is notified
+  each time (also on Telegram, #51).
+
+**Quality:** 242 Vitest tests (API against real PostgreSQL), 69 Playwright tests (desktop, tablet, phone), lint and
 typecheck clean, `npm audit` = 0, GitHub Actions CI in `.github/workflows/ci.yml`.
 
 ## 3. Not built yet — suggested next work (in priority order)

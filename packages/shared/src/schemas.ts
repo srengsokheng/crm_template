@@ -396,6 +396,17 @@ export const paymentSchema = z.object({
   method: trimmed(60).default(''),
   note: z.string().trim().max(500).default(''),
 });
+/** Recurring invoices: made from an invoice; "send" emails each new invoice to emailTo. */
+export const recurringCreateSchema = z.object({
+  sourceId: idSchema,
+  everyMonths: z.union([z.literal(1), z.literal(2), z.literal(3), z.literal(6), z.literal(12)]),
+  startOn: dateSchema,
+  endsAfter: z.union([z.coerce.number().int().min(1).max(120), z.null()]).default(null),
+  mode: z.enum(['draft', 'send']),
+  emailTo: z.array(z.string().trim().email('Use a valid email address')).max(10).default([]),
+  message: z.string().max(5000).default(''),
+}).refine((v) => v.mode !== 'send' || v.emailTo.length > 0, { message: 'Add who receives the invoice', path: ['emailTo'] });
+export const recurringUpdateSchema = z.object({ status: z.enum(['active', 'paused', 'ended']) });
 export const documentEmailSchema = z.object({
   to: z.array(z.email('Invalid email address').max(200)).min(1, 'Add at least one recipient').max(5, 'Up to 5 recipients'),
   subject: trimmed(200).min(1, 'Required'),

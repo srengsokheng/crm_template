@@ -4,6 +4,7 @@ import { FileText } from 'lucide-react';
 import { api, errorMessage, qsOf } from '../../lib/api.ts';
 import { money } from '../../lib/format.ts';
 import { Card, EmptyState, PageHeader, Segmented } from '../../components/ui/primitives.tsx';
+import { RecurringList } from './Recurring.tsx';
 import { DataTable, Pagination, type Column } from '../../components/ui/DataTable.tsx';
 import { SearchBox, Toolbar, useListParams } from '../records/list.tsx';
 import { dateOnly, DocStatus, docTitle, type DocKind } from './common.tsx';
@@ -22,6 +23,7 @@ const VIEWS: Record<string, { label: string; params: Record<string, string> }> =
   paid: { label: 'Paid', params: { kind: 'invoice', status: 'paid' } },
   quotes: { label: 'Quotes', params: { kind: 'quote' } },
   drafts: { label: 'Drafts', params: { status: 'draft' } },
+  recurring: { label: 'Recurring', params: {} },
 };
 
 /** Every quote and invoice the user can see (through their deals), with money still owed. */
@@ -58,7 +60,7 @@ export function DocumentsPage() {
       <div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-3">
         <Kpi label="Outstanding" value={t ? money(t.outstanding, base) : '…'} hint="Unpaid balance of sent invoices" />
         <Kpi label="Overdue" value={t ? money(t.overdue, base) : '…'} hint={t ? `${t.overdueCount} ${t.overdueCount === 1 ? 'invoice' : 'invoices'} past the due date` : ''} tone={t && t.overdueCount > 0 ? 'red' : undefined} />
-        <Kpi className="max-sm:hidden" label="Shown" value={q.data ? String(q.data.total) : '…'} hint={VIEWS[view].label === 'All' ? 'Quotes and invoices' : VIEWS[view].label} />
+        {view !== 'recurring' && <Kpi className="max-sm:hidden" label="Shown" value={q.data ? String(q.data.total) : '…'} hint={VIEWS[view].label === 'All' ? 'Quotes and invoices' : VIEWS[view].label} />}
       </div>
       {t && t.missingRates.length > 0 && (
         <p className="mb-3 rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:bg-amber-500/10 dark:text-amber-200">
@@ -66,13 +68,15 @@ export function DocumentsPage() {
         </p>
       )}
       <Toolbar right={<Segmented size="sm" value={view} onChange={(v) => lp.set({ view: v === 'all' ? '' : v, page: '' })} options={Object.entries(VIEWS).map(([value, v]) => ({ value, label: v.label }))} />}>
-        <SearchBox value={lp.get('q')} onChange={(v) => lp.set({ q: v })} placeholder="Search number, customer or deal" />
+        {view !== 'recurring' && <SearchBox value={lp.get('q')} onChange={(v) => lp.set({ q: v })} placeholder="Search number, customer or deal" />}
       </Toolbar>
+      {view === 'recurring' ? <RecurringList /> : <>
       <DataTable columns={cols} rows={q.data?.data ?? []} loading={q.isLoading} error={q.error ? errorMessage(q.error) : null} onRetry={() => q.refetch()}
         sort={lp.sort} onSort={(s) => lp.set({ sort: s })} onRowClick={(r) => nav(`/documents/${r.id}`)}
         empty={<EmptyState icon={<FileText className="size-5" />} title={view === 'all' ? 'No quotes or invoices yet' : `Nothing ${VIEWS[view].label.toLowerCase()}`}
           description={view === 'all' ? 'Open a deal and use “Quote” or “Invoice” in its Quotes & invoices card.' : undefined} />} />
       {q.data && q.data.total > q.data.pageSize && <Pagination page={q.data.page} pageSize={q.data.pageSize} total={q.data.total} onPage={(p) => lp.set({ page: String(p) })} />}
+      </>}
     </div>
   );
 }

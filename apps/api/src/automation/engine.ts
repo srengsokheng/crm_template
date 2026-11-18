@@ -13,6 +13,7 @@ import { pollTelegram } from '../inbox/telegram.ts';
 import { stopTelegramUsers, syncTelegramUsers } from '../inbox/telegramUser.ts';
 import { endEmptyCalls, purgeCalls } from '../calls/calls.ts';
 import { pushNotifications } from '../inbox/teamAlerts.ts';
+import { runRecurringInvoices } from '../routes/recurring.ts';
 import { files } from '../lib/files.ts';
 import { deliverWebhook, type Delivery } from '../lib/webhooks.ts';
 import { config } from '../config.ts';
@@ -388,6 +389,7 @@ export function startWorker(log: (m: string) => void = () => {}): () => void {
   let lastPoll = 0;
   let lastTgUser = 0;
   let lastCalls = 0;
+  let lastRecurring = 0;
   const tick = async () => {
     if (stopped) return;
     try {
@@ -397,6 +399,7 @@ export function startWorker(log: (m: string) => void = () => {}): () => void {
       if (now - lastPurge > 3_600_000) { lastPurge = now; await purge(); await releaseStuckJobs(); }
       if (now - lastPoll > 3_000) { lastPoll = now; const m = await pollTelegram(); if (m) log(`stored ${m} Telegram message(s)`); }
       { const pushed = await pushNotifications(); if (pushed) log(`sent ${pushed} notification(s) to Telegram`); }
+      if (now - lastRecurring > 600_000) { lastRecurring = now; const made = await runRecurringInvoices(); if (made) log(`created ${made} recurring invoice(s)`); }
       if (now - lastCalls > 10_000) { lastCalls = now; const ended = await endEmptyCalls(); if (ended.length) log(`ended ${ended.length} empty call(s)`); }
       if (now - lastTgUser > 5_000) { lastTgUser = now; const m = await syncTelegramUsers(log); if (m) log(`caught up ${m} Telegram account message(s)`); }
       const n = (await processOutbox()) + (await processJobs());
