@@ -22,6 +22,8 @@ const metaCredentials = {
   appSecret: z.string().trim().regex(/^[0-9a-f]{32}$/i, 'The app secret is 32 letters and digits (App settings → Basic)'),
 };
 const metaAccountId = z.string().trim().regex(/^\d{5,25}$/, 'Use the number shown in Meta’s dashboard');
+/** WhatsApp Business Account ID (lists the approved templates); empty = not set. */
+const wabaId = z.string().trim().regex(/^(\d{5,25})?$/, 'Use the WhatsApp Business Account ID (a number)');
 
 const id = z.coerce.number().int().positive();
 const text = (max: number) => z.string().trim().max(max);
@@ -46,7 +48,7 @@ export const channelCreateSchema = z.discriminatedUnion('kind', [
   }),
   z.object({ kind: z.literal('messenger'), name: text(80).optional(), accountId: metaAccountId, ...metaCredentials }),
   z.object({ kind: z.literal('instagram'), name: text(80).optional(), accountId: metaAccountId, ...metaCredentials }),
-  z.object({ kind: z.literal('whatsapp'), name: text(80).optional(), accountId: metaAccountId, ...metaCredentials }),
+  z.object({ kind: z.literal('whatsapp'), name: text(80).optional(), accountId: metaAccountId, ...metaCredentials, businessAccountId: wabaId.optional() }),
   z.object({
     kind: z.literal('telegram_user'),
     name: text(80).optional(),
@@ -73,6 +75,8 @@ export const channelUpdateSchema = z.object({
   /** Telegram account: take in group chats too; whose account it is. */
   includeGroups: z.boolean().optional(),
   ownerId: id.optional(),
+  /** WhatsApp: the business account whose templates can be sent; '' clears it. */
+  businessAccountId: wabaId.optional(),
 }).refine((v) => (v.accessToken === undefined) === (v.appSecret === undefined), { message: 'Enter the access token and the app secret', path: ['appSecret'] });
 
 /** Signing in a Telegram account: the code Telegram sent, then the 2FA password if asked; or ask for a new code. */
@@ -103,6 +107,12 @@ export const conversationUpdateSchema = z.object({
 });
 
 export const messageCreateSchema = z.object({ body: text(4000).min(1, 'Write a message') });
+/** A WhatsApp template message: an approved template and the values for its {{1}}, {{2}}… blanks. */
+export const templateMessageSchema = z.object({
+  name: z.string().regex(/^[a-z0-9_]{1,512}$/, 'Pick a template'),
+  language: z.string().regex(/^[a-z]{2,3}(_[A-Z]{2,4})?$/, 'Pick a template'),
+  params: z.array(z.string().trim().min(1, 'Fill in every blank').max(1024)).max(20).default([]),
+});
 /** Saved replies. Placeholders filled in when inserted: {{first_name}}, {{name}}, {{agent}}. */
 export const savedReplySchema = z.object({
   title: text(80).min(1, 'Required'),

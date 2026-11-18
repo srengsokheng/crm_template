@@ -11,6 +11,7 @@ import { useCan, useDebounced, useMe, useMediaQuery, useMeta } from '../../lib/h
 import { Avatar, Badge, Button, EmptyState, ErrorState, IconButton, Input, Segmented, Select, Spinner, Textarea } from '../../components/ui/primitives.tsx';
 import { Dialog } from '../../components/ui/overlays.tsx';
 import { usePollInterval, useTyping } from './live.ts';
+import { TemplateDialog } from './TemplateDialog.tsx';
 import { FeedList, useFeed } from '../../components/ui/FeedList.tsx';
 import { SavedRepliesMenu } from './SavedReplies.tsx';
 import { EntityPicker, type PickerItem } from '../../components/ui/EntityPicker.tsx';
@@ -23,7 +24,7 @@ interface ConversationItem {
   assigneeId: number | null; assigneeName: string | null; contactId: number | null; contactName: string | null; leadId: number | null; leadTitle: string | null;
 }
 interface MessageFile { id: number; fileName: string; contentType: string; sizeBytes: number | null; status: 'pending' | 'stored' | 'too_large' | 'blocked' | 'failed' }
-interface Message { id: number; direction: 'in' | 'out'; senderName: string; authorName: string | null; body: string; status: 'received' | 'pending' | 'sent' | 'failed'; error: string | null; createdAt: string; files: MessageFile[] }
+interface Message { id: number; direction: 'in' | 'out'; senderName: string; authorName: string | null; body: string; status: 'received' | 'pending' | 'sent' | 'failed'; error: string | null; createdAt: string; files: MessageFile[]; isTemplate?: boolean }
 const PREVIEW_TYPES = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/webp']);
 interface ConversationDetail extends ConversationItem {
   channelStatus: string; botUsername: string | null; profile: { name?: string; username?: string; email?: string; phone?: string };
@@ -39,15 +40,21 @@ export function ChannelIcon({ kind, className, decorative }: { kind: ChannelKind
 
 /** Meta delivers replies only within 24 hours of the customer's last message. */
 const DAY_MS = 24 * 60 * 60 * 1000;
-function ReplyWindowNotice({ kind, messages }: { kind: ChannelKind; messages: Message[] }) {
+function ReplyWindowNotice({ kind, messages, conversationId, canReply, customerName, onSent }: { kind: ChannelKind; messages: Message[]; conversationId: number; canReply: boolean; customerName: string; onSent: () => void }) {
+  const [templates, setTemplates] = useState(false);
   if (!isMetaKind(kind)) return null;
   const lastIn = [...messages].reverse().find((m) => m.direction === 'in');
   if (!lastIn || Date.now() - new Date(lastIn.createdAt).getTime() < DAY_MS) return null;
   return (
-    <p className="flex items-start gap-2 border-t border-base bg-amber-50 px-4 py-2 text-xs text-amber-900 dark:bg-amber-500/10 dark:text-amber-100" role="status">
+    <div className="flex flex-wrap items-start gap-2 border-t border-base bg-amber-50 px-4 py-2 text-xs text-amber-900 dark:bg-amber-500/10 dark:text-amber-100" role="status">
       <Clock className="mt-0.5 size-3.5 shrink-0" />
-      <span>Their last message was more than 24 hours ago. {CHANNEL_LABELS[kind]} only delivers replies within 24 hours of it, so a reply now will probably fail. Ask them to write again, or contact them another way.</span>
-    </p>
+      <span className="min-w-0 flex-1">
+        Their last message was more than 24 hours ago. {CHANNEL_LABELS[kind]} only delivers replies within 24 hours of it, so a reply now will probably fail.
+        {kind === 'whatsapp' ? ' You can still send an approved template.' : ' Ask them to write again, or contact them another way.'}
+      </span>
+      {kind === 'whatsapp' && canReply && <Button size="sm" className="shrink-0" onClick={() => setTemplates(true)}>Send a template</Button>}
+      {kind === 'whatsapp' && <TemplateDialog conversationId={conversationId} customerName={customerName} open={templates} onOpenChange={setTemplates} onSent={onSent} />}
+    </div>
   );
 }
 
@@ -230,7 +237,7 @@ function Thread({ id }: { id: number }) {
         <div ref={bottom} />
       </div>
       <TypingLine conversationId={id} />
-      <ReplyWindowNotice kind={d.channelKind} messages={d.messages} />
+      <ReplyWindowNotice kind={d.channelKind} messages={d.messages} conversationId={id} canReply={d.canReply} customerName={d.profile.name || d.title} onSent={refresh} />
       <Composer conversationId={id} canReply={d.canReply} reason={!d.canEdit ? 'You can read this conversation but your role can’t reply.' : d.channelStatus !== 'active' ? 'This channel is disabled or disconnected, so replies can’t be sent.' : ''} onSent={refresh} customerName={d.profile.name || d.title} />
       <LinkDialog open={linkOpen} onOpenChange={setLinkOpen} conversationId={id} onLinked={refresh} />
     </>
@@ -249,6 +256,7 @@ function Bubble({ m, group, conversationId, canRetry, onRetried }: { m: Message;
       {text && <div className={cn('max-w-[85%] whitespace-pre-wrap break-words rounded-2xl px-3.5 py-2 text-sm md:max-w-[70%]',
         out ? 'rounded-br-md bg-brand-600 text-white' : 'rounded-bl-md bg-[var(--surface-2)]', m.files.length > 0 && 'mt-1', m.status === 'failed' && 'opacity-70')}>{text}</div>}
       <span className="mt-0.5 flex items-center gap-1 px-1 text-[11px] text-muted" title={dateTime(m.createdAt)}>
+        {m.isTemplate && <Badge>Template</Badge>}
         {m.status === 'pending' && <><Clock className="size-3" />Sending…</>}
         {m.status === 'failed' && <span className="flex items-center gap-1 text-rose-600"><AlertCircle className="size-3" />{m.error ?? 'Not sent'}</span>}
         {m.status !== 'pending' && m.status !== 'failed' && relative(m.createdAt)}

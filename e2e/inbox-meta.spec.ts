@@ -17,6 +17,8 @@ test.beforeAll(async () => {
       const reply = (s: number, b: unknown) => { res.writeHead(s, { 'content-type': 'application/json' }); res.end(JSON.stringify(b)); };
       if (!String(req.headers.authorization).startsWith('Bearer GOOD')) return reply(400, { error: { code: 190, message: 'Invalid token' } });
       if (req.method === 'GET' && req.url?.startsWith(`/${WA}?`)) return reply(200, { verified_name: 'E2E Robotics', display_phone_number: '+855 23 999 000' });
+      if (req.method === 'GET' && req.url?.startsWith('/4444444?')) return reply(200, { id: '4444444' });
+      if (req.method === 'GET' && req.url?.startsWith('/4444444/message_templates?')) return reply(200, { data: [{ name: 'order_ready', language: 'en_US', status: 'APPROVED', category: 'UTILITY', components: [{ type: 'BODY', text: 'Hi {{1}}, your order {{2}} is ready.' }] }] });
       if (req.method === 'POST' && req.url === `/${WA}/messages`) { sent.push(JSON.parse(raw)); return reply(200, { messages: [{ id: `wamid.out.${sent.length}` }] }); }
       reply(404, { error: { code: 803, message: 'Unknown' } });
     });
@@ -81,4 +83,25 @@ test('WhatsApp: connect in Settings, receive a message through the webhook, repl
   await db.end();
   await page.reload();
   await expect(page.getByText(/Their last message was more than 24 hours ago\. WhatsApp only delivers replies within 24 hours/)).toBeVisible();
+
+  // After 24 hours WhatsApp only takes templates: set the business account in Settings, then send one.
+  await page.getByRole('button', { name: 'Send a template' }).click();
+  await expect(page.getByRole('dialog').getByText('Templates aren’t set up')).toBeVisible();
+  await page.keyboard.press('Escape');
+  await page.goto('/settings/channels');
+  await page.getByLabel('WhatsApp Business Account ID').fill('4444444');
+  await page.getByRole('button', { name: 'Save', exact: true }).click();
+  await expect(page.getByText('Templates can be sent now')).toBeVisible();
+  await page.goto(`/inbox/${convs.data[0].id}`);
+  await page.getByRole('button', { name: 'Send a template' }).click();
+  const tpl = page.getByRole('dialog');
+  await tpl.getByLabel('Template').selectOption({ label: 'order ready · en_US · utility' });
+  await expect(tpl.getByLabel('Blank {{1}}')).toHaveValue('Sok'); // starts with the customer's first name
+  await tpl.getByLabel('Blank {{2}}').fill('#1042');
+  await expect(tpl.getByLabel('Template preview')).toHaveText('Hi Sok, your order #1042 is ready.');
+  await tpl.getByRole('button', { name: 'Send template' }).click();
+  await expect(page.getByText('Template sent')).toBeVisible();
+  await expect(page.locator('ol').getByText('Hi Sok, your order #1042 is ready.')).toBeVisible();
+  await expect.poll(() => sent.at(-1)?.type, { timeout: 10_000 }).toBe('template');
+  expect(sent.at(-1).template).toEqual({ name: 'order_ready', language: { code: 'en_US' }, components: [{ type: 'body', parameters: [{ type: 'text', text: 'Sok' }, { type: 'text', text: '#1042' }] }] });
 });

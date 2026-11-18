@@ -356,6 +356,11 @@ The research behind every decision is in this folder:
     refused reply says why (WhatsApp templates are not supported yet). WhatsApp delivery failures reported later turn
     the message "failed". An expired token marks the channel "Needs attention". Messenger/Instagram show "typing…".
   - Meta only calls https addresses: on a server whose APP_URL isn't https, the channel says so.
+  - **WhatsApp templates** (the only messages WhatsApp delivers after the 24-hour window): with the WhatsApp Business
+    Account ID on the channel (Settings → Channels; checked with Meta), the Inbox's 24-hour notice offers "Send a
+    template": approved text templates (cached 2 minutes; ones with media headers or button values are left out), a
+    field per {{n}} blank, a preview, then the message shows in the thread as the customer sees it, marked "Template"
+    (`messages.template`, migration 0029). Refusals (template gone, paused, wrong values) are explained.
   - `META_GRAPH_URL` (default `https://graph.facebook.com/v21.0`) is only changed for tests.
 - **Telegram personal account** (Telegram's user API / MTProto through GramJS `telegram@2.26.22`; `inbox/telegramUser.ts`):
   - **Sign in** (Settings → Channels → Telegram account, admins): api_id/api_hash from my.telegram.org and the phone
@@ -375,7 +380,7 @@ The research behind every decision is in this folder:
   - The MTProto client sits behind `TgUserDriver` (`telegramUserGram.ts`); tests and the e2e server use the fake in
     `apps/api/test/fakes/telegramUser.ts`.
 
-**Quality:** 223 Vitest tests (API against real PostgreSQL), 62 Playwright tests (desktop, tablet, phone), lint and
+**Quality:** 224 Vitest tests (API against real PostgreSQL), 62 Playwright tests (desktop, tablet, phone), lint and
 typecheck clean, `npm audit` = 0, GitHub Actions CI in `.github/workflows/ci.yml`.
 
 ## 3. Not built yet — suggested next work (in priority order)
@@ -390,8 +395,8 @@ The earlier list is done (see section 2). Known follow-ups, collected from the p
 3. Inbox, Telegram account: try it with a real account (only the fake driver has run; the GramJS driver is
    type-checked against GramJS). Unofficial WhatsApp-Web libraries break WhatsApp's terms and get numbers banned; Meta
    has no API for personal Messenger/Instagram inboxes, so those stay out.
-4. Inbox, Meta: WhatsApp template messages (to write after the 24-hour window), and testing against Meta itself with a
-   real app (only a fake Graph API has been used so far).
+4. Inbox, Meta: test against Meta itself with a real app (only a fake Graph API has been used so far); templates with
+   media headers or values in buttons.
 
 Import limits and choices: 5 MB / 10,000 rows / 100 columns per file; lead rows only match *open* leads; list
 values (type, source, industry, size, deal type, category) must already exist unless an admin ticks "Add values that aren't in

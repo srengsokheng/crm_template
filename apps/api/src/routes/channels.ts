@@ -5,7 +5,7 @@ import { channelCreateSchema, channelUpdateSchema, isMetaKind, telegramLoginSche
 import { assertMembers } from '../lib/records.ts';
 import { loginStep, logOutTgUser, openTgUser, sealTgUser, startLogin } from '../inbox/telegramUser.ts';
 import { config } from '../config.ts';
-import { credentialsOf, metaWebhookUrl, newVerifyToken, sealCredentials, verifyMetaAccount } from '../inbox/meta.ts';
+import { credentialsOf, forgetTemplates, metaWebhookUrl, newVerifyToken, sealCredentials, verifyMetaAccount, verifyWaba } from '../inbox/meta.ts';
 import { q, q1, sql, tx } from '../db/index.ts';
 import { audit } from '../lib/audit.ts';
 import { conflict, notFound } from '../lib/errors.ts';
@@ -29,7 +29,7 @@ function publicChannel(c: ChannelRow & { conversation_count?: number; created_at
       ? { greeting: cfg.greeting, color: cfg.color, allowedOrigins: cfg.allowedOrigins ?? [] }
       : isMetaKind(c.kind)
         // What the admin pastes into the Meta app's webhook settings (the verify token only proves the URL is ours).
-        ? { accountId: cfg.accountId, accountName: cfg.accountName, webhookUrl: metaWebhookUrl(c), verifyToken: c.webhook_secret, httpsReady: config.appUrl.startsWith('https://') }
+        ? { accountId: cfg.accountId, accountName: cfg.accountName, webhookUrl: metaWebhookUrl(c), verifyToken: c.webhook_secret, httpsReady: config.appUrl.startsWith('https://'), businessAccountId: cfg.businessAccountId ?? null }
         : c.kind === 'telegram_user'
           ? { username: cfg.username, displayName: cfg.displayName, phone: cfg.phone, includeGroups: cfg.includeGroups === true, ownerId: cfg.ownerId ?? null, loginStep: cfg.loginStep ?? null }
           : { username: cfg.username, botName: cfg.botName, mode: cfg.mode },
@@ -66,10 +66,12 @@ export async function channelRoutes(app: FastifyInstance) {
       const dup = await q1(sql`SELECT 1 FROM channels WHERE workspace_id = ${ctx.workspaceId} AND kind = ${kind} AND config->>'accountId' = ${body.accountId}`);
       if (dup) throw conflict('This account is already connected');
       const acct = await verifyMetaAccount(kind, body.accountId, body.accessToken);
+      const waba = body.kind === 'whatsapp' && body.businessAccountId ? body.businessAccountId : null;
+      if (waba) await verifyWaba(body.accessToken, waba);
       const row = await tx(async (db) => {
         const r = await q1<ChannelRow>(sql`INSERT INTO channels (workspace_id, kind, name, public_key, config, secret, webhook_secret, created_by)
           VALUES (${ctx.workspaceId}, ${kind}, ${body.name || acct.accountName}, ${publicKey},
-            ${JSON.stringify({ accountId: body.accountId, accountName: acct.accountName })}, ${sealed}, ${newVerifyToken()}, ${ctx.userId}) RETURNING *`, db);
+            ${JSON.stringify({ accountId: body.accountId, accountName: acct.accountName, ...(waba ? { businessAccountId: waba } : {}) })}, ${sealed}, ${newVerifyToken()}, ${ctx.userId}) RETURNING *`, db);
         await audit(db, ctx, 'channel', r!.id, 'created', { kind, name: r!.name });
         return r!;
       });
@@ -127,6 +129,11 @@ export async function channelRoutes(app: FastifyInstance) {
         cfg.accountName = acct.accountName;
         if (creds) secret = sealCredentials(creds);
         if (body.status !== 'disabled' && (c.status !== 'disabled' || body.status === 'active')) status = 'active';
+      }
+      if (c.kind === 'whatsapp' && body.businessAccountId !== undefined) {
+        if (body.businessAccountId) await verifyWaba((body.accessToken ? { accessToken: body.accessToken } : credentialsOf(c)).accessToken, body.businessAccountId);
+        cfg.businessAccountId = body.businessAccountId || null;
+        forgetTemplates(c.id);
       }
     } else if (c.kind === 'telegram_user') {
       if (body.includeGroups !== undefined) cfg.includeGroups = body.includeGroups;

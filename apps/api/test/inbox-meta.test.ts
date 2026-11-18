@@ -17,7 +17,7 @@ import { getApp, inviteUser, signup } from './helpers.ts';
  * Accounts: Page 1111111, Instagram 2222222, WhatsApp number 3333333. Recipients "5550024" (Messenger) and
  * "85500000024" (WhatsApp) are outside the 24-hour window.
  */
-const PAGE = '1111111', IG = '2222222', WA = '3333333';
+const PAGE = '1111111', IG = '2222222', WA = '3333333', WABA = '4444444';
 const GOOD = 'GOOD_token_abcdefghijklmnopqrstuvwxyz';
 const SECRET = '0123456789abcdef0123456789abcdef';
 const PNG = Buffer.from('89504e470d0a1a0a0000000d49484452', 'hex');
@@ -69,6 +69,20 @@ beforeAll(async () => {
         if (path === '5550001') return reply(200, { first_name: 'Ada', last_name: 'Lovelace' });
         if (path === '7770001') return reply(200, { name: 'Ina Insta', username: 'ina' });
         if (path === 'media-in-1') return reply(200, { url: `${base}/cdn/wa-doc`, mime_type: 'application/pdf', file_size: 13 });
+        if (path === WABA) return reply(200, { id: WABA, name: 'Acme WABA' });
+        if (path === `${WABA}/message_templates`) {
+          expect(url.searchParams.get('status')).toBe('APPROVED');
+          return reply(200, { data: [
+            { name: 'order_ready', language: 'en_US', status: 'APPROVED', category: 'UTILITY', components: [
+              { type: 'HEADER', format: 'TEXT', text: 'Acme Robotics' },
+              { type: 'BODY', text: 'Hi {{1}}, your order {{2}} is ready for pickup.' },
+              { type: 'FOOTER', text: 'Reply STOP to opt out' }] },
+            { name: 'follow_up', language: 'km', status: 'APPROVED', category: 'MARKETING', components: [{ type: 'BODY', text: 'សួស្តី! Still interested?' }] },
+            { name: 'gone', language: 'en_US', status: 'APPROVED', components: [{ type: 'BODY', text: 'Old one' }] },
+            { name: 'with_image', language: 'en_US', status: 'APPROVED', components: [{ type: 'HEADER', format: 'IMAGE' }, { type: 'BODY', text: 'Look' }] },
+            { name: 'pending_review', language: 'en_US', status: 'PENDING', components: [{ type: 'BODY', text: 'Not yet' }] },
+          ] });
+        }
         return reply(400, { error: { message: 'Unsupported get request', code: 100 } });
       }
       if (path === `${PAGE}/subscribed_apps`) { fake.subscribed.push(PAGE); return reply(200, { success: true }); }
@@ -81,7 +95,8 @@ beforeAll(async () => {
       }
       if (path === `${WA}/media`) { const mp = readMultipart(req, raw); fake.uploads.push({ path, ...mp }); return reply(200, { id: 'media-up-1' }); }
       if (path === `${WA}/messages`) {
-        if (body.to === '85500000024') return reply(400, { error: { message: 'Re-engagement message', code: 131047 } });
+        if (body.to === '85500000024' && body.type !== 'template') return reply(400, { error: { message: 'Re-engagement message', code: 131047 } });
+        if (body.type === 'template' && body.template.name === 'gone') return reply(400, { error: { message: 'Template name does not exist in the translation', code: 132001 } });
         fake.sent.push({ path, ...body });
         return reply(200, { messaging_product: 'whatsapp', messages: [{ id: `wamid.out.${n++}` }] });
       }
@@ -267,6 +282,52 @@ describe('inbox: Facebook Messenger, Instagram, WhatsApp', () => {
     expect(fixed.body).toMatchObject({ status: 'active', lastError: null });
     expect(JSON.parse(openSecret((await pool.query('SELECT secret FROM channels WHERE id = $1', [ms.id])).rows[0].secret)).accessToken).toBe('GOOD_new_token_abcdefghijklmnopqr');
     expect((await c.patch(`/channels/${ms.id}`, { accessToken: 'GOOD_only_token_abcdefghijklmnop' })).status).toBe(400); // both together
+  });
+
+  it('WhatsApp templates: list the approved ones, send one after the 24-hour window, explain refusals', async () => {
+    const { c } = await signup();
+    // Without the business account id: explained. With a wrong one: refused.
+    const wa = (await connect(c, 'whatsapp', WA)).body;
+    expect(wa.config.businessAccountId).toBeNull();
+    await hook(wa.publicKey, whatsapp({ contacts: [{ wa_id: '85500000024', profile: { name: 'Late Customer' } }], messages: [{ from: '85500000024', id: 'wamid.t.1', type: 'text', text: { body: 'Hi' } }] }));
+    const conv = (await c.get('/inbox/conversations')).body.data[0].id;
+    const noWaba = await c.get(`/inbox/conversations/${conv}/templates`);
+    expect(noWaba.status).toBe(409);
+    expect(noWaba.body.error.message).toMatch(/Add the WhatsApp Business Account ID/);
+    expect((await c.patch(`/channels/${wa.id}`, { businessAccountId: '9999999' })).status).toBe(422);
+    expect((await c.patch(`/channels/${wa.id}`, { businessAccountId: WABA })).body.config.businessAccountId).toBe(WABA);
+
+    // Only approved templates with text the Inbox can fill (no image headers).
+    const list = (await c.get(`/inbox/conversations/${conv}/templates`)).body.data;
+    expect(list.map((t: any) => `${t.name}/${t.language}`)).toEqual(['follow_up/km', 'gone/en_US', 'order_ready/en_US']);
+    expect(list.find((t: any) => t.name === 'order_ready')).toMatchObject({ header: 'Acme Robotics', footer: 'Reply STOP to opt out', params: 2, category: 'UTILITY' });
+
+    // Checked before queueing: the right number of values, an approved template.
+    expect((await c.post(`/inbox/conversations/${conv}/templates`, { name: 'order_ready', language: 'en_US', params: ['Dara'] })).status).toBe(400);
+    expect((await c.post(`/inbox/conversations/${conv}/templates`, { name: 'pending_review', language: 'en_US' })).status).toBe(422);
+    const sent = await c.post(`/inbox/conversations/${conv}/templates`, { name: 'order_ready', language: 'en_US', params: ['Dara', '#1042'] });
+    expect(sent.status).toBe(201);
+    await c.post(`/inbox/conversations/${conv}/templates`, { name: 'gone', language: 'en_US' });
+    await drainJobs();
+    // Delivered as a template (allowed after 24 hours), shown in the thread as the customer sees it.
+    expect(fake.sent.find((s) => s.type === 'template' && s.template.name === 'order_ready')).toEqual({
+      path: `${WA}/messages`, messaging_product: 'whatsapp', recipient_type: 'individual', to: '85500000024', type: 'template',
+      template: { name: 'order_ready', language: { code: 'en_US' }, components: [{ type: 'body', parameters: [{ type: 'text', text: 'Dara' }, { type: 'text', text: '#1042' }] }] },
+    });
+    const msgs = (await c.get(`/inbox/conversations/${conv}`)).body.messages;
+    const tm = msgs.find((m: any) => m.id === sent.body.id);
+    expect(tm).toMatchObject({ status: 'sent', isTemplate: true, body: 'Acme Robotics\n\nHi Dara, your order #1042 is ready for pickup.\n\nReply STOP to opt out' });
+    expect(msgs.at(-1)).toMatchObject({ status: 'failed', error: expect.stringMatching(/doesn’t exist \(any more\)/) });
+
+    // Not for other channels; not for people who can only read; not across workspaces.
+    const ms = (await connect(c, 'messenger', PAGE)).body;
+    await hook(ms.publicKey, messenger(PAGE, '5550001', { text: 'hi' }));
+    const msConv = (await c.get('/inbox/conversations')).body.data.find((x: any) => x.channelKind === 'messenger').id;
+    expect((await c.get(`/inbox/conversations/${msConv}/templates`)).status).toBe(409);
+    const viewer = await inviteUser(c, 'Viewer');
+    expect((await viewer.c.post(`/inbox/conversations/${conv}/templates`, { name: 'follow_up', language: 'km' })).status).toBe(403);
+    const other = await signup();
+    expect((await other.c.get(`/inbox/conversations/${conv}/templates`)).status).toBe(404);
   });
 
   it('splits long replies by character, never inside an emoji', () => {

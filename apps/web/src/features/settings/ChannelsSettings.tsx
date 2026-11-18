@@ -15,7 +15,7 @@ interface Channel {
   conversationCount: number;
   config: {
     greeting?: string; color?: string; allowedOrigins?: string[]; username?: string; botName?: string; mode?: 'webhook' | 'polling';
-    accountId?: string; accountName?: string; webhookUrl?: string; verifyToken?: string; httpsReady?: boolean;
+    accountId?: string; accountName?: string; webhookUrl?: string; verifyToken?: string; httpsReady?: boolean; businessAccountId?: string | null;
     displayName?: string; phone?: string; includeGroups?: boolean; ownerId?: number | null; loginStep?: 'code' | 'password' | null;
   };
 }
@@ -194,13 +194,14 @@ function MetaCredentialFields({ token, setToken, secret, setSecret, idPrefix }: 
 
 function AddMeta({ kind, open, onOpenChange, onAdded }: { kind: MetaKind; open: boolean; onOpenChange: (v: boolean) => void; onAdded: () => void }) {
   const [accountId, setAccountId] = useState('');
+  const [waba, setWaba] = useState('');
   const [token, setToken] = useState('');
   const [secret, setSecret] = useState('');
   const [saving, setSaving] = useState(false);
   const save = async () => {
     setSaving(true);
     try {
-      await api.post('/channels', { kind, accountId: accountId.trim(), accessToken: token.trim(), appSecret: secret.trim() });
+      await api.post('/channels', { kind, accountId: accountId.trim(), accessToken: token.trim(), appSecret: secret.trim(), ...(kind === 'whatsapp' && waba.trim() ? { businessAccountId: waba.trim() } : {}) });
       onAdded(); onOpenChange(false); toast.success(`${CHANNEL_LABELS[kind]} connected — finish the webhook setup on the channel`);
     } catch (e) { toast.error(errorMessage(e)); } finally { setSaving(false); }
   };
@@ -214,6 +215,11 @@ function AddMeta({ kind, open, onOpenChange, onAdded }: { kind: MetaKind; open: 
           <Input id="meta-account" inputMode="numeric" autoComplete="off" value={accountId} onChange={(e) => setAccountId(e.target.value)} />
         </Field>
         <MetaCredentialFields token={token} setToken={setToken} secret={secret} setSecret={setSecret} idPrefix="meta" />
+        {kind === 'whatsapp' && (
+          <Field label="WhatsApp Business Account ID (optional)" htmlFor="meta-waba" hint="Under WhatsApp → API setup. Needed to send approved templates after 24 hours.">
+            <Input id="meta-waba" inputMode="numeric" autoComplete="off" value={waba} onChange={(e) => setWaba(e.target.value)} />
+          </Field>
+        )}
       </div>
     </Dialog>
   );
@@ -259,6 +265,7 @@ function MetaDetails({ c, kind, onChange }: { c: Channel; kind: MetaKind; onChan
         </div>
         <p className="mt-2 text-muted">Then subscribe to the <span className="font-mono">messages</span> field. If several channels use the same Meta app, one callback URL is enough: messages are sorted by account.</p>
       </div>
+      {kind === 'whatsapp' && <WabaField c={c} onChange={onChange} />}
       {editing ? (
         <div className="space-y-3 rounded-md border border-base p-3">
           <MetaCredentialFields token={token} setToken={setToken} secret={secret} setSecret={setSecret} idPrefix={`m${c.id}`} />
@@ -354,5 +361,26 @@ function TelegramUserDetails({ c, onChange, save, busy }: { c: Channel; onChange
       <Checkbox checked={!!c.config.includeGroups} disabled={busy} onChange={(v) => save({ includeGroups: v }, v ? 'Group chats will be taken in' : 'Only private chats from now on')} label="Also take in group chats" />
       <p className="text-muted">Only messages people send to the account are taken in; what the owner writes from their phone stays in Telegram. To stop, disable the channel, or end the “CRM Inbox” session in Telegram → Settings → Devices.</p>
     </div>
+  );
+}
+
+/** WhatsApp: the business account whose approved templates the Inbox can send. */
+function WabaField({ c, onChange }: { c: Channel; onChange: () => void }) {
+  const [value, setValue] = useState(c.config.businessAccountId ?? '');
+  const [saving, setSaving] = useState(false);
+  useEffect(() => { setValue(c.config.businessAccountId ?? ''); }, [c.config.businessAccountId]);
+  const changed = value.trim() !== (c.config.businessAccountId ?? '');
+  const save = async () => {
+    setSaving(true);
+    try { await api.patch(`/channels/${c.id}`, { businessAccountId: value.trim() }); onChange(); toast.success(value.trim() ? 'Templates can be sent now' : 'Templates turned off'); }
+    catch (e) { toast.error(errorMessage(e)); } finally { setSaving(false); }
+  };
+  return (
+    <Field label="WhatsApp Business Account ID" htmlFor={`waba${c.id}`} hint="For sending approved templates after 24 hours. Under WhatsApp → API setup.">
+      <div className="flex max-w-md items-center gap-2">
+        <Input id={`waba${c.id}`} inputMode="numeric" autoComplete="off" value={value} onChange={(e) => setValue(e.target.value)} className="min-w-0 flex-1" />
+        <Button size="sm" disabled={!changed || saving} onClick={save}>{saving ? 'Checking…' : 'Save'}</Button>
+      </div>
+    </Field>
   );
 }

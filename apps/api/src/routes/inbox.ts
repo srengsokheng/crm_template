@@ -1,6 +1,6 @@
 /** Inbox: conversations from all channels, replies, assignment and links to contacts/leads. */
 import type { FastifyInstance } from 'fastify';
-import { contactCreateSchema, conversationListSchema, conversationUpdateSchema, messageCaptionSchema, messageCreateSchema } from '@crm/shared';
+import { contactCreateSchema, conversationListSchema, conversationUpdateSchema, messageCaptionSchema, messageCreateSchema, templateMessageSchema } from '@crm/shared';
 import { config } from '../config.ts';
 import { pool, q, q1, sql, tx, type Db } from '../db/index.ts';
 import { audit, diff } from '../lib/audit.ts';
@@ -18,9 +18,9 @@ import type { ServerResponse } from 'node:http';
 import { enqueue } from '../automation/engine.ts';
 import { notifyInbox, notifyTyping, stopListening, subscribe } from '../inbox/events.ts';
 import { showTelegramTyping } from '../inbox/telegram.ts';
-import { showMetaTyping } from '../inbox/meta.ts';
+import { listTemplates, renderTemplate, showMetaTyping } from '../inbox/meta.ts';
 import { showTgUserTyping } from '../inbox/telegramUser.ts';
-import { preview } from '../inbox/store.ts';
+import { preview, type ChannelRow } from '../inbox/store.ts';
 import { createContact } from './parties.ts';
 
 type IdParams = { Params: { id: string } };
@@ -49,7 +49,7 @@ const THREAD_PAGE = 50;
 /** Up to THREAD_PAGE + 1 messages before `beforeId` (or the latest), oldest first; the extra one means there are older. */
 async function threadMessages(conversationId: number, beforeId: number | null) {
   return q(sql`SELECT * FROM (
-      SELECT m.id, m.direction, m.sender_name, m.author_id, a.name AS author_name, m.body, m.status, m.error, m.created_at,
+      SELECT m.id, m.direction, m.sender_name, m.author_id, a.name AS author_name, m.body, m.status, m.error, m.created_at, m.template IS NOT NULL AS is_template,
         ${messageFilesJson}
       FROM messages m LEFT JOIN users a ON a.id = m.author_id
       WHERE m.conversation_id = ${conversationId} ${beforeId ? sql`AND m.id < ${beforeId}` : sql``}
@@ -202,6 +202,39 @@ export async function inboxRoutes(app: FastifyInstance) {
       const m = await q1<{ id: number }>(sql`INSERT INTO messages (workspace_id, conversation_id, direction, sender_name, author_id, body, status)
         VALUES (${ctx.workspaceId}, ${c.id}, 'out', ${ctx.userName}, ${ctx.userId}, ${body.body}, ${status}) RETURNING id`, db);
       await afterReply(db, ctx, c, m!.id, body.body, status === 'pending');
+      return m!;
+    });
+    return reply.code(201).send(out);
+  });
+
+/** WhatsApp: the approved templates that can be sent in this conversation (also after the 24-hour window). */
+  app.get<IdParams>('/inbox/conversations/:id/templates', async (req) => {
+    const ctx = ctxOf(req);
+    requireAny(ctx, 'conversation', 'edit');
+    const c = await loadConversation(pool, ctx, Number(req.params.id), 'edit');
+    if (c.channel_kind !== 'whatsapp') throw new AppError(409, 'NOT_WHATSAPP', 'Templates are only for WhatsApp conversations');
+    const ch = await q1<ChannelRow>(sql`SELECT * FROM channels WHERE id = ${c.channel_id}`);
+    return { data: await listTemplates(ch!) };
+  });
+
+  /** WhatsApp: sends an approved template with its blanks filled in. */
+  app.post<IdParams>('/inbox/conversations/:id/templates', async (req, reply) => {
+    const ctx = ctxOf(req);
+    requireAny(ctx, 'conversation', 'edit');
+    const body = parse(templateMessageSchema, req.body);
+    const c0 = await loadConversation(pool, ctx, Number(req.params.id), 'edit');
+    if (c0.channel_kind !== 'whatsapp') throw new AppError(409, 'NOT_WHATSAPP', 'Templates are only for WhatsApp conversations');
+    const ch = await q1<ChannelRow>(sql`SELECT * FROM channels WHERE id = ${c0.channel_id}`);
+    const t = (await listTemplates(ch!)).find((x) => x.name === body.name && x.language === body.language);
+    if (!t) throw new AppError(422, 'TEMPLATE', 'This template isn’t approved (any more). Pick another one.');
+    if (body.params.length !== t.params) throw badRequest(`This template needs ${t.params} value${t.params === 1 ? '' : 's'}`, { params: 'Fill in every blank' });
+    const text = renderTemplate(t, body.params);
+    const out = await tx(async (db) => {
+      const c = await loadConversation(db, ctx, c0.id, 'edit', true);
+      if (c.channel_status !== 'active') throw new AppError(409, 'CHANNEL_INACTIVE', 'This channel is disabled or disconnected, so messages can’t be sent.');
+      const m = await q1<{ id: number }>(sql`INSERT INTO messages (workspace_id, conversation_id, direction, sender_name, author_id, body, status, template)
+        VALUES (${ctx.workspaceId}, ${c.id}, 'out', ${ctx.userName}, ${ctx.userId}, ${text}, 'pending', ${JSON.stringify({ name: t.name, language: t.language, params: body.params })}) RETURNING id`, db);
+      await afterReply(db, ctx, c, m!.id, text, true);
       return m!;
     });
     return reply.code(201).send(out);

@@ -282,8 +282,69 @@ export async function ingestMeta(keyChannel: ChannelRow, payload: MetaPayload): 
 
 const WINDOW = 'Meta only delivers replies within 24 hours of the customer’s last message. Ask them to write again (for example by phone or email).';
 
+// ---------------------------------------------------------------------------------------------------------------
+// WhatsApp templates
+
+export interface TemplateRef { name: string; language: string; params: string[] }
+export interface Template { name: string; language: string; category: string; header: string | null; body: string; footer: string | null; params: number }
+
+/** The {{1}}, {{2}}… blanks in a template text. */
+export const blanks = (text: string) => new Set([...text.matchAll(/\{\{(\d+)\}\}/g)].map((m) => m[1])).size;
+/** The template text with its blanks filled in, as the customer sees it. */
+export function renderTemplate(t: Template, params: string[]): string {
+  const fill = (s: string) => s.replace(/\{\{(\d+)\}\}/g, (_, n) => params[Number(n) - 1] ?? '');
+  return [t.header, fill(t.body), t.footer].filter(Boolean).join('\n\n');
+}
+
+const templateCache = new Map<number, { at: number; data: Template[] }>();
+/**
+ * The business account's approved templates that the Inbox can send: text only, values only in the body (templates
+ * with media headers or header/button values are left out). Cached for 2 minutes per channel.
+ */
+export async function listTemplates(c: ChannelRow): Promise<Template[]> {
+  const hit = templateCache.get(c.id);
+  if (hit && hit.at > Date.now() - 120_000) return hit.data;
+  const waba = String(c.config.businessAccountId ?? '');
+  if (!waba) throw new AppError(409, 'NO_WABA', 'Add the WhatsApp Business Account ID to this channel in Settings → Channels to use templates.');
+  type Raw = { name: string; language: string; status: string; category?: string; components?: { type: string; format?: string; text?: string; buttons?: { url?: string }[] }[] };
+  let raw: { data?: Raw[] };
+  try {
+    raw = await graph<{ data?: Raw[] }>(credentialsOf(c).accessToken, 'GET', `${waba}/message_templates?fields=name,language,status,category,components&status=APPROVED&limit=200`);
+  } catch (e) {
+    if (e instanceof MetaError && e.status !== 0 && e.status < 500) throw new AppError(422, 'META_TEMPLATES', e.code === 190 ? 'Meta no longer accepts this channel’s access token.' : `Meta refused to list the templates: ${e.message}`);
+    throw e;
+  }
+  const data: Template[] = [];
+  for (const t of raw.data ?? []) {
+    if (t.status !== 'APPROVED') continue;
+    const comp = (type: string) => t.components?.find((x) => x.type === type);
+    const header = comp('HEADER');
+    const body = comp('BODY')?.text ?? '';
+    if (!body) continue;
+    if (header && (header.format !== 'TEXT' || blanks(header.text ?? ''))) continue;
+    if (comp('BUTTONS')?.buttons?.some((b) => b.url && blanks(b.url))) continue;
+    data.push({ name: t.name, language: t.language, category: t.category ?? '', header: header?.text ?? null, body, footer: comp('FOOTER')?.text ?? null, params: blanks(body) });
+  }
+  data.sort((a, b) => a.name.localeCompare(b.name) || a.language.localeCompare(b.language));
+  templateCache.set(c.id, { at: Date.now(), data });
+  return data;
+}
+export const forgetTemplates = (channelId: number) => templateCache.delete(channelId);
+
+/** Checks a WhatsApp Business Account ID with Meta. */
+export async function verifyWaba(token: string, waba: string): Promise<void> {
+  try { await graph(token, 'GET', `${waba}?fields=id,name`); }
+  catch (e) {
+    if (!(e instanceof MetaError)) throw e;
+    throw new AppError(422, 'META_ACCOUNT', e.status === 0 ? e.message : 'Meta couldn’t find this WhatsApp Business Account ID with this token (WhatsApp Manager → Account tools, or API setup).');
+  }
+}
+
 function waError(code: number | null, message: string): string {
-  if (code === 131047) return `${WINDOW} WhatsApp needs an approved template after that, which this CRM doesn’t send yet.`;
+  if (code === 132000) return 'The template’s blanks don’t match what WhatsApp expects. Check the template in WhatsApp Manager.';
+  if (code === 132001) return 'This template doesn’t exist (any more) in this language. Pick another one.';
+  if (code === 132015 || code === 132016) return 'WhatsApp paused or disabled this template because of its quality. Pick another one.';
+  if (code === 131047) return `${WINDOW} After that, WhatsApp only delivers approved templates: use “Send a template”.`;
   if (code === 131026) return 'WhatsApp could not deliver the message (the number may not use WhatsApp, or has an old app).';
   return `WhatsApp refused the message: ${message}`;
 }
@@ -314,12 +375,21 @@ function attachmentType(contentType: string): 'image' | 'video' | 'audio' | 'fil
   return 'file';
 }
 
-/** Sends a reply (text, or a file with an optional caption). Returns the platform's id of the last message sent. */
-export async function sendMeta(c: ChannelRow, chatId: string, text: string, file: { file_name: string; content_type: string; data: Buffer } | null): Promise<string> {
+/** Sends a reply (text, or a file with an optional caption, or a WhatsApp template). Returns the platform's id of the last message sent. */
+export async function sendMeta(c: ChannelRow, chatId: string, text: string, file: { file_name: string; content_type: string; data: Buffer } | null, template: TemplateRef | null = null): Promise<string> {
   const kind = c.kind as MetaKind;
   const { accessToken } = credentialsOf(c);
   const accountId = String(c.config.accountId);
   let last = '';
+  if (template) {
+    if (kind !== 'whatsapp') throw new MetaError(400, 'Templates are only for WhatsApp');
+    const r = await graph<{ messages: { id: string }[] }>(accessToken, 'POST', `${accountId}/messages`, {
+      messaging_product: 'whatsapp', recipient_type: 'individual', to: chatId, type: 'template',
+      template: { name: template.name, language: { code: template.language },
+        components: template.params.length ? [{ type: 'body', parameters: template.params.map((p) => ({ type: 'text', text: p })) }] : [] },
+    });
+    return r.messages[0].id;
+  }
   if (kind === 'whatsapp') {
     if (file) {
       const type = attachmentType(file.content_type) === 'file' ? 'document' : attachmentType(file.content_type);
