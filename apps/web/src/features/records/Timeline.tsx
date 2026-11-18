@@ -216,8 +216,12 @@ export function describeEvent(d: Record<string, any>, userName: (id: number) => 
     case 'quote_sent': case 'quote_accepted': case 'quote_declined': case 'invoice_sent': case 'invoice_paid': case 'invoice_void': {
       const [kind, st] = String(d.action).split('_');
       const label = { sent: 'sent', accepted: 'accepted', declined: 'declined', paid: 'paid', void: 'voided' }[st] ?? st;
-      return { icon: History, text: `${kind === 'quote' ? 'Quote' : 'Invoice'} ${ch.document?.number ?? ''} ${label}`, tone: st === 'paid' || st === 'accepted' ? 'text-emerald-600' : undefined };
+      // Answered by the customer on their link: say so, with who accepted and their note or reason.
+      const online = ch.via === 'online' ? (st === 'accepted' ? ` online by ${ch.by}${ch.note ? ` — “${ch.note}”` : ''}` : ` online${ch.reason ? ` — “${ch.reason}”` : ''}`) : '';
+      return { icon: History, text: `${kind === 'quote' ? 'Quote' : 'Invoice'} ${ch.document?.number ?? ''} ${label}${online}`, tone: st === 'paid' || st === 'accepted' ? 'text-emerald-600' : undefined };
     }
+    case 'quote_viewed': case 'invoice_viewed':
+      return { icon: History, text: `The customer opened ${d.action === 'quote_viewed' ? 'quote' : 'invoice'} ${ch.document?.number ?? ''} from the link` };
     case 'webhook_sent': { let host = ''; try { host = new URL(String(ch.url)).host; } catch { /* keep empty */ } return { icon: History, text: `Automation called a webhook${host ? ` on ${host}` : ''} (HTTP ${ch.status ?? '?'})` }; }
     case 'file_added': return { icon: History, text: `Added file ${ch.file?.name ?? ''}` };
     case 'file_removed': return { icon: Trash2, text: `Deleted file ${ch.file?.name ?? ''}` };

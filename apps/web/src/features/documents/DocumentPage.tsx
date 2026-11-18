@@ -12,6 +12,7 @@ import { itemsPayload, LineItemsEditor } from '../products/LineItemsEditor.tsx';
 import { dateOnly, DocStatus, docTitle, kindLabel, type DocFull } from './common.tsx';
 import { EmailDialog, PaymentDialog, PaymentsCard } from './DocumentExtras.tsx';
 import { KhqrCard } from './Khqr.tsx';
+import { CustomerLinkCard } from './CustomerPage.tsx';
 
 /** The next steps offered for each status (the server enforces the same rules). */
 const ACTIONS: Record<string, Record<string, { status: string; label: string; primary?: boolean; danger?: boolean }[]>> = {
@@ -118,6 +119,7 @@ export function DocumentPage() {
         </Card>
       </>}
       right={<>
+        {d.customerUrl && <CustomerLinkCard url={d.customerUrl} viewedAt={d.viewedAt} kind={d.kind} status={d.status} respondedByName={d.respondedByName} customerNote={d.customerNote} />}
         {d.kind === 'invoice' && d.status === 'sent' && <KhqrCard docId={d.id} balance={d.balance} />}
         {d.kind === 'invoice' && d.status !== 'draft' && <PaymentsCard doc={d} onChange={refresh} onRecord={() => setDialog('payment')} />}
         <LineItemsEditor title="Items" items={d.items} currency={d.currency} canEdit={editable}

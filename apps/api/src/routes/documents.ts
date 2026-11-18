@@ -1,3 +1,5 @@
+import { createHash, randomBytes } from 'node:crypto';
+import { openSecret, sealSecret } from '../lib/secrets.ts';
 /**
  * Quotes and invoices. A document belongs to a deal and follows the deal's permissions (view to see, edit to change).
  *   GET    /deals/:id/documents                list
@@ -31,7 +33,10 @@ interface Doc {
   id: number; workspace_id: number; deal_id: number; kind: Kind; number: string | null; status: string; currency: string;
   issue_date: string | null; due_date: string | null; bill_to_name: string; bill_to_details: string; notes: string;
   list_total: string; discount: string; tax: string; total: string; source_quote_id: number | null; paid_amount: string;
+  public_token_hash?: string | null; public_token_sealed?: string | null; viewed_at?: Date | null; responded_at?: Date | null;
+  responded_by_name?: string | null; customer_note?: string | null;
 }
+export type { Doc };
 type Item = z.output<typeof lineItemSchema>;
 export type DocumentSettings = z.output<typeof documentSettingsSchema>;
 
@@ -65,7 +70,7 @@ export async function documentSettings(workspaceId: number, db: Db = pool): Prom
   return { ...(parsed.success ? parsed.data : documentSettingsSchema.parse({})), sellerName: ws?.name ?? '' };
 }
 
-const loadItems = (docId: number, db: Db = pool) => q<Record<string, unknown>>(sql`SELECT id, product_id, name, unit_price, quantity, unit, discount_type,
+export const loadItems = (docId: number, db: Db = pool) => q<Record<string, unknown>>(sql`SELECT id, product_id, name, unit_price, quantity, unit, discount_type,
   discount_value, tax_rate, tax_included, line_total, sort FROM document_items WHERE document_id = ${docId} ORDER BY sort, id`, db);
 
 /** Replaces the items and stores freshly computed totals (the server is the source of truth). */
@@ -105,13 +110,26 @@ async function billTo(db: Db, dealId: number, companyId: number | null) {
   return { name: '', details: '' };
 }
 
+/** The customer's link to a sent document (made the first time it's needed). */
+export const customerUrl = (token: string) => `${config.appUrl.replace(/\/$/, '')}/d/${token}`;
+export async function ensureLink(db: Db, doc: Doc): Promise<string> {
+  if (doc.public_token_sealed) return customerUrl(openSecret(doc.public_token_sealed));
+  const token = randomBytes(24).toString('base64url');
+  await q(sql`UPDATE documents SET public_token_hash = ${createHash('sha256').update(token).digest('hex')}, public_token_sealed = ${sealSecret(token)}
+    WHERE id = ${doc.id} AND public_token_sealed IS NULL`, db);
+  const again = await q1<{ public_token_sealed: string }>(sql`SELECT public_token_sealed FROM documents WHERE id = ${doc.id}`, db);
+  return customerUrl(openSecret(again!.public_token_sealed));
+}
+
 async function present(doc: Doc, db: Db = pool) {
   const payments = doc.kind === 'invoice'
     ? camelAll(await q(sql`SELECT p.id, p.amount, p.paid_on, p.method, p.note, p.created_at, u.name AS created_by_name
         FROM document_payments p LEFT JOIN users u ON u.id = p.created_by WHERE p.document_id = ${doc.id} ORDER BY p.paid_on, p.id`, db))
     : [];
   const balance = moneyMinus(doc.total, doc.paid_amount ?? 0);
-  return { ...camel(doc as unknown as Record<string, unknown>), items: camelAll(await loadItems(doc.id, db)), payments, balance };
+  const { public_token_hash: _h, public_token_sealed: sealed, ...rest } = doc;
+  const customerLink = doc.status !== 'draft' && sealed ? customerUrl(openSecret(sealed)) : null;
+  return { ...camel(rest as unknown as Record<string, unknown>), items: camelAll(await loadItems(doc.id, db)), payments, balance, customerUrl: customerLink };
 }
 
 /** Recompute paid_amount from the payments; an invoice is paid exactly when the payments cover the total. */
@@ -141,6 +159,7 @@ async function changeStatus(db: Db, ctx: Ctx, doc: Doc, status: string): Promise
     await q(sql`UPDATE documents SET number = ${number}, issue_date = coalesce(issue_date, current_date),
       due_date = coalesce(due_date, coalesce(issue_date, current_date) + ${days}::int) WHERE id = ${doc.id}`, db);
   }
+  if (status === 'sent') await ensureLink(db, doc); // the customer's link (view, accept, pay)
   if (status === 'paid') {
     // "Mark as paid" records the remaining balance as one payment, so the payment history stays complete.
     const balance = moneyMinus(doc.total, doc.paid_amount);
@@ -156,7 +175,7 @@ async function changeStatus(db: Db, ctx: Ctx, doc: Doc, status: string): Promise
   return after;
 }
 
-async function renderPdf(ctx: Ctx, doc: Doc, db: Db = pool): Promise<{ buffer: Buffer; filename: string }> {
+export async function renderPdf(ctx: Ctx, doc: Doc, db: Db = pool): Promise<{ buffer: Buffer; filename: string }> {
   const s = await documentSettings(ctx.workspaceId, db);
   const items = await loadItems(doc.id, db);
   const buffer = renderDocumentPdf({
@@ -221,8 +240,11 @@ export async function documentRoutes(app: FastifyInstance) {
 
   app.get<{ Params: { id: string } }>('/documents/:id', async (req) => {
     const ctx = ctxOf(req);
-    const { doc, deal } = await loadDoc(pool, ctx, Number(req.params.id), 'view');
+    const { doc: loaded, deal } = await loadDoc(pool, ctx, Number(req.params.id), 'view');
     const canEdit = canOnRecord(ctx, 'deal', 'edit', deal);
+    // Sent before customer links existed: give it one now (only people who may edit the deal).
+    let doc = loaded;
+    if (doc.status !== 'draft' && !doc.public_token_sealed && canEdit) { await ensureLink(pool, doc); doc = (await q1<Doc>(sql`SELECT * FROM documents WHERE id = ${doc.id}`))!; }
     return { ...(await present(doc)), dealTitle: deal.title, canEdit, suggestedRecipients: canEdit ? await suggestedRecipients(pool, deal.id) : [] };
   });
 
@@ -307,10 +329,12 @@ export async function documentRoutes(app: FastifyInstance) {
       if (doc.status === 'void') throw conflict('A void invoice can’t be emailed');
       if (doc.status === 'draft') doc = await changeStatus(db, ctx, doc, 'sent');
       const pdf = await renderPdf(ctx, doc, db);
+      const link = await ensureLink(db, doc);
       const ws = await q1<{ name: string }>(sql`SELECT name FROM workspaces WHERE id = ${ctx.workspaceId}`, db);
       await queueMail({
         ...documentMail({ to: body.to, replyTo: ctx.email, subject: body.subject, message: body.message, sender: ctx.userName, workspace: ws!.name,
-          pdf: { filename: pdf.filename, base64: pdf.buffer.toString('base64') } }),
+          pdf: { filename: pdf.filename, base64: pdf.buffer.toString('base64') },
+          button: { label: doc.kind === 'quote' ? 'View and accept online' : 'View and pay online', url: link } }),
         fromName: await workspaceSender(ctx.workspaceId, db),
       }, db, { workspaceId: ctx.workspaceId });
       const after = (await q1<Doc>(sql`UPDATE documents SET last_emailed_at = now() WHERE id = ${doc.id} RETURNING *`, db))!;

@@ -233,13 +233,14 @@ export function emailNoticeMail(o: { to: string; name: string; newEmail: string;
 }
 
 /** A quote or invoice sent to a customer, with the PDF attached. The user's message is plain text (escaped). */
-export function documentMail(o: { to: string[]; replyTo: string; subject: string; message: string; sender: string; workspace: string; pdf: { filename: string; base64: string } }): Mail {
+export function documentMail(o: { to: string[]; replyTo: string; subject: string; message: string; sender: string; workspace: string; pdf: { filename: string; base64: string }; button?: { label: string; url: string } }): Mail {
   return {
     to: o.to.join(', '), subject: oneLine(o.subject), replyTo: o.replyTo,
     attachments: [{ filename: o.pdf.filename, contentType: 'application/pdf', content: o.pdf.base64 }],
     ...layout({
       heading: oneLine(o.subject),
       lines: o.message.split(/\r?\n/).filter((l, i, all) => l.trim() || (i > 0 && all[i - 1].trim())),
+      ...(o.button ? { button: o.button } : {}),
       footer: `Sent by ${o.sender} from ${o.workspace}. The document is attached as a PDF. Reply to this email to reach ${o.sender}.`,
     }),
   };

@@ -35,6 +35,7 @@ import { DuplicatesPage } from '../features/duplicates/DuplicatesPage.tsx';
 import { InboxPage } from '../features/inbox/InboxPage.tsx';
 import { CallPage, GuestCallPage } from '../features/calls/CallPages.tsx';
 import { TargetsSettings } from '../features/targets/Targets.tsx';
+import { CustomerDocumentPage } from '../features/documents/CustomerPage.tsx';
 import { ChannelsSettings } from '../features/settings/ChannelsSettings.tsx';
 import { AccountSettings } from '../features/settings/AccountSettings.tsx';
 
@@ -46,6 +47,7 @@ export const router = createBrowserRouter([
   { path: '/reset-password/:token', element: <ResetPasswordPage /> },
   { path: '/confirm-email/:token', element: <ConfirmEmailPage /> },
   { path: '/join/:token', element: <GuestCallPage /> },
+  { path: '/d/:token', element: <CustomerDocumentPage /> },
   {
     path: '/',
     element: <AppLayout />,

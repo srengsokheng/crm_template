@@ -411,7 +411,14 @@ The research behind every decision is in this folder:
   draft) into a "More actions" ⋯ menu (`HeaderActions`); the stage bar fits all stages instead of cutting the last;
   record pages no longer scroll sideways when a chat preview is long; the invoices summary is two cards across.
 
-**Quality:** 235 Vitest tests (API against real PostgreSQL), 66 Playwright tests (desktop, tablet, phone), lint and
+- **Customer links for quotes and invoices** (migration 0032, `routes/publicDocuments.ts`, `/d/<token>`): every sent
+  quote/invoice gets a link (token stored hashed + encrypted), shown on the document ("Customer link", Copy) and as a
+  "View and accept online" / "View and pay online" button in the email. The customer sees the document, downloads
+  the PDF, **accepts a quote** (typing their name, optional note) or **declines** it (optional reason) — expired
+  quotes can’t be accepted — and pays an invoice by **KHQR** when set up. The first open and every answer notify the
+  deal’s owner and the document’s creator and are written to the deal’s history ("accepted online by …").
+
+**Quality:** 237 Vitest tests (API against real PostgreSQL), 67 Playwright tests (desktop, tablet, phone), lint and
 typecheck clean, `npm audit` = 0, GitHub Actions CI in `.github/workflows/ci.yml`.
 
 ## 3. Not built yet — suggested next work (in priority order)
