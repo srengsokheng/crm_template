@@ -344,7 +344,8 @@ export async function inboxRoutes(app: FastifyInstance) {
   app.post<IdParams>('/inbox/conversations/:id/contact', async (req, reply) => {
     const ctx = ctxOf(req);
     requireAny(ctx, 'conversation', 'edit');
-    return tx(async (db) => {
+    // Answer after the commit, so the browser can open the new contact right away.
+    const contactId = await tx(async (db) => {
       const c = await loadConversation(db, ctx, Number(req.params.id), 'edit', true);
       if (c.contact_id) throw new AppError(409, 'ALREADY_LINKED', 'This conversation is already linked to a contact');
       if (c.kind === 'group') throw new AppError(422, 'GROUP_CHAT', 'Group chats can be linked to an existing contact, but not turned into one');
@@ -354,15 +355,16 @@ export async function inboxRoutes(app: FastifyInstance) {
       const methods = [
         p.email ? { kind: 'email', value: p.email } : null,
         p.phone ? { kind: 'phone', value: p.phone } : null,
-        p.username && c.channel_kind === 'telegram_bot' ? { kind: 'messenger', label: 'telegram', value: `@${p.username}` } : null,
+        p.username && (c.channel_kind === 'telegram_bot' || c.channel_kind === 'telegram_user') ? { kind: 'messenger', label: 'telegram', value: `@${p.username}` } : null,
       ].filter(Boolean);
       const input = parse(contactCreateSchema, { firstName: first || 'Unknown', lastName: rest.join(' ') || undefined, methods });
       const contact = await createContact(db, ctx, input, { via: 'inbox' });
       await q(sql`UPDATE conversations SET contact_id = ${contact.id} WHERE id = ${c.id}`, db);
       await audit(db, ctx, 'conversation', c.id, 'updated', { contact_id: [null, contact.id] });
       await notifyInbox(db, c.id);
-      return reply.code(201).send({ id: contact.id });
+      return contact.id;
     });
+    return reply.code(201).send({ id: contactId });
   });
 }
 
