@@ -7,6 +7,7 @@ import { relative } from '../../lib/format.ts';
 import { useCan, useDict, useDictLabel } from '../../lib/hooks.ts';
 import type { ListResponse } from '../../lib/types.ts';
 import { Button, EmptyState, PageHeader } from '../../components/ui/primitives.tsx';
+import { HeaderActions } from '../../components/ui/overlays.tsx';
 import { DataTable, Pagination, type Column } from '../../components/ui/DataTable.tsx';
 import { useCreate } from '../../app/create.tsx';
 import { SavedViews } from '../records/SavedViews.tsx';
@@ -38,8 +39,10 @@ export function CompaniesPage() {
   return (
     <div>
       <PageHeader title="Companies" subtitle="Organisations you do business with" actions={<>
-        {can('company', 'edit') && <Button variant="ghost" icon={<CopyCheck className="size-4" />} onClick={() => nav('/duplicates/company')}>Find duplicates</Button>}
-        {can('company', 'import') && <Button icon={<Upload className="size-4" />} onClick={() => nav('/import/company')}>Import</Button>}
+        <HeaderActions secondary={[
+          { label: 'Find duplicates', variant: 'ghost', icon: <CopyCheck className="size-4" />, onSelect: () => nav('/duplicates/company'), hidden: !can('company', 'edit') },
+          { label: 'Import', icon: <Upload className="size-4" />, onSelect: () => nav('/import/company'), hidden: !can('company', 'import') },
+        ]} />
         {can('company', 'create') && <Button variant="primary" icon={<Plus className="size-4" />} onClick={() => create.open('company')}>New company</Button>}
       </>} />
       <SavedViews entity="company" />

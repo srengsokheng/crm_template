@@ -7,6 +7,7 @@ import { money, personName, relative } from '../../lib/format.ts';
 import { useCan, useDict, useMe, usePipelines } from '../../lib/hooks.ts';
 import type { ListResponse, NextActivity } from '../../lib/types.ts';
 import { Button, EmptyState, ErrorState, PageHeader, Segmented, Skeleton } from '../../components/ui/primitives.tsx';
+import { HeaderActions } from '../../components/ui/overlays.tsx';
 import { DataTable, Pagination, type Column } from '../../components/ui/DataTable.tsx';
 import { StageBadge } from '../../components/ui/StageBadge.tsx';
 import { useCreate } from '../../app/create.tsx';
@@ -60,8 +61,10 @@ export function LeadsPage() {
     <div>
       <PageHeader title="Leads" subtitle="New interest to qualify before it becomes a deal" actions={<>
         <Segmented value={view} onChange={(v) => lp.set({ view: v === 'board' ? null : v })} options={[{ value: 'board', label: 'Board', icon: <KanbanSquare className="size-4" /> }, { value: 'list', label: 'List', icon: <List className="size-4" /> }]} />
-        {can('lead', 'edit') && <Button variant="ghost" icon={<CopyCheck className="size-4" />} onClick={() => nav('/duplicates/lead')}>Find duplicates</Button>}
-        {can('lead', 'import') && <Button icon={<Upload className="size-4" />} onClick={() => nav('/import/lead')}>Import</Button>}
+        <HeaderActions secondary={[
+          { label: 'Find duplicates', variant: 'ghost', icon: <CopyCheck className="size-4" />, onSelect: () => nav('/duplicates/lead'), hidden: !can('lead', 'edit') },
+          { label: 'Import', icon: <Upload className="size-4" />, onSelect: () => nav('/import/lead'), hidden: !can('lead', 'import') },
+        ]} />
         {can('lead', 'create') && <Button variant="primary" icon={<Plus className="size-4" />} onClick={() => create.open('lead')}>New lead</Button>}
       </>} />
       <SavedViews entity="lead" />

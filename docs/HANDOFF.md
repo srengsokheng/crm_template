@@ -402,7 +402,16 @@ The research behind every decision is in this folder:
   recording by hand (method suggestions include KHQR); automatic confirmation would need the Bakong Open API token.
 - **Money formatting fix:** amounts with cents always show two decimals ($1,250.50, never $1,250.5).
 
-**Quality:** 233 Vitest tests (API against real PostgreSQL), 65 Playwright tests (desktop, tablet, phone), lint and
+- **Sales targets** (migration 0031, `routes/targets.ts`, `features/targets`): Settings → Sales targets (admins) sets
+  a monthly amount per person and for the whole team, in the base currency, month by month ("Copy October’s targets").
+  Progress = deals won in that month, converted like the dashboard’s "Won this month". The dashboard’s **Targets**
+  card shows progress bars (green once reached); people see whom their deal permissions allow (reps: themselves,
+  team scope: their team, managers/admins: everyone). `GET /targets?month=YYYY-MM`, `PUT /targets` (admins).
+- **UI pass (phones):** list and invoice headers fold secondary buttons (Find duplicates, Import, PDF, Preview, Delete
+  draft) into a "More actions" ⋯ menu (`HeaderActions`); the stage bar fits all stages instead of cutting the last;
+  record pages no longer scroll sideways when a chat preview is long; the invoices summary is two cards across.
+
+**Quality:** 235 Vitest tests (API against real PostgreSQL), 66 Playwright tests (desktop, tablet, phone), lint and
 typecheck clean, `npm audit` = 0, GitHub Actions CI in `.github/workflows/ci.yml`.
 
 ## 3. Not built yet — suggested next work (in priority order)

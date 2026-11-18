@@ -2,11 +2,11 @@ import { useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { Banknote, Download, ExternalLink, FileText, Mail, Trash2 } from 'lucide-react';
+import { Banknote, Download, ExternalLink, FileText, Mail, Trash2, MoreHorizontal } from 'lucide-react';
 import { api, errorMessage } from '../../lib/api.ts';
 import { money } from '../../lib/format.ts';
-import { Button, Card, Field, Input, Textarea } from '../../components/ui/primitives.tsx';
-import { ConfirmDialog } from '../../components/ui/overlays.tsx';
+import { Button, Card, Field, Input, Textarea, IconButton } from '../../components/ui/primitives.tsx';
+import { ConfirmDialog, Menu } from '../../components/ui/overlays.tsx';
 import { RecordError, RecordShell, RecordSkeleton } from '../records/record.tsx';
 import { itemsPayload, LineItemsEditor } from '../products/LineItemsEditor.tsx';
 import { dateOnly, DocStatus, docTitle, kindLabel, type DocFull } from './common.tsx';
@@ -83,9 +83,17 @@ export function DocumentPage() {
             onClick={() => (a.status === 'void' ? setConfirm('void') : setStatus(a.status))}>{a.label}</Button>
         ))}
         {d.canEdit && d.kind === 'quote' && d.status === 'accepted' && <Button variant="primary" loading={busy === 'invoice'} onClick={toInvoice}>Create invoice</Button>}
-        <a href={pdf} download className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-[var(--border)] px-3 text-sm font-medium hover:bg-[var(--surface-2)]"><Download className="size-4" />PDF</a>
-        <a href={`${pdf}?inline=1`} target="_blank" rel="noopener noreferrer" className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-[var(--border)] px-3 text-sm font-medium hover:bg-[var(--surface-2)]"><ExternalLink className="size-4" />Preview</a>
-        {editable && <Button variant="ghost" icon={<Trash2 className="size-4" />} onClick={() => setConfirm('delete')}>Delete draft</Button>}
+        {/* PDF, Preview and Delete draft: buttons from tablet width, one "More actions" menu on phones. */}
+        <a href={pdf} download className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-[var(--border)] px-3 text-sm font-medium hover:bg-[var(--surface-2)] max-sm:hidden"><Download className="size-4" />PDF</a>
+        <a href={`${pdf}?inline=1`} target="_blank" rel="noopener noreferrer" className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-[var(--border)] px-3 text-sm font-medium hover:bg-[var(--surface-2)] max-sm:hidden"><ExternalLink className="size-4" />Preview</a>
+        {editable && <span className="max-sm:hidden"><Button variant="ghost" icon={<Trash2 className="size-4" />} onClick={() => setConfirm('delete')}>Delete draft</Button></span>}
+        <span className="sm:hidden">
+          <Menu trigger={<IconButton label="More actions"><MoreHorizontal className="size-4" /></IconButton>} items={[
+            { label: 'Download PDF', icon: <Download className="size-4" />, onSelect: () => { const a = document.createElement('a'); a.href = pdf; a.download = ''; a.click(); } },
+            { label: 'Preview', icon: <ExternalLink className="size-4" />, onSelect: () => { window.open(`${pdf}?inline=1`, '_blank', 'noopener'); } },
+            { label: 'Delete draft', icon: <Trash2 className="size-4" />, danger: true, onSelect: () => setConfirm('delete'), hidden: !editable },
+          ]} />
+        </span>
       </div>}
       left={<>
         {!draft && <p className="flex items-start gap-2 rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-3 py-2 text-sm text-muted"><FileText className="mt-0.5 size-4 shrink-0" />

@@ -42,7 +42,7 @@ export function KhqrCard({ docId, balance }: { docId: number; balance: string })
     if (k.reason === 'not_configured' && me?.role.isAdmin) {
       return (
         <Card title="Pay with KHQR">
-          <p className="text-sm text-muted">Let customers pay by scanning a Bakong KHQR with any Cambodian bank app. <Link className="text-brand-600 hover:underline dark:text-brand-200" to="/settings/documents">Set it up</Link> once; every sent invoice in riel or dollars then shows it, here and on the PDF.</p>
+          <p className="text-sm text-muted">Let customers pay by scanning a Bakong KHQR with any Cambodian bank app. <Link className="text-brand-600 underline underline-offset-2 dark:text-brand-200" to="/settings/documents">Set it up</Link> once; every sent invoice in riel or dollars then shows it, here and on the PDF.</p>
         </Card>
       );
     }

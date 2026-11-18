@@ -55,10 +55,10 @@ export function DocumentsPage() {
   return (
     <div>
       <PageHeader title="Quotes & invoices" subtitle="Everything you've quoted and billed, across all deals. New ones are created from a deal." />
-      <div className="mb-4 grid gap-3 sm:grid-cols-3">
+      <div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-3">
         <Kpi label="Outstanding" value={t ? money(t.outstanding, base) : '…'} hint="Unpaid balance of sent invoices" />
         <Kpi label="Overdue" value={t ? money(t.overdue, base) : '…'} hint={t ? `${t.overdueCount} ${t.overdueCount === 1 ? 'invoice' : 'invoices'} past the due date` : ''} tone={t && t.overdueCount > 0 ? 'red' : undefined} />
-        <Kpi label="Shown" value={q.data ? String(q.data.total) : '…'} hint={VIEWS[view].label === 'All' ? 'Quotes and invoices' : VIEWS[view].label} />
+        <Kpi className="max-sm:hidden" label="Shown" value={q.data ? String(q.data.total) : '…'} hint={VIEWS[view].label === 'All' ? 'Quotes and invoices' : VIEWS[view].label} />
       </div>
       {t && t.missingRates.length > 0 && (
         <p className="mb-3 rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:bg-amber-500/10 dark:text-amber-200">
@@ -77,9 +77,9 @@ export function DocumentsPage() {
   );
 }
 
-function Kpi({ label, value, hint, tone }: { label: string; value: string; hint: string; tone?: 'red' }) {
+function Kpi({ label, value, hint, tone, className }: { label: string; value: string; hint: string; tone?: 'red'; className?: string }) {
   return (
-    <Card>
+    <Card className={className}>
       <div className="text-xs font-medium text-muted">{label}</div>
       <div className={`mt-1 text-xl font-semibold tabular ${tone === 'red' ? 'text-rose-600 dark:text-rose-300' : ''}`}>{value}</div>
       <div className="mt-0.5 text-xs text-muted">{hint}</div>

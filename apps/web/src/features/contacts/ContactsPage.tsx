@@ -7,6 +7,7 @@ import { relative, personName } from '../../lib/format.ts';
 import { useCan, useDict } from '../../lib/hooks.ts';
 import type { ListResponse } from '../../lib/types.ts';
 import { Avatar, Button, EmptyState, PageHeader } from '../../components/ui/primitives.tsx';
+import { HeaderActions } from '../../components/ui/overlays.tsx';
 import { DataTable, Pagination, type Column } from '../../components/ui/DataTable.tsx';
 import { useCreate } from '../../app/create.tsx';
 import { SavedViews } from '../records/SavedViews.tsx';
@@ -35,8 +36,10 @@ export function ContactsPage() {
   return (
     <div>
       <PageHeader title="Contacts" subtitle="People you work with" actions={<>
-        {can('contact', 'edit') && <Button variant="ghost" icon={<CopyCheck className="size-4" />} onClick={() => nav('/duplicates/contact')}>Find duplicates</Button>}
-        {can('contact', 'import') && <Button icon={<Upload className="size-4" />} onClick={() => nav('/import/contact')}>Import</Button>}
+        <HeaderActions secondary={[
+          { label: 'Find duplicates', variant: 'ghost', icon: <CopyCheck className="size-4" />, onSelect: () => nav('/duplicates/contact'), hidden: !can('contact', 'edit') },
+          { label: 'Import', icon: <Upload className="size-4" />, onSelect: () => nav('/import/contact'), hidden: !can('contact', 'import') },
+        ]} />
         {can('contact', 'create') && <Button variant="primary" icon={<Plus className="size-4" />} onClick={() => create.open('contact')}>New contact</Button>}
       </>} />
       <SavedViews entity="contact" />
