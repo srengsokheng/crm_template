@@ -455,7 +455,13 @@ The research behind every decision is in this folder:
   same page, "Pick a new time" shows the free times (their own booking doesn't block nearby ones); the booking, the
   meeting (and its 15-minute reminder) and the video call move, the host is told, the contact's timeline notes it, and
   a new confirmation with the calendar file's SEQUENCE raised replaces the old calendar entry. Up to 3 moves per booking;
-  not when the page was turned off or deleted (cancel still works). Bookings for one host are serialised
+  not when the page was turned off or deleted (cancel still works).
+  **The team** (admins and the booking's host; migration 0041) can **Move** or **Cancel** a booking from Settings →
+  Booking pages → "N upcoming": move to any future time (also outside the page's hours) when the host is free, or
+  cancel with an optional message. The customer is emailed ("Rita moved your booking" / "Rita canceled this booking",
+  with the message) with their link and a calendar file; the host is told when someone else did it; the contact's
+  timeline notes it. Team moves don't count against the customer's 3 moves (the calendar version has its own counter).
+  The customer's link is now also kept encrypted, so team emails can include it (bookings made before: no link). Bookings for one host are serialised
   (no double booking); at most 3 upcoming bookings per email per page; public endpoints are rate-limited. The contact's
   timeline shows "Booked …" and cancellations; the page's upcoming bookings are listed for admins and the host.
 
@@ -521,7 +527,7 @@ The research behind every decision is in this folder:
   one at their request (the email choice covers every contact with the same address). Every change — the customer’s
   STOP/START or link, or a team member — is on the contact’s timeline.
 
-**Quality:** 274 Vitest tests (API against real PostgreSQL), 77 Playwright tests (desktop, tablet, phone), lint and
+**Quality:** 275 Vitest tests (API against real PostgreSQL), 78 Playwright tests (desktop, tablet, phone), lint and
 typecheck clean, `npm audit` = 0, GitHub Actions CI in `.github/workflows/ci.yml`.
 
 ## 3. Not built yet — suggested next work (in priority order)
@@ -546,7 +552,7 @@ The earlier list is done (see section 2). Known follow-ups, collected from the p
 7. Payment reminders: WhatsApp isn't used (outside the 24-hour window it needs an approved template per language);
    could be added like broadcasts. Reminders stop when an invoice is paid in the CRM — record bank payments promptly.
 8. Booking: no sync with Google/Outlook calendars (only CRM meetings block times); one host per page (no round-robin);
-   the team can't move a booking for the customer yet (they edit the meeting; the customer isn't emailed).
+   editing a booked meeting directly in Activities doesn't update the booking or email the customer (use Move).
 9. KHQR: confirm payments automatically through the Bakong Open API (needs a token from the NBC); scan a printed QR
    with a real bank app before relying on it.
 

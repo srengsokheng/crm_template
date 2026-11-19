@@ -4,7 +4,7 @@ import { CalendarClock, Copy, ExternalLink, Pencil, Plus } from 'lucide-react';
 import { toast } from 'sonner';
 import { BOOKING_DURATIONS } from '@crm/shared';
 import { api, ApiError, errorMessage } from '../../lib/api.ts';
-import { dateTime } from '../../lib/format.ts';
+import { dateTime, fromLocalInput, toLocalInput } from '../../lib/format.ts';
 import { useMe } from '../../lib/hooks.ts';
 import { Badge, Button, Card, Checkbox, EmptyState, ErrorState, Field, IconButton, Input, Select, Skeleton, Textarea } from '../../components/ui/primitives.tsx';
 import { ConfirmDialog, Dialog } from '../../components/ui/overlays.tsx';
@@ -14,7 +14,7 @@ export interface BookingPageRow {
   id: number; slug: string; title: string; description: string; hostId: number; hostName: string; durationMinutes: number; days: number[];
   startTime: string; endTime: string; minNoticeHours: number; daysAhead: number; video: boolean; location: string; active: boolean; upcoming: number; url: string;
 }
-interface Booking { id: number; name: string; email: string; phone: string; note: string; startsAt: string; status: 'booked' | 'canceled'; canceledBy: string | null }
+interface Booking { id: number; name: string; email: string; phone: string; note: string; startsAt: string; endsAt: string; status: 'booked' | 'canceled'; canceledBy: string | null }
 
 const DAYS = [[1, 'Mon'], [2, 'Tue'], [3, 'Wed'], [4, 'Thu'], [5, 'Fri'], [6, 'Sat'], [7, 'Sun']] as const;
 const daysText = (d: number[]) => (d.join() === '1,2,3,4,5' ? 'Mon–Fri' : d.join() === '1,2,3,4,5,6,7' ? 'Every day' : d.map((x) => DAYS[x - 1][1]).join(', '));
@@ -134,7 +134,54 @@ function PageDialog({ page, onClose }: { page: BookingPageRow | null; onClose: (
 }
 
 function BookingsDialog({ page, onClose }: { page: BookingPageRow; onClose: () => void }) {
+  const qc = useQueryClient();
   const q = useQuery({ queryKey: ['booking-page-bookings', page.id], queryFn: () => api.get<{ data: Booking[] }>(`/booking-pages/${page.id}/bookings`) });
+  const [moving, setMoving] = useState<{ b: Booking; at: string; error: string } | null>(null);
+  const [canceling, setCanceling] = useState<{ b: Booking; reason: string } | null>(null);
+  const [busy, setBusy] = useState(false);
+  const refresh = async () => { await qc.invalidateQueries({ queryKey: ['booking-page-bookings', page.id] }); qc.invalidateQueries({ queryKey: ['booking-pages'] }); };
+  const move = async () => {
+    if (!moving) return;
+    const start = fromLocalInput(moving.at);
+    if (!start) { setMoving({ ...moving, error: 'Pick a date and time' }); return; }
+    setBusy(true);
+    try {
+      await api.post(`/bookings/${moving.b.id}/reschedule`, { start });
+      toast.success(`Moved — ${moving.b.name} was emailed the new time`);
+      setMoving(null); await refresh();
+    } catch (e) { setMoving({ ...moving, error: errorMessage(e) }); } finally { setBusy(false); }
+  };
+  const cancel = async () => {
+    if (!canceling) return;
+    setBusy(true);
+    try {
+      await api.post(`/bookings/${canceling.b.id}/cancel`, { reason: canceling.reason });
+      toast.success(`Canceled — ${canceling.b.name} was emailed`);
+      setCanceling(null); await refresh();
+    } catch (e) { toast.error(errorMessage(e)); } finally { setBusy(false); }
+  };
+  if (moving) {
+    return (
+      <Dialog open onOpenChange={(o) => { if (!o) setMoving(null); }} title={`Move ${moving.b.name}’s booking`}
+        description={`Now ${dateTime(moving.b.startsAt)}. Any time works if ${page.hostName} is free then; ${moving.b.name} gets an email with the new time and calendar file.`}
+        footer={<><Button onClick={() => setMoving(null)}>Back</Button><Button variant="primary" loading={busy} onClick={() => void move()}>Move and email</Button></>}>
+        <Field label="New date and time" htmlFor="bk-move" error={moving.error}>
+          <Input id="bk-move" type="datetime-local" value={moving.at} onChange={(e) => setMoving({ ...moving, at: e.target.value, error: '' })} />
+        </Field>
+      </Dialog>
+    );
+  }
+  if (canceling) {
+    return (
+      <Dialog open onOpenChange={(o) => { if (!o) setCanceling(null); }} title={`Cancel ${canceling.b.name}’s booking?`}
+        description={`${dateTime(canceling.b.startsAt)}. The meeting is canceled and ${canceling.b.name} gets an email.`}
+        footer={<><Button onClick={() => setCanceling(null)}>Keep it</Button><Button variant="danger" loading={busy} onClick={() => void cancel()}>Cancel and email</Button></>}>
+        <Field label="Message to the customer (optional)" htmlFor="bk-reason" hint="E.g. why, and what to do next">
+          <Textarea id="bk-reason" rows={3} maxLength={500} value={canceling.reason} onChange={(e) => setCanceling({ ...canceling, reason: e.target.value })} />
+        </Field>
+      </Dialog>
+    );
+  }
   return (
     <Dialog open onOpenChange={(o) => { if (!o) onClose(); }} title={`Bookings · ${page.title}`} footer={<Button onClick={onClose}>Close</Button>}>
       {q.isLoading ? <Skeleton className="h-24" /> : q.isError ? <ErrorState message={errorMessage(q.error)} onRetry={() => q.refetch()} />
@@ -148,7 +195,15 @@ function BookingsDialog({ page, onClose }: { page: BookingPageRow; onClose: () =
                   <p className="break-words text-xs text-muted">{b.name} · {b.email}{b.phone ? ` · ${b.phone}` : ''}</p>
                   {b.note && <p className="mt-0.5 text-xs">{b.note}</p>}
                 </div>
-                {b.status === 'canceled' ? <Badge tone="red">Canceled</Badge> : <Badge tone="green">Booked</Badge>}
+                <div className="flex shrink-0 flex-col items-end gap-1">
+                  {b.status === 'canceled' ? <Badge tone="red">Canceled</Badge> : <Badge tone="green">Booked</Badge>}
+                  {b.status === 'booked' && new Date(b.endsAt).getTime() > Date.now() && (
+                    <span className="flex gap-1">
+                      <Button size="sm" variant="ghost" aria-label={`Move ${b.name}’s booking`} onClick={() => setMoving({ b, at: toLocalInput(b.startsAt), error: '' })}>Move</Button>
+                      <Button size="sm" variant="ghost" aria-label={`Cancel ${b.name}’s booking`} onClick={() => setCanceling({ b, reason: '' })}>Cancel</Button>
+                    </span>
+                  )}
+                </div>
               </li>
             ))}
           </ul>

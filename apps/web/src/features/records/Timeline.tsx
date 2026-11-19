@@ -241,8 +241,9 @@ export function describeEvent(d: Record<string, any>, userName: (id: number) => 
       return { icon: History, text: `Payment reminder for ${ch.document?.number ?? 'an invoice'}${step.startsWith('manual:') ? '' : ` (${stepLabel(step).toLowerCase()})`}${to ? ` to ${to}` : ''}` };
     }
     case 'booked': return { icon: CheckCircle2, text: `Booked “${ch.page ?? 'a meeting'}” online for ${ch.start ? dateTime(String(ch.start)) : 'a time'}` };
-    case 'booking_moved': return { icon: History, text: `Moved their online booking “${ch.title ?? ''}” from ${ch.from ? dateTime(String(ch.from)) : '?'} to ${ch.to ? dateTime(String(ch.to)) : '?'}` };
-    case 'booking_canceled': return { icon: Trash2, text: `Canceled their online booking “${ch.title ?? ''}” for ${ch.start ? dateTime(String(ch.start)) : 'a time'}` };
+    case 'booking_moved': return { icon: History, text: `Moved ${ch.by === 'team' ? 'the' : 'their'} online booking “${ch.title ?? ''}” from ${ch.from ? dateTime(String(ch.from)) : '?'} to ${ch.to ? dateTime(String(ch.to)) : '?'}` };
+    case 'booking_canceled': if (ch.by === 'team') return { icon: Trash2, text: `Canceled the online booking “${ch.title ?? ''}” for ${ch.start ? dateTime(String(ch.start)) : 'a time'}${ch.reason ? `: “${ch.reason}”` : ''}` };
+      return { icon: Trash2, text: `Canceled their online booking “${ch.title ?? ''}” for ${ch.start ? dateTime(String(ch.start)) : 'a time'}` };
     case 'feedback_requested': return { icon: History, text: `Asked ${ch.to ?? 'the customer'} for feedback` };
     case 'feedback_received': return { icon: CheckCircle2, text: `Customer rated ${ch.rating}/5${ch.comment ? `: “${ch.comment}”` : ''}`, tone: Number(ch.rating) <= 2 ? 'text-rose-600' : undefined };
     case 'feedback_changed': return { icon: History, text: `Customer changed their rating to ${ch.rating}/5${ch.comment ? `: “${ch.comment}”` : ''}` };

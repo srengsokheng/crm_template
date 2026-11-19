@@ -207,4 +207,68 @@ describe('online booking', () => {
     expect((await pub('GET', `/bookings/${bo}`)).body.canReschedule).toBe(false);
     expect((await pub('GET', `/bookings/${bo}/slots`)).status).toBe(409);
   });
+
+  it('the team moves or cancels a booking: customer emailed with their link, host told, permissions', async () => {
+    const { c, me } = await signup(); const user = me.user;
+    const { c: rep, id: repId } = await inviteUser(c, 'Sales rep', 'Rita Rep');
+    const p = await page(c, repId, { durationMinutes: 30, video: false, location: 'Showroom' }); // Rita meets the customers
+    const slots = (await pub('GET', `/book/${p.slug}`)).body.days.flatMap((d: any) => d.slots) as string[];
+    const before = (await pool.query(`SELECT coalesce(max(id), 0) AS id FROM jobs`)).rows[0].id;
+    await pub('POST', `/book/${p.slug}`, { start: slots[0], name: 'Dara Sok', email: 'dara@team.test' });
+    await pub('POST', `/book/${p.slug}`, { start: slots[4], name: 'Bo', email: 'bo@team.test' });
+    const mails = async (to: string) => (await pool.query(`SELECT payload FROM jobs WHERE type = 'email.send' AND id > $1 AND payload->>'to' = $2 ORDER BY id`, [before, to])).rows.map((r) => r.payload);
+    const ics = (m: any) => Buffer.from(m.attachments[0].content, 'base64').toString();
+    const token = /\/booking\/([\w-]+)/.exec((await mails('dara@team.test'))[0].text)![1];
+    const list = (await c.get(`/booking-pages/${p.id}/bookings`)).body.data;
+    const dara = list.find((x: any) => x.name === 'Dara Sok');
+    const bo = list.find((x: any) => x.name === 'Bo');
+
+    // Any future time (outside the page's grid is fine) — but not when the host is busy, nor in the past.
+    const odd = new Date(Date.parse(slots[0]) + 3 * 86_400_000 + 7 * 60_000).toISOString();
+    expect((await c.post(`/bookings/${dara.id}/reschedule`, { start: new Date(Date.now() - 60_000).toISOString() })).status).toBe(400);
+    const busy = await c.post(`/bookings/${dara.id}/reschedule`, { start: new Date(Date.parse(slots[4]) + 10 * 60_000).toISOString() }); // overlaps Bo
+    expect(busy.status).toBe(409);
+    expect(busy.body.error.code).toBe('BUSY');
+    const moved = await c.post(`/bookings/${dara.id}/reschedule`, { start: odd });
+    expect(moved.status, JSON.stringify(moved.body)).toBe(200);
+    expect(moved.body.start).toBe(odd);
+    // The customer: told who moved it, with their own link, and the calendar entry updated.
+    const m = (await mails('dara@team.test')).at(-1);
+    expect(m.subject).toMatch(/^Moved: Showroom visit to /);
+    expect(m.text).toContain(`${user.name} moved your booking.`);
+    expect(m.text).toContain(`/booking/${token}`);
+    expect(ics(m)).toContain('SEQUENCE:1');
+    // Team moves don't use up the customer's own moves.
+    expect((await pub('GET', `/bookings/${token}`)).body).toMatchObject({ canReschedule: true, start: odd });
+    // The host (Rita) is told; the meeting moved.
+    const note = (await pool.query(`SELECT title FROM notifications WHERE user_id = $1 ORDER BY id DESC LIMIT 1`, [repId])).rows[0];
+    expect(note.title).toBe(`${user.name} moved Dara Sok’s booking`);
+    const bk = (await pool.query(`SELECT * FROM bookings WHERE id = $1`, [dara.id])).rows[0];
+    expect(new Date((await actOf(bk.activity_id)).dueAt).toISOString()).toBe(odd);
+    const ev = (await c.get(`/timeline/contact/${bk.contact_id}`)).body.items.find((i: any) => i.type === 'event' && i.data.action === 'booking_moved');
+    expect(ev.data).toMatchObject({ actorType: 'user', changes: { by: 'team' } });
+    // The customer moves it themselves afterwards: the calendar version keeps rising.
+    const free = (await pub('GET', `/bookings/${token}/slots`)).body.days.flatMap((d: any) => d.slots);
+    expect((await pub('POST', `/bookings/${token}/reschedule`, { start: free[0] })).status).toBe(200);
+    expect(ics((await mails('dara@team.test')).at(-1))).toContain('SEQUENCE:2');
+
+    // Rita (the host) cancels Bo's booking with a reason; Bo is emailed; Rita isn't notified about her own action.
+    const notesBefore = (await pool.query(`SELECT count(*)::int AS n FROM notifications WHERE user_id = $1`, [repId])).rows[0].n;
+    expect((await rep.post(`/bookings/${bo.id}/cancel`, { reason: 'I’m ill that day — sorry! Please book another time.' })).status).toBe(200);
+    const cm = (await mails('bo@team.test')).at(-1);
+    expect(cm.subject).toMatch(/^Canceled: Showroom visit on /);
+    expect(cm.text).toContain('Rita Rep canceled this booking.');
+    expect(cm.text).toContain('I’m ill that day');
+    expect(ics(cm)).toContain('METHOD:CANCEL');
+    expect((await pool.query(`SELECT count(*)::int AS n FROM notifications WHERE user_id = $1`, [repId])).rows[0].n).toBe(notesBefore);
+    expect((await pool.query(`SELECT status, canceled_by FROM bookings WHERE id = $1`, [bo.id])).rows[0]).toEqual({ status: 'canceled', canceled_by: 'team' });
+    expect((await rep.post(`/bookings/${bo.id}/cancel`)).status).toBe(409); // already canceled
+
+    // Permissions: another rep (not the host, not admin) and other workspaces can't.
+    const { c: other } = await inviteUser(c, 'Sales rep', 'Otto');
+    expect((await other.post(`/bookings/${dara.id}/cancel`)).status).toBe(404);
+    expect((await other.post(`/bookings/${dara.id}/reschedule`, { start: odd })).status).toBe(404);
+    const ws2 = await signup();
+    expect((await ws2.c.post(`/bookings/${dara.id}/cancel`)).status).toBe(404);
+  });
 });

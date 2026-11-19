@@ -12,14 +12,15 @@
 import { createHash, randomBytes } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 import {
-  activityCreateSchema, bookingCreateSchema, bookingRescheduleSchema, bookingPageSchema, bookingSlots, ct, customerDate, customerWeekday, dateIn, icsEvent, timeIn,
+  activityCreateSchema, bookingCreateSchema, bookingRescheduleSchema, bookingTeamCancelSchema, bookingPageSchema, bookingSlots, ct, customerDate, customerWeekday, dateIn, icsEvent, timeIn,
   type CustomerLanguage,
 } from '@crm/shared';
 import { config } from '../config.ts';
 import { pool, q, q1, sql, tx, type Db } from '../db/index.ts';
 import { audit } from '../lib/audit.ts';
 import { systemCtx, type Ctx } from '../lib/context.ts';
-import { AppError, conflict, notFound } from '../lib/errors.ts';
+import { AppError, badRequest, conflict, notFound } from '../lib/errors.ts';
+import { openSecret, sealSecret } from '../lib/secrets.ts';
 import { ctxOf, noContent } from '../lib/http.ts';
 import { bookingMail, queueMail, workspaceSender } from '../lib/mailer.ts';
 import { requireAdmin } from '../lib/permissions.ts';
@@ -37,6 +38,7 @@ interface PageRow {
 interface BookingRow {
   id: number; workspace_id: number; page_id: number | null; host_id: number | null; activity_id: number | null; contact_id: number | null; call_id: number | null;
   title: string; starts_at: Date; ends_at: Date; name: string; email: string; status: 'booked' | 'canceled'; reschedules?: number;
+  token_hash: string; token_sealed: string | null; ics_sequence: number;
 }
 
 const base = () => config.appUrl.replace(/\/$/, '');
@@ -98,8 +100,8 @@ const slugTaken = () => new AppError(409, 'SLUG_TAKEN', 'This link is already us
 
 /** The customer's confirmation (or "moved") email with the calendar file; `sequence` > 0 updates the calendar entry. */
 async function confirmationMail(db: Db, o: {
-  workspaceId: number; to: string; title: string; start: Date; end: Date; durationMinutes: number; token: string; videoUrl: string | null;
-  place: string; note: string; host: { name: string; email: string } | null; sequence: number; moved: boolean;
+  workspaceId: number; to: string; title: string; start: Date; end: Date; durationMinutes: number; tokenHash: string; manage: string | null;
+  videoUrl: string | null; place: string; note: string; host: { name: string; email: string } | null; sequence: number; moved: boolean; movedBy?: string | null;
 }) {
   const w = await wsInfo(o.workspaceId, db);
   const when = whenText(w.lang, o.start, w.tz);
@@ -108,15 +110,15 @@ async function confirmationMail(db: Db, o: {
     ...bookingMail({
       to: o.to, replyTo: o.host?.email, subject: ct(w.lang, o.moved ? 'bookMovedSubject' : 'bookEmailSubject', { title: o.title, when }),
       lines: [
-        ...(o.moved ? [ct(w.lang, 'bookMovedLine')] : []),
+        ...(o.moved ? [o.movedBy ? ct(w.lang, 'bookMovedByTeam', { name: o.movedBy }) : ct(w.lang, 'bookMovedLine')] : []),
         ct(w.lang, 'bookEmailWhen', { when, tz: w.tz.replace(/_/g, ' '), n: o.durationMinutes }), ct(w.lang, 'bookEmailWith', { host: o.host?.name ?? '', company: w.name }),
         ...(place ? [ct(w.lang, 'bookEmailWhere', { place })] : []), ...(o.note ? [o.note] : []),
-        ct(w.lang, 'bookEmailCalendar'), ct(w.lang, 'bookCancelLink', { url: manageUrl(o.token) }),
+        ct(w.lang, 'bookEmailCalendar'), ...(o.manage ? [ct(w.lang, 'bookCancelLink', { url: o.manage })] : []),
       ],
       ...(o.videoUrl ? { button: { label: ct(w.lang, 'bookEmailJoin'), url: o.videoUrl } } : {}),
       footer: w.name,
-      ics: icsEvent({ uid: `booking-${hash(o.token).slice(0, 16)}@acme-crm`, start: o.start, end: o.end, title: `${o.title} — ${w.name}`,
-        description: [o.videoUrl, manageUrl(o.token)].filter(Boolean).join('\n'), location: o.videoUrl ?? o.place, sequence: o.sequence }),
+      ics: icsEvent({ uid: icsUid(o.tokenHash), start: o.start, end: o.end, title: `${o.title} — ${w.name}`,
+        description: [o.videoUrl, o.manage].filter(Boolean).join('\n'), location: o.videoUrl ?? o.place, sequence: o.sequence }),
     }),
     fromName: await workspaceSender(o.workspaceId, db),
   }, db, { workspaceId: o.workspaceId });
@@ -124,6 +126,77 @@ async function confirmationMail(db: Db, o: {
 
 /** How many times a customer may move one booking. */
 const MAX_MOVES = 3;
+/** One calendar entry per booking: the same UID in every file sent about it. */
+const icsUid = (tokenHash: string) => `booking-${tokenHash.slice(0, 16)}@acme-crm`;
+/** The customer's link to their booking (null for bookings made before links were kept). */
+const manageLinkOf = (b: BookingRow, token?: string) => (token ? manageUrl(token) : b.token_sealed ? manageUrl(openSecret(b.token_sealed)) : null);
+
+type Actor = { kind: 'customer'; token: string } | { kind: 'team'; ctx: Ctx };
+
+/**
+ * Moves a booking: the booking, the host's meeting (and its reminder) and the video call; the host is told (unless they
+ * moved it themselves), the contact's timeline notes it, and the customer gets an updated calendar file.
+ */
+async function moveBooking(db: Db, b: BookingRow, start: Date, durationMinutes: number, place: string, by: Actor) {
+  const w = await wsInfo(b.workspace_id, db);
+  const end = new Date(start.getTime() + durationMinutes * 60_000);
+  const from = new Date(b.starts_at);
+  const seq = (b.ics_sequence ?? 0) + 1;
+  await q(sql`UPDATE bookings SET starts_at = ${start}, ends_at = ${end}, ics_sequence = ${seq},
+    reschedules = reschedules + ${by.kind === 'customer' ? 1 : 0} WHERE id = ${b.id}`, db);
+  if (b.activity_id) {
+    await q(sql`UPDATE activities SET due_at = ${start}, duration_minutes = ${durationMinutes}, reminder_at = ${new Date(start.getTime() - 15 * 60_000)},
+      reminded_at = NULL, status = 'open', updated_at = now(), version = version + 1 WHERE id = ${b.activity_id}`, db);
+  }
+  const call = b.call_id ? await q1<{ guest_token_sealed: string; status: string }>(sql`UPDATE calls SET scheduled_for = ${end} WHERE id = ${b.call_id} RETURNING guest_token_sealed, status`, db) : null;
+  const moved = { title: b.title, from: from.toISOString(), to: start.toISOString() };
+  if (b.contact_id) {
+    if (by.kind === 'team') await audit(db, by.ctx, 'contact', b.contact_id, 'booking_moved', { ...moved, by: 'team' });
+    else await audit(db, systemCtx(b.workspace_id, b.host_id ?? 0), 'contact', b.contact_id, 'booking_moved', moved, 'system');
+  }
+  if (b.host_id && !(by.kind === 'team' && by.ctx.userId === b.host_id)) {
+    const who = by.kind === 'team' ? `${by.ctx.userName} moved ${b.name}’s booking` : `${b.name} moved their booking`;
+    await q(sql`INSERT INTO notifications (workspace_id, user_id, kind, title, body, entity_type, entity_id)
+      VALUES (${b.workspace_id}, ${b.host_id}, 'booking', ${who}, ${`${b.title} · ${whenText('en', from, w.tz)} → ${whenText('en', start, w.tz)}`},
+        ${b.contact_id ? 'contact' : null}, ${b.contact_id})`, db);
+  }
+  const host = b.host_id ? await q1<{ name: string; email: string }>(sql`SELECT name, email FROM users WHERE id = ${b.host_id}`, db) : null;
+  await confirmationMail(db, { workspaceId: b.workspace_id, to: b.email, title: b.title, start, end, durationMinutes, tokenHash: b.token_hash,
+    manage: manageLinkOf(b, by.kind === 'customer' ? by.token : undefined), videoUrl: call?.status === 'open' ? guestUrlOf(call) : null, place, note: '',
+    host: host ?? null, sequence: seq, moved: true, movedBy: by.kind === 'team' ? by.ctx.userName : null });
+  return { start: start.toISOString(), end: end.toISOString() };
+}
+
+/** Cancels a booking: its meeting and call too; the host is told (unless they did it), the customer gets a cancellation file. */
+async function cancelBooking(db: Db, b: BookingRow, by: Actor, reason = '') {
+  const seq = (b.ics_sequence ?? 0) + 1;
+  await q(sql`UPDATE bookings SET status = 'canceled', canceled_by = ${by.kind}, ics_sequence = ${seq} WHERE id = ${b.id}`, db);
+  if (b.activity_id) await q(sql`UPDATE activities SET status = 'canceled', updated_at = now() WHERE id = ${b.activity_id} AND status = 'open'`, db);
+  if (b.call_id) await q(sql`UPDATE calls SET status = 'ended', ended_at = now() WHERE id = ${b.call_id} AND status = 'open' AND started_at IS NULL`, db);
+  const w = await wsInfo(b.workspace_id, db);
+  const what = { title: b.title, start: new Date(b.starts_at).toISOString() };
+  if (b.contact_id) {
+    if (by.kind === 'team') await audit(db, by.ctx, 'contact', b.contact_id, 'booking_canceled', { ...what, by: 'team', reason: reason || null });
+    else await audit(db, systemCtx(b.workspace_id, b.host_id ?? 0), 'contact', b.contact_id, 'booking_canceled', what, 'system');
+  }
+  if (b.host_id && !(by.kind === 'team' && by.ctx.userId === b.host_id)) {
+    const who = by.kind === 'team' ? `${by.ctx.userName} canceled ${b.name}’s booking` : `${b.name} canceled their booking`;
+    await q(sql`INSERT INTO notifications (workspace_id, user_id, kind, title, body, entity_type, entity_id)
+      VALUES (${b.workspace_id}, ${b.host_id}, 'booking', ${who}, ${`${b.title} · ${whenText('en', b.starts_at, w.tz)}`},
+        ${b.contact_id ? 'contact' : null}, ${b.contact_id})`, db);
+  }
+  const when = whenText(w.lang, b.starts_at, w.tz);
+  const host = b.host_id ? await q1<{ email: string }>(sql`SELECT email FROM users WHERE id = ${b.host_id}`, db) : null;
+  await queueMail({
+    ...bookingMail({
+      to: b.email, replyTo: host?.email, subject: ct(w.lang, 'bookCanceledSubject', { title: b.title, when }),
+      lines: [by.kind === 'team' ? ct(w.lang, 'bookCanceledByTeam', { name: by.ctx.userName }) : ct(w.lang, 'bookCanceled'), ...(reason ? [reason] : [])],
+      footer: w.name,
+      ics: icsEvent({ uid: icsUid(b.token_hash), start: new Date(b.starts_at), end: new Date(b.ends_at), title: `${b.title} — ${w.name}`, description: '', location: '', status: 'CANCELLED', sequence: seq }),
+    }),
+    fromName: await workspaceSender(b.workspace_id, db),
+  }, db, { workspaceId: b.workspace_id });
+}
 
 export async function bookingRoutes(app: FastifyInstance) {
   // ── Team: booking pages ──
@@ -187,6 +260,52 @@ export async function bookingRoutes(app: FastifyInstance) {
     const rows = await q(sql`SELECT id, name, email, phone, note, starts_at, ends_at, status, canceled_by, activity_id, contact_id, created_at
       FROM bookings WHERE page_id = ${Number(req.params.id)} AND starts_at > now() - interval '1 day' ORDER BY starts_at LIMIT 50`);
     return { data: camelAll(rows) };
+  });
+
+  /** A booking the team member may change: admins, and the host of that booking. */
+  async function teamBooking(db: Db, ctx: Ctx, id: number) {
+    const b = await q1<BookingRow>(sql`SELECT * FROM bookings WHERE id = ${id} AND workspace_id = ${ctx.workspaceId} FOR UPDATE`, db);
+    if (!b || (!ctx.isAdmin && b.host_id !== ctx.userId)) throw notFound('Booking');
+    if (b.status !== 'booked') throw conflict('This booking was canceled');
+    if (new Date(b.ends_at).getTime() <= Date.now()) throw conflict('This booking is over');
+    return b;
+  }
+
+  /**
+   * The team moves a booking (e.g. agreed with the customer by phone): any future time, also outside the page's hours,
+   * as long as the host is free then. The customer is emailed the new time and calendar file.
+   */
+  app.post<{ Params: { id: string } }>('/bookings/:id/reschedule', async (req) => {
+    const ctx = ctxOf(req);
+    const body = parse(bookingRescheduleSchema, req.body);
+    const start = new Date(body.start);
+    if (start.getTime() <= Date.now()) throw badRequest('Pick a time in the future', { start: 'Pick a time in the future' });
+    return tx(async (db) => {
+      const b = await teamBooking(db, ctx, Number(req.params.id));
+      if (start.getTime() === new Date(b.starts_at).getTime()) throw badRequest('That’s the time it already has', { start: 'Pick a different time' });
+      const page = b.page_id ? await q1<{ duration_minutes: number; location: string }>(sql`SELECT duration_minutes, location FROM booking_pages WHERE id = ${b.page_id}`, db) : null;
+      const minutes = page?.duration_minutes ?? Math.round((new Date(b.ends_at).getTime() - new Date(b.starts_at).getTime()) / 60_000);
+      const end = start.getTime() + minutes * 60_000;
+      if (b.host_id) {
+        await q(sql`SELECT 1 FROM users WHERE id = ${b.host_id} FOR UPDATE`, db);
+        const busy = await busyOf(db, b.workspace_id, b.host_id, 400, b.activity_id);
+        if (busy.some((x) => start.getTime() < x.end && end > x.start)) {
+          throw new AppError(409, 'BUSY', 'The person already has a meeting or call at that time. Pick another time.', { start: 'Busy then' });
+        }
+      }
+      return moveBooking(db, b, start, minutes, page?.location ?? '', { kind: 'team', ctx });
+    });
+  });
+
+  /** The team cancels a booking; the reason (optional) goes to the customer. */
+  app.post<{ Params: { id: string } }>('/bookings/:id/cancel', async (req) => {
+    const ctx = ctxOf(req);
+    const body = parse(bookingTeamCancelSchema, req.body ?? {});
+    await tx(async (db) => {
+      const b = await teamBooking(db, ctx, Number(req.params.id));
+      await cancelBooking(db, b, { kind: 'team', ctx }, body.reason);
+    });
+    return { ok: true };
   });
 }
 
@@ -254,13 +373,13 @@ export async function publicBookingRoutes(app: FastifyInstance) {
         await q(sql`UPDATE activities SET location = ${videoUrl} WHERE id = ${activityId}`, db);
       }
       const token = randomBytes(24).toString('base64url');
-      await q(sql`INSERT INTO bookings (workspace_id, page_id, host_id, activity_id, contact_id, call_id, title, starts_at, ends_at, name, email, phone, note, token_hash)
+      await q(sql`INSERT INTO bookings (workspace_id, page_id, host_id, activity_id, contact_id, call_id, title, starts_at, ends_at, name, email, phone, note, token_hash, token_sealed)
         VALUES (${p.workspace_id}, ${p.id}, ${p.host_id}, ${activityId}, ${contactId}, ${callId}, ${p.title}, ${start}, ${end}, ${body.name}, ${body.email.trim()},
-          ${body.phone}, ${body.note}, ${hash(token)})`, db);
+          ${body.phone}, ${body.note}, ${hash(token)}, ${sealSecret(token)})`, db);
       await audit(db, ctx, 'contact', contactId, 'booked', { page: p.title, start: start.toISOString(), activityId }, 'automation');
 
-      await confirmationMail(db, { workspaceId: p.workspace_id, to: body.email.trim(), title: p.title, start, end, durationMinutes: p.duration_minutes, token,
-        videoUrl, place: p.location, note: body.note, host: host ?? null, sequence: 0, moved: false });
+      await confirmationMail(db, { workspaceId: p.workspace_id, to: body.email.trim(), title: p.title, start, end, durationMinutes: p.duration_minutes,
+        tokenHash: hash(token), manage: manageUrl(token), videoUrl, place: p.location, note: body.note, host: host ?? null, sequence: 0, moved: false });
       return { start: start.toISOString(), end: end.toISOString(), email: body.email.trim() };
     });
     return reply.code(201).send(out);
@@ -322,26 +441,7 @@ export async function publicBookingRoutes(app: FastifyInstance) {
       const free = start.toISOString() !== new Date(b.starts_at).toISOString()
         && (await slotsOf(db, p, w.tz, new Date(), b.activity_id)).some((d) => d.slots.includes(start.toISOString()));
       if (!free) throw new AppError(409, 'TAKEN', ct(w.lang, 'bookTaken'));
-      const end = new Date(start.getTime() + p.duration_minutes * 60_000);
-      const from = new Date(b.starts_at);
-      const moves = (b.reschedules ?? 0) + 1;
-      await q(sql`UPDATE bookings SET starts_at = ${start}, ends_at = ${end}, reschedules = ${moves} WHERE id = ${b.id}`, db);
-      if (b.activity_id) {
-        await q(sql`UPDATE activities SET due_at = ${start}, duration_minutes = ${p.duration_minutes}, reminder_at = ${new Date(start.getTime() - 15 * 60_000)},
-          reminded_at = NULL, updated_at = now(), version = version + 1 WHERE id = ${b.activity_id}`, db);
-      }
-      const call = b.call_id ? await q1<{ guest_token_sealed: string; status: string }>(sql`UPDATE calls SET scheduled_for = ${end} WHERE id = ${b.call_id} RETURNING guest_token_sealed, status`, db) : null;
-      const ctx = systemCtx(b.workspace_id, b.host_id ?? 0);
-      if (b.contact_id) await audit(db, ctx, 'contact', b.contact_id, 'booking_moved', { title: b.title, from: from.toISOString(), to: start.toISOString() }, 'system');
-      if (b.host_id) {
-        await q(sql`INSERT INTO notifications (workspace_id, user_id, kind, title, body, entity_type, entity_id)
-          VALUES (${b.workspace_id}, ${b.host_id}, 'booking', ${`${b.name} moved their booking`}, ${`${b.title} · ${whenText('en', from, w.tz)} → ${whenText('en', start, w.tz)}`},
-            ${b.contact_id ? 'contact' : null}, ${b.contact_id})`, db);
-      }
-      const host = b.host_id ? await q1<{ name: string; email: string }>(sql`SELECT name, email FROM users WHERE id = ${b.host_id}`, db) : null;
-      await confirmationMail(db, { workspaceId: b.workspace_id, to: b.email, title: b.title, start, end, durationMinutes: p.duration_minutes, token: req.params.token,
-        videoUrl: call?.status === 'open' ? guestUrlOf(call) : null, place: p.location, note: '', host: host ?? null, sequence: moves, moved: true });
-      return { start: start.toISOString(), end: end.toISOString() };
+      return moveBooking(db, b, start, p.duration_minutes, p.location, { kind: 'customer', token: req.params.token });
     });
   });
 
@@ -352,25 +452,7 @@ export async function publicBookingRoutes(app: FastifyInstance) {
       if (!b) throw notFound('Booking');
       if (b.status === 'canceled') return;
       if (new Date(b.starts_at).getTime() <= Date.now()) throw conflict('This booking has already started');
-      await q(sql`UPDATE bookings SET status = 'canceled', canceled_by = 'customer' WHERE id = ${b.id}`, db);
-      if (b.activity_id) await q(sql`UPDATE activities SET status = 'canceled', updated_at = now() WHERE id = ${b.activity_id} AND status = 'open'`, db);
-      if (b.call_id) await q(sql`UPDATE calls SET status = 'ended', ended_at = now() WHERE id = ${b.call_id} AND status = 'open' AND started_at IS NULL`, db);
-      const w = await wsInfo(b.workspace_id, db);
-      const ctx = systemCtx(b.workspace_id, b.host_id ?? 0);
-      if (b.contact_id) await audit(db, ctx, 'contact', b.contact_id, 'booking_canceled', { title: b.title, start: new Date(b.starts_at).toISOString() }, 'system');
-      if (b.host_id) {
-        await q(sql`INSERT INTO notifications (workspace_id, user_id, kind, title, body, entity_type, entity_id)
-          VALUES (${b.workspace_id}, ${b.host_id}, 'booking', ${`${b.name} canceled their booking`}, ${`${b.title} · ${whenText('en', b.starts_at, w.tz)}`},
-            ${b.contact_id ? 'contact' : null}, ${b.contact_id})`, db);
-      }
-      const when = whenText(w.lang, b.starts_at, w.tz);
-      await queueMail({
-        ...bookingMail({
-          to: b.email, subject: ct(w.lang, 'bookCanceledSubject', { title: b.title, when }), lines: [ct(w.lang, 'bookCanceled')], footer: w.name,
-          ics: icsEvent({ uid: `booking-${hash(req.params.token).slice(0, 16)}@acme-crm`, start: new Date(b.starts_at), end: new Date(b.ends_at), title: `${b.title} — ${w.name}`, description: '', location: '', status: 'CANCELLED', sequence: (b.reschedules ?? 0) + 1 }),
-        }),
-        fromName: await workspaceSender(b.workspace_id, db),
-      }, db, { workspaceId: b.workspace_id });
+      await cancelBooking(db, b, { kind: 'customer', token: req.params.token });
     });
     return { ok: true };
   });

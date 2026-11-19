@@ -549,6 +549,8 @@ export const bookingPageSchema = z.object({
 export type BookingPageInput = z.infer<typeof bookingPageSchema>;
 /** A customer moves their booking to another free time (public). */
 export const bookingRescheduleSchema = z.object({ start: z.iso.datetime({ offset: true }) });
+/** The team cancels a booking; the reason is passed on to the customer. */
+export const bookingTeamCancelSchema = z.object({ reason: z.string().trim().max(500).default('') });
 /** A customer books a time (public). */
 export const bookingCreateSchema = z.object({
   start: z.iso.datetime({ offset: true }),

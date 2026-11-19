@@ -60,6 +60,7 @@ const en = {
   bookCanceledSubject: 'Canceled: {title} on {when}',
   bookReschedule: 'Pick a new time', bookMoved: 'Your booking is moved to {when}. We sent the new details to your email.',
   bookMovedSubject: 'Moved: {title} to {when}', bookMovedLine: 'Your booking was moved. The new time is below.',
+  bookMovedByTeam: '{name} moved your booking. The new time is below.', bookCanceledByTeam: '{name} canceled this booking.',
   // Feedback after a won deal
   fbTitle: 'How was your experience with {company}?', fbHello: 'Hello {name},',
   fbAsk: 'Thank you for choosing {company}. How happy are you with us? It takes 10 seconds.', fbButton: 'Rate us',
@@ -122,6 +123,7 @@ const km: Record<TextKey, string> = {
   bookCanceledSubject: 'បានបោះបង់៖ {title} នៅ {when}',
   bookReschedule: 'ជ្រើសរើសម៉ោងថ្មី', bookMoved: 'ការកក់របស់អ្នកត្រូវបានផ្លាស់ទៅ {when}។ យើងបានផ្ញើព័ត៌មានថ្មីទៅអ៊ីមែលរបស់អ្នក។',
   bookMovedSubject: 'បានផ្លាស់ប្តូរ៖ {title} ទៅ {when}', bookMovedLine: 'ការកក់របស់អ្នកត្រូវបានផ្លាស់ប្តូរ។ ម៉ោងថ្មីមាននៅខាងក្រោម។',
+  bookMovedByTeam: '{name} បានផ្លាស់ប្តូរការកក់របស់អ្នក។ ម៉ោងថ្មីមាននៅខាងក្រោម។', bookCanceledByTeam: '{name} បានបោះបង់ការកក់នេះ។',
   fbTitle: 'តើបទពិសោធន៍របស់អ្នកជាមួយ {company} យ៉ាងដូចម្តេច?', fbHello: 'ជម្រាបសួរ {name},',
   fbAsk: 'សូមអរគុណដែលបានជ្រើសរើស {company}។ តើអ្នកពេញចិត្តនឹងយើងកម្រិតណា? ចំណាយពេលតែ 10 វិនាទីប៉ុណ្ណោះ។', fbButton: 'វាយតម្លៃយើង',
   fbStars: '{n} ក្នុងចំណោម 5', fbComment: 'ប្រាប់យើងបន្ថែម (ស្រេចចិត្ត)', fbSend: 'ផ្ញើមតិ', fbThanks: 'សូមអរគុណចំពោះមតិរបស់អ្នក!',
