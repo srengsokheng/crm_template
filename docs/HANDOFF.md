@@ -463,6 +463,15 @@ The research behind every decision is in this folder:
   notification ("Low rating: 2/5 …" for 1–2). Customers can change their answer for 30 days. Deal timeline entries;
   Home → "Customer rating": average, answered/asked, per person (deal view scope, like sales targets), latest comments.
 
+- **Signing a quote** (migration 0039, `packages/shared/src/signature.ts`, `features/documents/Signature.tsx`): when
+  accepting a quote on the customer page, the customer can draw a signature with a finger, pen or mouse; Settings →
+  Quotes & invoices → "Customers must sign" makes it required. It's stored as pen strokes (whole numbers in a 300×100
+  box, validated: inside the box, not a dot, size limits), shown as SVG to the customer and in the team's "Customer
+  link" card (with the signing IP), and drawn as lines on the PDF under "Accepted and signed" with "Signed by … on …".
+  Quotes accepted without a signature print "Accepted online by … on …". The signing IP and browser are kept as evidence.
+  The timeline's "accepted" entry says whether it was signed. This is a simple electronic signature (typed name +
+  drawing + IP), not a certificate-based digital signature.
+
 - **Installable app (PWA)** (`apps/web/public/manifest.webmanifest`, `sw.js`, `offline.html`, `lib/install.ts`):
   add to the home screen (Android, iPhone via Safari → Share → Add to Home Screen) or install on desktop Chrome/Edge;
   opens full-screen with its own icon (192/512, maskable, Apple 180 — rendered from the logo) and shortcuts to Inbox,
@@ -500,7 +509,7 @@ The research behind every decision is in this folder:
   one at their request (the email choice covers every contact with the same address). Every change — the customer’s
   STOP/START or link, or a team member — is on the contact’s timeline.
 
-**Quality:** 267 Vitest tests (API against real PostgreSQL), 75 Playwright tests (desktop, tablet, phone), lint and
+**Quality:** 272 Vitest tests (API against real PostgreSQL), 76 Playwright tests (desktop, tablet, phone), lint and
 typecheck clean, `npm audit` = 0, GitHub Actions CI in `.github/workflows/ci.yml`.
 
 ## 3. Not built yet — suggested next work (in priority order)

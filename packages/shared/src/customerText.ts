@@ -65,6 +65,10 @@ const en = {
   fbThanksLow: 'Thank you — we’re sorry it wasn’t better. {owner} will get in touch.', fbChange: 'Change my answer',
   fbBadLink: 'This feedback link isn’t valid.', fbExpired: 'This feedback link has expired. Thank you anyway!',
   fb1: 'Very unhappy', fb2: 'Unhappy', fb3: 'Okay', fb4: 'Happy', fb5: 'Very happy',
+  // Signature on accepting a quote
+  signTitle: 'Signature', signOptional: 'Signature (optional)', signHint: 'Sign with your finger or mouse', signClear: 'Clear',
+  signNeeded: 'Please sign in the box.', acceptedSigned: 'Accepted and signed', signedBy: 'Signed by {name} on {date}',
+  acceptedOnline: 'Accepted online by {name} on {date}',
 };
 export type TextKey = keyof typeof en;
 
@@ -120,6 +124,9 @@ const km: Record<TextKey, string> = {
   fbThanksLow: 'សូមអរគុណ — យើងសុំទោសដែលវាមិនបានល្អជាងនេះ។ {owner} នឹងទាក់ទងទៅអ្នក។', fbChange: 'ប្តូរចម្លើយរបស់ខ្ញុំ',
   fbBadLink: 'តំណមតិនេះមិនត្រឹមត្រូវទេ។', fbExpired: 'តំណមតិនេះផុតកំណត់ហើយ។ សូមអរគុណ!',
   fb1: 'មិនពេញចិត្តខ្លាំង', fb2: 'មិនពេញចិត្ត', fb3: 'ធម្មតា', fb4: 'ពេញចិត្ត', fb5: 'ពេញចិត្តខ្លាំង',
+  signTitle: 'ហត្ថលេខា', signOptional: 'ហត្ថលេខា (ស្រេចចិត្ត)', signHint: 'ចុះហត្ថលេខាដោយប្រើម្រាមដៃ ឬកណ្ដុរ', signClear: 'លុប',
+  signNeeded: 'សូមចុះហត្ថលេខាក្នុងប្រអប់។', acceptedSigned: 'បានទទួលយក និងចុះហត្ថលេខា', signedBy: 'ចុះហត្ថលេខាដោយ {name} នៅ {date}',
+  acceptedOnline: 'បានទទួលយកតាមអនឡាញដោយ {name} នៅ {date}',
 };
 
 const fill = (s: string, vars?: Record<string, string | number>) => (vars ? s.replace(/\{(\w+)\}/g, (m, k) => (k in vars ? String(vars[k]) : m)) : s);

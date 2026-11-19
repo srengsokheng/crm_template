@@ -6,7 +6,7 @@ export interface DocSummary { id: number; kind: DocKind; number: string | null; 
 export interface DocFull extends DocSummary {
   dealId: number; dealTitle: string; canEdit: boolean; billToName: string; billToDetails: string; notes: string;
   listTotal: string; discount: string; tax: string; items: (LineItem & { id: number })[];
-  paidAmount: string; balance: string; customerUrl: string | null; viewedAt: string | null; respondedByName: string | null; customerNote: string | null; lastEmailedAt: string | null; suggestedRecipients: string[];
+  paidAmount: string; balance: string; customerUrl: string | null; viewedAt: string | null; respondedByName: string | null; customerNote: string | null; signature: number[][] | null; signedIp: string | null; lastEmailedAt: string | null; suggestedRecipients: string[];
   payments: { id: number; amount: string; paidOn: string; method: string; note: string; createdByName: string | null }[];
 }
 

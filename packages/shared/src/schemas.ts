@@ -456,6 +456,8 @@ export const documentSettingsSchema = z.object({
   /** What customers read (PDFs, the customer page, email button, website chat, video-call page): English, Khmer, or both. */
   customerLanguage: z.enum(['en', 'km', 'both']).default('en'),
   reminders: reminderSettingsSchema.prefault({}),
+  /** Customers must draw a signature to accept a quote online (otherwise it's optional). */
+  requireSignature: z.boolean().default(false),
 });
 
 // ───────── Field-level permissions ─────────

@@ -8,3 +8,4 @@ export * from './businessHours.ts';
 export * from './inbox.ts';
 export * from './customerText.ts';
 export * from './booking.ts';
+export * from './signature.ts';

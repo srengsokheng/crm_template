@@ -1,6 +1,6 @@
 /** Lays out a quote or invoice on A4 pages with the tiny PDF writer. */
 import qrcode from 'qrcode-generator';
-import { ct, ctLabel, customerDate, type CustomerLanguage, type TextKey } from '@crm/shared';
+import { ct, ctLabel, customerDate, type CustomerLanguage, type TextKey, SIGNATURE_BOX } from '@crm/shared';
 import { A4, fitSize, PdfDoc, textWidth, winAnsi, wrapText } from './pdf.ts';
 
 export interface PdfInput {
@@ -22,6 +22,8 @@ export interface PdfInput {
   khqr?: { payload: string; expiresAt: string };
   /** Language of the labels (Settings → Quotes & invoices); English when not given. */
   lang?: CustomerLanguage;
+  /** Quotes accepted online: who accepted, when, and their drawn signature (strokes in SIGNATURE_BOX units). */
+  acceptance?: { name: string; at: string; signature: number[][] | null };
 }
 
 const GREY: [number, number, number] = [0.42, 0.44, 0.5];
@@ -152,6 +154,32 @@ export function renderDocumentPdf(d: PdfInput): Buffer {
       if (y > bottom) { pdf.addPage(); y = M; }
       pdf.text(M, y, l, { size: 9 }); y += 12;
     }
+  }
+
+  // ── Accepted online (and signed) ──
+  if (d.acceptance) {
+    const a = d.acceptance;
+    const boxW = 180;
+    const scale = boxW / SIGNATURE_BOX.width;
+    const boxH = SIGNATURE_BOX.height * scale;
+    if (y + boxH + 60 > bottom) { pdf.addPage(); y = M; }
+    y += 18;
+    pdf.text(M, y, a.signature ? H('acceptedSigned') : H('accepted'), { size: 8, bold: true, color: GREY });
+    y += 12;
+    if (a.signature) {
+      const top = y;
+      for (const st of a.signature) {
+        const pts: [number, number][] = [];
+        for (let i = 0; i < st.length; i += 2) pts.push([M + st[i] * scale, top + st[i + 1] * scale]);
+        pdf.polyline(pts, 1.1, [0.1, 0.12, 0.3]);
+      }
+      y = top + boxH + 4;
+      pdf.line(M, y, M + boxW, y, 0.5, [0.6, 0.6, 0.65]);
+      y += 6;
+    }
+    const signed = ct(lang, a.signature ? 'signedBy' : 'acceptedOnline', { name: a.name, date: date(a.at.slice(0, 10)) });
+    pdf.text(M, y, signed, { size: fitSize(signed, 9, RIGHT - M), color: GREY });
+    y += 14;
   }
 
   // ── Pay with KHQR ──

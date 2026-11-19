@@ -7,7 +7,7 @@ import { AdminOnly } from './SettingsLayout.tsx';
 
 interface K { enabled: boolean; accountId: string; merchantName: string; city: string; accountType: 'individual' | 'merchant'; merchantId: string; acquiringBank: string; validDays: number }
 interface R { enabled: boolean; beforeDays: number | null; onDue: boolean; afterDays: number[]; telegram: boolean }
-interface S { companyDetails: string; footer: string; quotePrefix: string; invoicePrefix: string; quoteValidDays: number; paymentTermsDays: number; khqr: K; customerLanguage: 'en' | 'km' | 'both'; reminders: R }
+interface S { companyDetails: string; footer: string; quotePrefix: string; invoicePrefix: string; quoteValidDays: number; paymentTermsDays: number; khqr: K; customerLanguage: 'en' | 'km' | 'both'; reminders: R; requireSignature: boolean }
 
 /** What appears on quote and invoice PDFs, and how they are numbered. */
 export function DocumentSettings() {
@@ -45,6 +45,8 @@ export function DocumentSettings() {
                   <option value="both">ខ្មែរ + English (bilingual PDFs)</option>
                 </Select>
               </Field>
+              <Checkbox checked={f.requireSignature} onChange={(v) => set({ requireSignature: v })} label="Customers must sign (draw their signature) to accept a quote online" />
+              <p className="-mt-2 text-xs text-muted">Otherwise signing is optional. The signature is printed on the accepted quote’s PDF, with the name they typed and the date.</p>
               <Field label="Your company details" htmlFor="ds-details" hint="Address, tax ID, phone, email — printed under your name" error={errors.companyDetails}>
                 <Textarea id="ds-details" rows={4} value={f.companyDetails} onChange={(e) => set({ companyDetails: e.target.value })} placeholder={'12 Main Street\nPhnom Penh, Cambodia\nVAT: K001-123456789'} />
               </Field>

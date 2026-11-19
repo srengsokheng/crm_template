@@ -35,6 +35,7 @@ interface Doc {
   list_total: string; discount: string; tax: string; total: string; source_quote_id: number | null; paid_amount: string;
   public_token_hash?: string | null; public_token_sealed?: string | null; viewed_at?: Date | null; responded_at?: Date | null;
   responded_by_name?: string | null; customer_note?: string | null;
+  signature?: number[][] | null; signed_ip?: string | null; signed_user_agent?: string | null;
 }
 export type { Doc };
 type Item = z.output<typeof lineItemSchema>;
@@ -185,6 +186,8 @@ export async function renderPdf(ctx: Ctx, doc: Doc, db: Db = pool): Promise<{ bu
     paidAmount: doc.kind === 'invoice' ? doc.paid_amount : undefined,
     khqr: (() => { const k = invoiceKhqr(doc, s.khqr); return k.available ? { payload: k.payload, expiresAt: k.expiresAt } : undefined; })(),
     items: camelAll(items) as never, seller: { name: s.sellerName, details: s.companyDetails, footer: s.footer }, lang: s.customerLanguage,
+    acceptance: doc.kind === 'quote' && doc.status === 'accepted' && doc.responded_by_name && doc.responded_at
+      ? { name: doc.responded_by_name, at: new Date(doc.responded_at).toISOString(), signature: doc.signature ?? null } : undefined,
   });
   return { buffer, filename: `${doc.number ?? `Draft ${doc.kind}`}.pdf`.replace(/[^\w .-]/g, '_') };
 }

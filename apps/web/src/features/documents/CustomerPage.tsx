@@ -8,6 +8,7 @@ import { Button, Card, EmptyState, Field, Input, Skeleton, Textarea } from '../.
 import { Dialog } from '../../components/ui/overlays.tsx';
 import { dateOnly } from './common.tsx';
 import { QrSvg } from './Khqr.tsx';
+import { SignaturePad, SignatureView } from './Signature.tsx';
 import { ct, ctLabel, customerDate, type CustomerLanguage, type TextKey } from '@crm/shared';
 
 interface PublicDoc {
@@ -15,7 +16,8 @@ interface PublicDoc {
   billToName: string; billToDetails: string; notes: string; listTotal: string; discount: string; tax: string; total: string; paidAmount: string; balance: string;
   items: { name: string; quantity: string; unit: string; unitPrice: string; discountType: string | null; discountValue: string | null; taxRate: string | null; lineTotal: string }[];
   seller: { name: string; details: string }; expired: boolean; canRespond: boolean;
-  response: { at: string; by: string | null; note: string | null } | null;
+  response: { at: string; by: string | null; note: string | null; signature: number[][] | null } | null;
+  requireSignature: boolean;
   khqr: { payload: string; amount: string; currency: string; expiresAt: string; merchantName: string; accountId: string } | null;
   lang: CustomerLanguage;
 }
@@ -25,7 +27,7 @@ async function call<T>(token: string, path = '', body?: unknown): Promise<T> {
   const data = await r.json().catch(() => null);
   // Before the document (and its language) is known, errors are in both languages.
   const both = (k: TextKey) => `${ct('km', k)} ${ct('en', k)}`;
-  if (!r.ok) throw new Error(r.status === 404 ? both('linkInvalid') : (data?.error?.message ?? both('somethingWrong')));
+  if (!r.ok) throw Object.assign(new Error(r.status === 404 ? both('linkInvalid') : (data?.error?.message ?? both('somethingWrong'))), { fields: data?.error?.fields });
   return data as T;
 }
 
@@ -37,15 +39,22 @@ export function CustomerDocumentPage() {
   const [dialog, setDialog] = useState<null | 'accept' | 'decline'>(null);
   const [name, setName] = useState('');
   const [note, setNote] = useState('');
+  const [signature, setSignature] = useState<number[][] | null>(null);
+  const [sigError, setSigError] = useState('');
   const [busy, setBusy] = useState(false);
   const answer = async (kind: 'accept' | 'decline') => {
     setBusy(true);
     try {
-      await call(token, `/${kind}`, kind === 'accept' ? { name: name.trim(), note: note.trim() || undefined } : { reason: note.trim() || undefined });
+      setSigError('');
+      await call(token, `/${kind}`, kind === 'accept' ? { name: name.trim(), note: note.trim() || undefined, signature: signature ?? undefined } : { reason: note.trim() || undefined });
       setDialog(null);
       await qc.invalidateQueries({ queryKey: ['public-doc', token] });
       toast.success(ct(q.data?.lang ?? 'en', kind === 'accept' ? 'thanksAccepted' : 'thanksDeclined'));
-    } catch (e) { toast.error((e as Error).message); } finally { setBusy(false); }
+    } catch (e) {
+      const err = e as Error & { fields?: Record<string, string> };
+      if (err.fields?.signature || err.fields?.['signature.0']) setSigError(err.fields.signature ?? ct(q.data?.lang ?? 'en', 'signNeeded'));
+      toast.error(err.message);
+    } finally { setBusy(false); }
   };
   if (q.isLoading) return <main className="mx-auto max-w-3xl px-4 py-8"><Skeleton className="h-96" /></main>;
   if (q.isError) return <main className="mx-auto max-w-3xl px-4 py-16"><EmptyState title={`${ct('km', 'cantOpen')} · ${ct('en', 'cantOpen')}`} description={(q.error as Error).message} /></main>;
@@ -74,6 +83,12 @@ export function CustomerDocumentPage() {
       {isQuote && d.status === 'accepted' && (
         <p className="flex items-start gap-2 rounded-md bg-emerald-50 px-3 py-2 text-sm text-emerald-800 dark:bg-emerald-500/10 dark:text-emerald-200" role="status">
           <CheckCircle2 className="mt-0.5 size-4 shrink-0" />{d.response?.by && d.response.at ? t('acceptedBy', { name: d.response.by, date: day(d.response.at) }) : t('acceptedPlain')}</p>
+      )}
+      {isQuote && d.status === 'accepted' && d.response?.signature && (
+        <div className="rounded-md border border-base px-3 py-2">
+          <p className="text-xs text-muted">{t('signedBy', { name: d.response.by ?? '', date: day(d.response.at) })}</p>
+          <SignatureView strokes={d.response.signature} label={t('signTitle')} />
+        </div>
       )}
       {isQuote && d.status === 'declined' && <p className="rounded-md bg-[var(--surface-2)] px-3 py-2 text-sm text-muted" role="status">{t('declinedNote', { seller: d.seller.name })}</p>}
       {isQuote && d.status === 'sent' && d.expired && <p className="rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:bg-amber-500/10 dark:text-amber-100" role="status">{t('expiredNote', { seller: d.seller.name })}</p>}
@@ -133,15 +148,18 @@ export function CustomerDocumentPage() {
         <a href={`/api/v1/public/documents/${encodeURIComponent(token)}/pdf`} className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-[var(--border)] px-3 text-sm font-medium hover:bg-[var(--surface-2)]"><Download className="size-4" />{t('downloadPdf')}</a>
         {d.canRespond && <>
           <Button icon={<XCircle className="size-4" />} onClick={() => { setNote(''); setDialog('decline'); }}>{t('decline')}</Button>
-          <Button variant="primary" icon={<CheckCircle2 className="size-4" />} onClick={() => { setNote(''); setDialog('accept'); }}>{t('acceptQuote')}</Button>
+          <Button variant="primary" icon={<CheckCircle2 className="size-4" />} onClick={() => { setNote(''); setSignature(null); setSigError(''); setDialog('accept'); }}>{t('acceptQuote')}</Button>
         </>}
       </div>
 
       <Dialog open={dialog === 'accept'} onOpenChange={(o) => !o && setDialog(null)} title={t('acceptTitle', { number: d.number })}
         description={t('acceptHelp', { total: m(d.total), seller: d.seller.name })}
-        footer={<><Button onClick={() => setDialog(null)}>{t('cancel')}</Button><Button variant="primary" disabled={name.trim().length < 2 || busy} onClick={() => answer('accept')}>{busy ? t('sending') : t('accept')}</Button></>}>
+        footer={<><Button onClick={() => setDialog(null)}>{t('cancel')}</Button><Button variant="primary" disabled={name.trim().length < 2 || busy || (d.requireSignature && !signature)} onClick={() => answer('accept')}>{busy ? t('sending') : t('accept')}</Button></>}>
         <div className="space-y-3">
           <Field label={t('fullName')} htmlFor="acc-name" required hint={t('fullNameHint')}><Input id="acc-name" autoComplete="name" maxLength={120} value={name} onChange={(e) => setName(e.target.value)} /></Field>
+          <SignaturePad id="acc-sign" value={signature} onChange={(v) => { setSignature(v); setSigError(''); }} label={d.requireSignature ? t('signTitle') : t('signOptional')}
+            hint={t('signHint')} clearLabel={t('signClear')} invalid={!!sigError} />
+          {sigError && <p className="-mt-1 text-xs text-rose-600" role="alert">{sigError}</p>}
           <Field label={t('noteOptional')} htmlFor="acc-note"><Textarea id="acc-note" rows={2} maxLength={1000} value={note} onChange={(e) => setNote(e.target.value)} placeholder={t('notePlaceholder')} /></Field>
         </div>
       </Dialog>
@@ -156,7 +174,10 @@ export function CustomerDocumentPage() {
 }
 
 /** For the team: the customer's link, and whether they opened or answered it. */
-export function CustomerLinkCard({ url, viewedAt, kind, status, respondedByName, customerNote }: { url: string; viewedAt: string | null; kind: 'quote' | 'invoice'; status: string; respondedByName: string | null; customerNote: string | null }) {
+export function CustomerLinkCard({ url, viewedAt, kind, status, respondedByName, customerNote, signature, signedIp }: {
+  url: string; viewedAt: string | null; kind: 'quote' | 'invoice'; status: string; respondedByName: string | null; customerNote: string | null;
+  signature?: number[][] | null; signedIp?: string | null;
+}) {
   const copy = async () => { try { await navigator.clipboard.writeText(url); toast.success('Link copied'); } catch { toast.error('Copy failed — select the link and copy it'); } };
   return (
     <Card title="Customer link">
@@ -170,6 +191,12 @@ export function CustomerLinkCard({ url, viewedAt, kind, status, respondedByName,
           {kind === 'quote' && status === 'accepted' && respondedByName && <> Accepted online by <span className="font-medium">{respondedByName}</span>.</>}
           {kind === 'quote' && status === 'declined' && customerNote && <> Declined: “{customerNote}”.</>}
           {kind === 'quote' && status === 'accepted' && customerNote && <> Note: “{customerNote}”.</>}</p>
+        {kind === 'quote' && status === 'accepted' && signature && (
+          <div className="rounded-md border border-base px-3 py-2">
+            <SignatureView strokes={signature} label={`Signature of ${respondedByName ?? 'the customer'}`} />
+            <p className="text-xs text-muted">Signed online{signedIp ? ` from IP ${signedIp}` : ''}. It’s printed on the PDF.</p>
+          </div>
+        )}
       </div>
     </Card>
   );

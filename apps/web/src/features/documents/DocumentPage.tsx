@@ -126,7 +126,7 @@ export function DocumentPage() {
       </>}
       right={<>
         {d.kind === 'invoice' && <RepeatsCard docId={d.id} canEdit={d.canEdit} />}
-        {d.customerUrl && <CustomerLinkCard url={d.customerUrl} viewedAt={d.viewedAt} kind={d.kind} status={d.status} respondedByName={d.respondedByName} customerNote={d.customerNote} />}
+        {d.customerUrl && <CustomerLinkCard url={d.customerUrl} viewedAt={d.viewedAt} kind={d.kind} status={d.status} respondedByName={d.respondedByName} customerNote={d.customerNote} signature={d.signature} signedIp={d.signedIp} />}
         {d.kind === 'invoice' && d.status === 'sent' && <KhqrCard docId={d.id} balance={d.balance} />}
         {d.kind === 'invoice' && d.status !== 'draft' && <PaymentsCard doc={d} onChange={refresh} onRecord={() => setDialog('payment')} />}
         {d.kind === 'invoice' && d.status !== 'draft' && <RemindersCard docId={d.id} canEdit={d.canEdit} currency={d.currency} />}

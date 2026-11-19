@@ -190,6 +190,13 @@ export class PdfDoc {
   line(x1: number, y1: number, x2: number, y2: number, width = 0.5, color: Rgb = [0.85, 0.85, 0.88]) {
     this.ops.push(`${num(width)} w ${color.map(num).join(' ')} RG ${num(x1)} ${num(A4.height - y1)} m ${num(x2)} ${num(A4.height - y2)} l S`);
   }
+  /** Connected lines through points (top-left coordinates), with round ends and joins — e.g. a signature stroke. */
+  polyline(points: [number, number][], width = 1, color: Rgb = [0, 0, 0]) {
+    if (!points.length) return;
+    const pts = points.length === 1 ? [points[0], [points[0][0] + 0.3, points[0][1]] as [number, number]] : points;
+    const path = pts.map(([x, y], i) => `${num(x)} ${num(A4.height - y)} ${i === 0 ? 'm' : 'l'}`).join(' ');
+    this.ops.push(`q 1 J 1 j ${num(width)} w ${color.map(num).join(' ')} RG ${path} S Q`);
+  }
   rect(x: number, y: number, w: number, h: number, fill: Rgb) {
     this.ops.push(`${fill.map(num).join(' ')} rg ${num(x)} ${num(A4.height - y - h)} ${num(w)} ${num(h)} re f`);
   }

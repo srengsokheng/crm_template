@@ -9,14 +9,19 @@ import { z } from 'zod';
 import { pool, q, q1, sql, tx, type Db } from '../db/index.ts';
 import { audit } from '../lib/audit.ts';
 import { systemCtx } from '../lib/context.ts';
-import { AppError, notFound } from '../lib/errors.ts';
+import { AppError, badRequest, notFound } from '../lib/errors.ts';
+import { ct, signatureSchema } from '@crm/shared';
 import { invoiceKhqr } from '../lib/invoiceKhqr.ts';
 import { camelAll } from '../lib/records.ts';
 import { parse } from '../lib/validate.ts';
 import { documentSettings, loadItems, renderPdf, type Doc } from './documents.ts';
 
 type TokenParams = { Params: { token: string } };
-const acceptSchema = z.object({ name: z.string().trim().min(2, 'Type your full name').max(120), note: z.string().trim().max(1000).optional() });
+const acceptSchema = z.object({
+  name: z.string().trim().min(2, 'Type your full name').max(120), note: z.string().trim().max(1000).optional(),
+  /** The drawn signature (required when the workspace asks for one). */
+  signature: signatureSchema.nullish(),
+});
 const declineSchema = z.object({ reason: z.string().trim().max(1000).optional() });
 
 async function byToken(token: string, db: Db = pool, lock = false): Promise<Doc> {
@@ -65,7 +70,8 @@ export async function publicDocumentRoutes(app: FastifyInstance) {
       seller: { name: s.sellerName, details: s.companyDetails },
       lang: s.customerLanguage,
       expired: expired(d), canRespond: d.kind === 'quote' && d.status === 'sent' && !expired(d),
-      response: d.responded_at ? { at: d.responded_at, by: d.responded_by_name, note: d.customer_note } : null,
+      response: d.responded_at ? { at: d.responded_at, by: d.responded_by_name, note: d.customer_note, signature: d.signature ?? null } : null,
+      requireSignature: s.requireSignature,
       khqr: k?.available ? { payload: k.payload, amount: k.amount, currency: k.currency, expiresAt: k.expiresAt, merchantName: k.merchantName, accountId: k.accountId } : null,
     };
   });
@@ -85,10 +91,15 @@ export async function publicDocumentRoutes(app: FastifyInstance) {
       if (d.kind !== 'quote') throw new AppError(409, 'NOT_A_QUOTE', 'Only quotes can be accepted');
       if (d.status !== 'sent') throw new AppError(409, 'ALREADY_ANSWERED', d.status === 'accepted' ? 'This quote has already been accepted.' : 'This quote is no longer open.');
       if (expired(d)) throw new AppError(409, 'EXPIRED', 'This quote has expired. Please contact us for a new one.');
+      const settings = await documentSettings(d.workspace_id, db);
+      if (settings.requireSignature && !body.signature) throw badRequest(ct(settings.customerLanguage, 'signNeeded'), { signature: ct(settings.customerLanguage, 'signNeeded') });
+      const signature = body.signature ?? null;
       await q(sql`UPDATE documents SET status = 'accepted', status_changed_at = now(), updated_at = now(), responded_at = now(),
-        responded_by_name = ${body.name}, customer_note = ${body.note ?? null} WHERE id = ${d.id}`, db);
+        responded_by_name = ${body.name}, customer_note = ${body.note ?? null},
+        signature = ${signature ? JSON.stringify(signature) : null}::jsonb, signed_ip = ${signature ? req.ip : null},
+        signed_user_agent = ${signature ? String(req.headers['user-agent'] ?? '').slice(0, 300) : null} WHERE id = ${d.id}`, db);
       await audit(db, systemCtx(d.workspace_id, 0), 'deal', d.deal_id, 'quote_accepted',
-        { document: { id: d.id, number: d.number, total: d.total, currency: d.currency }, via: 'online', by: body.name, note: body.note ?? null }, 'system');
+        { document: { id: d.id, number: d.number, total: d.total, currency: d.currency }, via: 'online', by: body.name, note: body.note ?? null, signed: !!signature }, 'system');
       await notifyTeam(db, d, `${body.name} accepted ${label(d)}`, body.note ? `“${body.note.slice(0, 200)}”` : 'Accepted online. You can create the invoice from the quote.');
     });
     return { ok: true };
