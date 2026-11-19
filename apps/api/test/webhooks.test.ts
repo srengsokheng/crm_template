@@ -1,11 +1,10 @@
 import { createServer, type IncomingHttpHeaders, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { processJobs, processOutbox } from '../src/automation/engine.ts';
 import { q, sql } from '../src/db/index.ts';
 import { pool } from '../src/db/pool.ts';
 import { checkWebhookUrl, deliverWebhook, hostAllowed, isPrivateAddress, normaliseHost, policy, sign } from '../src/lib/webhooks.ts';
-import { getApp, inviteUser, signup } from './helpers.ts';
+import { drainJobs, getApp, inviteUser, signup } from './helpers.ts';
 
 // A local receiver. Tests run with the development policy (http + localhost allowed) unless a test turns it off.
 const received: { headers: IncomingHttpHeaders; body: string }[] = [];
@@ -29,7 +28,7 @@ afterAll(async () => {
   server.close();
   await (await getApp()).close(); await pool.end();
 });
-const drain = async () => { await processOutbox(); await processJobs(50); };
+const drain = () => drainJobs();
 
 describe('webhook action', () => {
   it('calls an allow-listed URL with a signed JSON payload when a deal reaches a stage', async () => {
@@ -75,7 +74,7 @@ describe('webhook action', () => {
       const d = (await c.post('/deals', { title: 'Fails' })).body;
       received.length = 0;
       await drain();
-      for (let i = 0; i < 2; i++) { await q(sql`UPDATE jobs SET run_at = now() WHERE status = 'pending' AND type = 'automation.run'`); await processJobs(50); }
+      for (let i = 0; i < 2; i++) { await q(sql`UPDATE jobs SET run_at = now() WHERE status = 'pending' AND type = 'automation.run'`); await drainJobs(); }
       expect(received).toHaveLength(3);
       const runs = (await c.get(`/automation-runs/deal/${d.id}`)).body.data;
       expect(runs[0]).toMatchObject({ status: 'failed', message: 'The webhook answered HTTP 500' });

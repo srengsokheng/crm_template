@@ -3,10 +3,9 @@ import type { AddressInfo } from 'node:net';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { config } from '../src/config.ts';
 import { pool } from '../src/db/pool.ts';
-import { processJobs } from '../src/automation/engine.ts';
 import { files } from '../src/lib/files.ts';
 import { pollTelegram } from '../src/inbox/telegram.ts';
-import { getApp, inviteUser, signup } from './helpers.ts';
+import { drainJobs, getApp, inviteUser, signup } from './helpers.ts';
 
 /** Fake Telegram: files by file_id; "big" ids are refused by getFile like Telegram does above 20 MB. */
 const stored = new Map<string, Buffer>([
@@ -77,7 +76,7 @@ describe('inbox files', () => {
     expect(names[3]).toMatch(/^voice-\d+\.ogg$/);
     expect(msgs.map((m: any) => m.files[0].status)).toEqual(['pending', 'pending', 'too_large', 'pending']); // 30 MB: over the bot limit, not fetched
     expect(msgs[0].body).toBe('[Photo] Like this');
-    await processJobs();
+    await drainJobs();
     msgs = (await c.get(`/inbox/conversations/${conv.id}`)).body.messages;
     const [photo, doc, , voice] = msgs.map((m: any) => m.files[0]);
     expect([photo.status, doc.status, voice.status]).toEqual(['stored', 'stored', 'too_large']);
@@ -129,7 +128,7 @@ describe('inbox files', () => {
     const prev = (await c.get('/inbox/conversations')).body.data[0].lastMessagePreview;
     expect(prev.startsWith('📎 prices.csv xxx')).toBe(true);
     expect([...prev]).toHaveLength(140); // 140 characters, the emoji counted once
-    await processJobs();
+    await drainJobs();
     msgs = (await c.get(`/inbox/conversations/${conv.id}`)).body.messages;
     expect(msgs.slice(1).map((m: any) => m.status)).toEqual(['sent', 'sent', 'sent']);
     expect(fake.uploads.map((u) => u.method)).toEqual(['sendDocument', 'sendPhoto', 'sendDocument']);

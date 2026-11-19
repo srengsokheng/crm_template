@@ -3,10 +3,9 @@ import type { AddressInfo } from 'node:net';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { config } from '../src/config.ts';
 import { pool } from '../src/db/pool.ts';
-import { processJobs } from '../src/automation/engine.ts';
 import { pollTelegram } from '../src/inbox/telegram.ts';
 import { openSecret, sealSecret } from '../src/lib/secrets.ts';
-import { getApp, inviteUser, signup } from './helpers.ts';
+import { drainJobs, getApp, inviteUser, signup } from './helpers.ts';
 
 /**
  * A fake Telegram Bot API: valid tokens start with the bot id 7000…; updates are queued per token; sendMessage to the
@@ -176,13 +175,13 @@ describe('inbox: Telegram', () => {
     let d = (await c.get(`/inbox/conversations/${adaConv.id}`)).body;
     expect(d.messages.at(-1)).toMatchObject({ direction: 'out', status: 'pending', authorName: 'Admin', body: 'Yes, we deliver nationwide.' });
     expect(d).toMatchObject({ assigneeId: me.user.id, unread: 0 });
-    await processJobs();
+    await drainJobs();
     d = (await c.get(`/inbox/conversations/${adaConv.id}`)).body;
     expect(d.messages.at(-1).status).toBe('sent');
     expect(fake.sent.at(-1)).toEqual({ chat_id: '111', text: 'Yes, we deliver nationwide.' });
 
     await c.post(`/inbox/conversations/${blocker.id}/messages`, { body: 'Are you there?' });
-    await processJobs();
+    await drainJobs();
     const failed = (await c.get(`/inbox/conversations/${blocker.id}`)).body.messages.at(-1);
     expect(failed).toMatchObject({ status: 'failed', error: 'Telegram refused the message: Forbidden: bot was blocked by the user' });
     expect((await c.post(`/inbox/conversations/${blocker.id}/messages/${failed.id}/retry`)).status).toBe(200);

@@ -1,11 +1,10 @@
 import { createServer, type IncomingHttpHeaders, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
-import { processJobs, processOutbox } from '../src/automation/engine.ts';
 import { q, sql } from '../src/db/index.ts';
 import { pool } from '../src/db/pool.ts';
 import { deliverWebhook, policy } from '../src/lib/webhooks.ts';
-import { getApp, inviteUser, signup } from './helpers.ts';
+import { drainJobs, getApp, inviteUser, signup } from './helpers.ts';
 
 const received: { headers: IncomingHttpHeaders; url: string }[] = [];
 let answer = 200;
@@ -67,11 +66,11 @@ describe('delivery log and test send', () => {
     const rule = (await c.post('/automation-rules', { entityType: 'deal', pipelineId: dealPipeline.id, trigger: 'created', action: 'webhook', config: { url: `http://localhost:${port}/hook` } })).body;
 
     await c.post('/deals', { title: 'Logged' });
-    await processOutbox(); await processJobs(50);
+    await drainJobs();
     answer = 500;
     await c.post('/deals', { title: 'Failing' });
-    await processOutbox(); await processJobs(50);
-    for (let i = 0; i < 2; i++) { await q(sql`UPDATE jobs SET run_at = now() WHERE status = 'pending' AND type = 'automation.run'`); await processJobs(50); }
+    await drainJobs();
+    for (let i = 0; i < 2; i++) { await q(sql`UPDATE jobs SET run_at = now() WHERE status = 'pending' AND type = 'automation.run'`); await drainJobs(); }
 
     const log = (await c.get(`/automation-rules/${rule.id}/deliveries`)).body.data;
     expect(log.map((d: any) => [d.ok, d.statusCode])).toEqual([[false, 500], [false, 500], [false, 500], [true, 200]]);

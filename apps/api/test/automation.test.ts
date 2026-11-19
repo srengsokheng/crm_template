@@ -1,13 +1,13 @@
  
 import { afterAll, describe, expect, it } from 'vitest';
-import { processJobs, processOutbox, sendReminders } from '../src/automation/engine.ts';
+import { sendReminders } from '../src/automation/engine.ts';
 import { q, sql } from '../src/db/index.ts';
 import { pool } from '../src/db/pool.ts';
-import { getApp, inviteUser, signup } from './helpers.ts';
+import { drainJobs, getApp, inviteUser, signup } from './helpers.ts';
 
 afterAll(async () => { await (await getApp()).close(); await pool.end(); });
 
-const drain = async (now?: Date) => { await processOutbox(); await processJobs(50, now); };
+const drain = (now?: Date) => drainJobs(now);
 
 describe('automation', () => {
   it('creates a follow-up task when a deal enters a stage', async () => {

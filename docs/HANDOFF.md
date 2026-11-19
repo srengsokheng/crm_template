@@ -546,6 +546,10 @@ The earlier list is done (see section 2). Known follow-ups, collected from the p
 9. KHQR: confirm payments automatically through the Bakong Open API (needs a token from the NBC); scan a printed QR
    with a real bank app before relying on it.
 
+Writing API tests: all test files share one database and run one after another, so the job queue can hold jobs left
+by earlier files. To run queued work (emails, Inbox sends, automation, file downloads) use `drainJobs()` from
+`apps/api/test/helpers.ts` — it runs the outbox and jobs until nothing is due — never a single `processJobs()`.
+
 Import limits and choices: 5 MB / 10,000 rows / 100 columns per file; lead rows only match *open* leads; list
 values (type, source, industry, size, deal type, category) must already exist unless an admin ticks "Add values that aren't in
 the lists yet"; deal contacts must already exist; "Undo" does not revert updates; raw cells are kept 30 days.

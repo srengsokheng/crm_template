@@ -118,6 +118,7 @@ describe('email delivery', () => {
 
   it('retries a failed delivery and then gives up without losing other jobs', async () => {
     const { c } = await signup();
+    await drain(); // other files' mail first, so the simulated failure hits ours
     memoryFailures.next = 1;
     await c.post('/users/invite', { email: 'retry@example.com', name: 'Retry', roleId: (await c.get('/roles')).body.data[1].id });
     await processJobs(50);

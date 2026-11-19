@@ -1,9 +1,18 @@
  
 import type { FastifyInstance } from 'fastify';
 import { buildApp } from '../src/app.ts';
+import { processJobs, processOutbox } from '../src/automation/engine.ts';
 
 let appPromise: Promise<FastifyInstance> | null = null;
 export const getApp = () => (appPromise ??= buildApp({ logger: false }));
+
+/**
+ * Runs the outbox and every due job until nothing is left. Test files share one database, so jobs left by earlier
+ * files can be ahead of ours in the queue: running it once (20–50 jobs) may not reach them.
+ */
+export async function drainJobs(now?: Date): Promise<void> {
+  for (let i = 0; i < 50; i++) if (!((await processOutbox()) + (await processJobs(100, now)))) return;
+}
 
 let seq = 0;
 export const uniq = (p = 'u') => `${p}${Date.now().toString(36)}${(seq++).toString(36)}`;
