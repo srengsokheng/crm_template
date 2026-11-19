@@ -12,7 +12,7 @@
 import { createHash, randomBytes } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 import {
-  activityCreateSchema, bookingCreateSchema, bookingPageSchema, bookingSlots, ct, customerDate, customerWeekday, dateIn, icsEvent, timeIn,
+  activityCreateSchema, bookingCreateSchema, bookingRescheduleSchema, bookingPageSchema, bookingSlots, ct, customerDate, customerWeekday, dateIn, icsEvent, timeIn,
   type CustomerLanguage,
 } from '@crm/shared';
 import { config } from '../config.ts';
@@ -36,7 +36,7 @@ interface PageRow {
 }
 interface BookingRow {
   id: number; workspace_id: number; page_id: number | null; host_id: number | null; activity_id: number | null; contact_id: number | null; call_id: number | null;
-  title: string; starts_at: Date; ends_at: Date; name: string; email: string; status: 'booked' | 'canceled';
+  title: string; starts_at: Date; ends_at: Date; name: string; email: string; status: 'booked' | 'canceled'; reschedules?: number;
 }
 
 const base = () => config.appUrl.replace(/\/$/, '');
@@ -57,18 +57,19 @@ export function whenText(lang: CustomerLanguage, iso: Date | string, tz: string)
 }
 
 /** The host's busy times: open meetings and calls in the CRM (default 30 minutes when no length is set). */
-async function busyOf(db: Db, workspaceId: number, hostId: number, daysAhead: number) {
+async function busyOf(db: Db, workspaceId: number, hostId: number, daysAhead: number, exceptActivityId: number | null = null) {
   const rows = await q<{ s: Date; e: Date }>(sql`SELECT due_at AS s, due_at + make_interval(mins => coalesce(nullif(duration_minutes, 0), 30)) AS e
     FROM activities WHERE workspace_id = ${workspaceId} AND assignee_id = ${hostId} AND deleted_at IS NULL AND status = 'open'
       AND kind IN ('meeting', 'call') AND due_at IS NOT NULL
-      AND due_at < now() + make_interval(days => ${daysAhead + 2}) AND due_at > now() - interval '1 day'`, db);
+      AND due_at < now() + make_interval(days => ${daysAhead + 2}) AND due_at > now() - interval '1 day'
+      ${exceptActivityId ? sql`AND id <> ${exceptActivityId}` : sql``}`, db);
   return rows.map((r) => ({ start: new Date(r.s).getTime(), end: new Date(r.e).getTime() }));
 }
 
-async function slotsOf(db: Db, p: PageRow, tz: string, now = new Date()) {
+async function slotsOf(db: Db, p: PageRow, tz: string, now = new Date(), exceptActivityId: number | null = null) {
   return bookingSlots({
     hours: { days: p.days, start: p.start_time, end: p.end_time }, duration: p.duration_minutes, tz, now,
-    minNoticeHours: p.min_notice_hours, daysAhead: p.days_ahead, busy: await busyOf(db, p.workspace_id, p.host_id, p.days_ahead),
+    minNoticeHours: p.min_notice_hours, daysAhead: p.days_ahead, busy: await busyOf(db, p.workspace_id, p.host_id, p.days_ahead, exceptActivityId),
   });
 }
 
@@ -94,6 +95,35 @@ function dbFields(b: ReturnType<typeof bookingPageSchema.parse>) {
   };
 }
 const slugTaken = () => new AppError(409, 'SLUG_TAKEN', 'This link is already used. Pick another one.', { slug: 'Already used' });
+
+/** The customer's confirmation (or "moved") email with the calendar file; `sequence` > 0 updates the calendar entry. */
+async function confirmationMail(db: Db, o: {
+  workspaceId: number; to: string; title: string; start: Date; end: Date; durationMinutes: number; token: string; videoUrl: string | null;
+  place: string; note: string; host: { name: string; email: string } | null; sequence: number; moved: boolean;
+}) {
+  const w = await wsInfo(o.workspaceId, db);
+  const when = whenText(w.lang, o.start, w.tz);
+  const place = o.videoUrl ? null : o.place;
+  await queueMail({
+    ...bookingMail({
+      to: o.to, replyTo: o.host?.email, subject: ct(w.lang, o.moved ? 'bookMovedSubject' : 'bookEmailSubject', { title: o.title, when }),
+      lines: [
+        ...(o.moved ? [ct(w.lang, 'bookMovedLine')] : []),
+        ct(w.lang, 'bookEmailWhen', { when, tz: w.tz.replace(/_/g, ' '), n: o.durationMinutes }), ct(w.lang, 'bookEmailWith', { host: o.host?.name ?? '', company: w.name }),
+        ...(place ? [ct(w.lang, 'bookEmailWhere', { place })] : []), ...(o.note ? [o.note] : []),
+        ct(w.lang, 'bookEmailCalendar'), ct(w.lang, 'bookCancelLink', { url: manageUrl(o.token) }),
+      ],
+      ...(o.videoUrl ? { button: { label: ct(w.lang, 'bookEmailJoin'), url: o.videoUrl } } : {}),
+      footer: w.name,
+      ics: icsEvent({ uid: `booking-${hash(o.token).slice(0, 16)}@acme-crm`, start: o.start, end: o.end, title: `${o.title} — ${w.name}`,
+        description: [o.videoUrl, manageUrl(o.token)].filter(Boolean).join('\n'), location: o.videoUrl ?? o.place, sequence: o.sequence }),
+    }),
+    fromName: await workspaceSender(o.workspaceId, db),
+  }, db, { workspaceId: o.workspaceId });
+}
+
+/** How many times a customer may move one booking. */
+const MAX_MOVES = 3;
 
 export async function bookingRoutes(app: FastifyInstance) {
   // ── Team: booking pages ──
@@ -229,22 +259,8 @@ export async function publicBookingRoutes(app: FastifyInstance) {
           ${body.phone}, ${body.note}, ${hash(token)})`, db);
       await audit(db, ctx, 'contact', contactId, 'booked', { page: p.title, start: start.toISOString(), activityId }, 'automation');
 
-      const when = whenText(w.lang, start, w.tz);
-      const place = videoUrl ? null : p.location;
-      await queueMail({
-        ...bookingMail({
-          to: body.email.trim(), replyTo: host?.email, subject: ct(w.lang, 'bookEmailSubject', { title: p.title, when }),
-          lines: [
-            ct(w.lang, 'bookEmailWhen', { when, tz: w.tz.replace(/_/g, ' '), n: p.duration_minutes }), ct(w.lang, 'bookEmailWith', { host: host?.name ?? '', company: w.name }),
-            ...(place ? [ct(w.lang, 'bookEmailWhere', { place })] : []), ...(body.note ? [body.note] : []),
-            ct(w.lang, 'bookEmailCalendar'), ct(w.lang, 'bookCancelLink', { url: manageUrl(token) }),
-          ],
-          ...(videoUrl ? { button: { label: ct(w.lang, 'bookEmailJoin'), url: videoUrl } } : {}),
-          footer: w.name,
-          ics: icsEvent({ uid: `booking-${hash(token).slice(0, 16)}@acme-crm`, start, end, title: `${p.title} — ${w.name}`, description: [videoUrl, manageUrl(token)].filter(Boolean).join('\n'), location: videoUrl ?? p.location }),
-        }),
-        fromName: await workspaceSender(p.workspace_id, db),
-      }, db, { workspaceId: p.workspace_id });
+      await confirmationMail(db, { workspaceId: p.workspace_id, to: body.email.trim(), title: p.title, start, end, durationMinutes: p.duration_minutes, token,
+        videoUrl, place: p.location, note: body.note, host: host ?? null, sequence: 0, moved: false });
       return { start: start.toISOString(), end: end.toISOString(), email: body.email.trim() };
     });
     return reply.code(201).send(out);
@@ -263,10 +279,70 @@ export async function publicBookingRoutes(app: FastifyInstance) {
     const host = b.host_id ? await q1<{ name: string }>(sql`SELECT name FROM users WHERE id = ${b.host_id}`) : null;
     const call = b.call_id ? await q1<{ guest_token_sealed: string; status: string }>(sql`SELECT guest_token_sealed, status FROM calls WHERE id = ${b.call_id}`) : null;
     const future = new Date(b.ends_at).getTime() > Date.now();
+    const page = b.page_id ? await movablePage(b) : null;
     return {
+      canReschedule: !!page && b.status === 'booked' && new Date(b.starts_at).getTime() > Date.now() && (b.reschedules ?? 0) < MAX_MOVES,
       title: b.title, start: b.starts_at, end: b.ends_at, status: b.status, host: host?.name ?? '', company: w.name, tz: w.tz, lang: w.lang, name: b.name,
       past: !future, videoUrl: b.status === 'booked' && future && call?.status === 'open' ? guestUrlOf(call) : null,
     };
+  });
+
+  /** The booking's page, when moving is still possible there (page on, host still a member). */
+  async function movablePage(b: BookingRow, db: Db = pool) {
+    const p = await q1<{ slug: string }>(sql`SELECT slug FROM booking_pages WHERE id = ${b.page_id}`, db);
+    if (!p) return null;
+    return publicPage(p.slug, db).catch(() => null);
+  }
+
+  /** Free times to move to (the booking's own time doesn't block nearby ones). */
+  app.get<{ Params: { token: string } }>('/public/bookings/:token/slots', read, async (req) => {
+    const b = await byToken(req.params.token);
+    if (!b) throw notFound('Booking');
+    const p = await movablePage(b);
+    if (!p || b.status !== 'booked') throw conflict('This booking can’t be moved. Cancel it and book again, or contact us.');
+    const w = await wsInfo(b.workspace_id);
+    const days = (await slotsOf(pool, p, w.tz, new Date(), b.activity_id)).map((d) => ({ ...d, slots: d.slots.filter((s) => s !== new Date(b.starts_at).toISOString()) })).filter((d) => d.slots.length);
+    return { tz: w.tz, lang: w.lang, durationMinutes: p.duration_minutes, daysAhead: p.days_ahead, days };
+  });
+
+  /** Move the booking: meeting, its reminder and video call follow; the host is told; a new calendar file is sent. */
+  app.post<{ Params: { token: string } }>('/public/bookings/:token/reschedule', write, async (req) => {
+    const body = parse(bookingRescheduleSchema, req.body);
+    const start = new Date(body.start);
+    return tx(async (db) => {
+      const b = await byToken(req.params.token, db, true);
+      if (!b) throw notFound('Booking');
+      if (b.status !== 'booked') throw conflict('This booking was canceled');
+      if (new Date(b.starts_at).getTime() <= Date.now()) throw conflict('This booking has already started');
+      if ((b.reschedules ?? 0) >= MAX_MOVES) throw new AppError(409, 'TOO_MANY_MOVES', 'This booking was moved several times already. Please contact us to change it.');
+      const p = await movablePage(b, db);
+      if (!p) throw conflict('This booking can’t be moved. Cancel it and book again, or contact us.');
+      await q(sql`SELECT 1 FROM users WHERE id = ${p.host_id} FOR UPDATE`, db);
+      const w = await wsInfo(b.workspace_id, db);
+      const free = start.toISOString() !== new Date(b.starts_at).toISOString()
+        && (await slotsOf(db, p, w.tz, new Date(), b.activity_id)).some((d) => d.slots.includes(start.toISOString()));
+      if (!free) throw new AppError(409, 'TAKEN', ct(w.lang, 'bookTaken'));
+      const end = new Date(start.getTime() + p.duration_minutes * 60_000);
+      const from = new Date(b.starts_at);
+      const moves = (b.reschedules ?? 0) + 1;
+      await q(sql`UPDATE bookings SET starts_at = ${start}, ends_at = ${end}, reschedules = ${moves} WHERE id = ${b.id}`, db);
+      if (b.activity_id) {
+        await q(sql`UPDATE activities SET due_at = ${start}, duration_minutes = ${p.duration_minutes}, reminder_at = ${new Date(start.getTime() - 15 * 60_000)},
+          reminded_at = NULL, updated_at = now(), version = version + 1 WHERE id = ${b.activity_id}`, db);
+      }
+      const call = b.call_id ? await q1<{ guest_token_sealed: string; status: string }>(sql`UPDATE calls SET scheduled_for = ${end} WHERE id = ${b.call_id} RETURNING guest_token_sealed, status`, db) : null;
+      const ctx = systemCtx(b.workspace_id, b.host_id ?? 0);
+      if (b.contact_id) await audit(db, ctx, 'contact', b.contact_id, 'booking_moved', { title: b.title, from: from.toISOString(), to: start.toISOString() }, 'system');
+      if (b.host_id) {
+        await q(sql`INSERT INTO notifications (workspace_id, user_id, kind, title, body, entity_type, entity_id)
+          VALUES (${b.workspace_id}, ${b.host_id}, 'booking', ${`${b.name} moved their booking`}, ${`${b.title} · ${whenText('en', from, w.tz)} → ${whenText('en', start, w.tz)}`},
+            ${b.contact_id ? 'contact' : null}, ${b.contact_id})`, db);
+      }
+      const host = b.host_id ? await q1<{ name: string; email: string }>(sql`SELECT name, email FROM users WHERE id = ${b.host_id}`, db) : null;
+      await confirmationMail(db, { workspaceId: b.workspace_id, to: b.email, title: b.title, start, end, durationMinutes: p.duration_minutes, token: req.params.token,
+        videoUrl: call?.status === 'open' ? guestUrlOf(call) : null, place: p.location, note: '', host: host ?? null, sequence: moves, moved: true });
+      return { start: start.toISOString(), end: end.toISOString() };
+    });
   });
 
   /** The customer cancels (before it starts). The host is told; the meeting and its call are canceled. */
@@ -291,7 +367,7 @@ export async function publicBookingRoutes(app: FastifyInstance) {
       await queueMail({
         ...bookingMail({
           to: b.email, subject: ct(w.lang, 'bookCanceledSubject', { title: b.title, when }), lines: [ct(w.lang, 'bookCanceled')], footer: w.name,
-          ics: icsEvent({ uid: `booking-${hash(req.params.token).slice(0, 16)}@acme-crm`, start: new Date(b.starts_at), end: new Date(b.ends_at), title: `${b.title} — ${w.name}`, description: '', location: '', status: 'CANCELLED' }),
+          ics: icsEvent({ uid: `booking-${hash(req.params.token).slice(0, 16)}@acme-crm`, start: new Date(b.starts_at), end: new Date(b.ends_at), title: `${b.title} — ${w.name}`, description: '', location: '', status: 'CANCELLED', sequence: (b.reschedules ?? 0) + 1 }),
         }),
         fromName: await workspaceSender(b.workspace_id, db),
       }, db, { workspaceId: b.workspace_id });

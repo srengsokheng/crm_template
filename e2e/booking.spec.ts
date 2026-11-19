@@ -61,15 +61,26 @@ test('online booking: set up a page, a customer books a time, the meeting appear
   await page.getByRole('row', { name: /Dara Sok/ }).getByText('Dara Sok', { exact: true }).click();
   await expect(page.getByText(/^Booked “Showroom visit” online for /)).toBeVisible();
 
-  // The customer cancels from the email link.
+  // The customer moves it to another time from the email link…
   const link = await manageLink(email);
   await customer.goto(baseURL + link);
   await expect(customer.getByRole('link', { name: 'Join the video call' })).toBeVisible();
+  await customer.getByRole('button', { name: 'Pick a new time' }).click();
+  await expect(customer.getByRole('heading', { name: 'Pick a new time' })).toBeVisible();
+  const newTime = customer.getByRole('button', { name: /^\d\d:\d\d$/ }).nth(2);
+  const newLabel = (await newTime.textContent())!;
+  await newTime.click();
+  await customer.getByRole('button', { name: `Book ${newLabel}` }).click();
+  await expect(customer.getByText(/^Your booking is moved to .*We sent the new details to your email\.$/)).toBeVisible();
+  await expect(customer.getByText(new RegExp(`, ${newLabel} · with `))).toBeVisible();
+
+  // …and then cancels.
   await customer.getByRole('button', { name: 'Cancel booking' }).click();
   await customer.getByRole('dialog').getByRole('button', { name: 'Cancel booking' }).click();
   await expect(customer.getByText(/Your booking is canceled\./)).toBeVisible();
   await ctx.close();
 
   await page.reload();
+  await expect(page.getByText(/^Moved their online booking “Showroom visit” from /)).toBeVisible();
   await expect(page.getByText(/^Canceled their online booking “Showroom visit”/)).toBeVisible();
 });

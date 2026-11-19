@@ -141,4 +141,70 @@ describe('online booking', () => {
     expect((await c.del(`/booking-pages/${p.id}`)).status).toBe(204);
     expect((await actOf(bk.activity_id)).status).toBe('open');
   });
+
+  it('the customer moves their booking: meeting, reminder, call and calendar follow; limits', async () => {
+    const { c, me } = await signup(); const user = me.user;
+    const p = await page(c, user.id, { durationMinutes: 60 }); // 60 minutes, every 30: the next slot overlaps the booked one
+    const slots = (await pub('GET', `/book/${p.slug}`)).body.days.flatMap((d: any) => d.slots) as string[];
+    const before = (await pool.query(`SELECT coalesce(max(id), 0) AS id FROM jobs`)).rows[0].id;
+    expect((await pub('POST', `/book/${p.slug}`, { start: slots[0], name: 'Dara Sok', email: 'dara@move.test' })).status).toBe(201);
+    expect((await pub('POST', `/book/${p.slug}`, { start: slots[6], name: 'Bo', email: 'bo@move.test' })).status).toBe(201); // someone else
+    const mails = async (to: string) => (await pool.query(`SELECT payload FROM jobs WHERE type = 'email.send' AND id > $1 AND payload->>'to' = $2 ORDER BY id`, [before, to])).rows.map((r) => r.payload);
+    const first = (await mails('dara@move.test'))[0];
+    const token = /\/booking\/([\w-]+)/.exec(first.text)![1];
+    const ics = (m: any) => Buffer.from(m.attachments[0].content, 'base64').toString();
+    const uid = /UID:(.+)\r\n/.exec(ics(first))![1];
+    expect(ics(first)).toContain('SEQUENCE:0');
+
+    expect((await pub('GET', `/bookings/${token}`)).body.canReschedule).toBe(true);
+    const moveTo = (await pub('GET', `/bookings/${token}/slots`)).body;
+    const offered = moveTo.days.flatMap((d: any) => d.slots);
+    expect(offered).not.toContain(slots[0]); // its own time
+    expect(offered).toContain(slots[1]); // overlaps its own time: still offered
+    expect(offered).not.toContain(slots[6]); // someone else's
+
+    expect((await pub('POST', `/bookings/${token}/reschedule`, { start: slots[0] })).status).toBe(409); // same time
+    expect((await pub('POST', `/bookings/${token}/reschedule`, { start: slots[6] })).body.error.code).toBe('TAKEN');
+    const moved = await pub('POST', `/bookings/${token}/reschedule`, { start: slots[1] });
+    expect(moved.status).toBe(200);
+    expect(moved.body.start).toBe(slots[1]);
+
+    const bk = (await pool.query(`SELECT * FROM bookings WHERE token_hash IS NOT NULL AND email = 'dara@move.test'`)).rows[0];
+    expect(bk.reschedules).toBe(1);
+    const act = (await pool.query(`SELECT due_at, reminder_at, reminded_at FROM activities WHERE id = $1`, [bk.activity_id])).rows[0];
+    expect(new Date(act.due_at).toISOString()).toBe(slots[1]);
+    expect(new Date(act.reminder_at).toISOString()).toBe(new Date(Date.parse(slots[1]) - 15 * 60_000).toISOString());
+    expect(act.reminded_at).toBeNull();
+    const call = (await pool.query(`SELECT scheduled_for FROM calls WHERE id = $1`, [bk.call_id])).rows[0];
+    expect(new Date(call.scheduled_for).toISOString()).toBe(new Date(Date.parse(slots[1]) + 60 * 60_000).toISOString());
+    const movedMail = (await mails('dara@move.test')).at(-1);
+    expect(movedMail.subject).toMatch(/^Moved: Showroom visit to /);
+    expect(movedMail.text).toContain('Your booking was moved.');
+    expect(ics(movedMail)).toContain(`UID:${uid}`); // the same calendar entry…
+    expect(ics(movedMail)).toContain('SEQUENCE:1'); // …in a newer version
+    const note = (await pool.query(`SELECT title FROM notifications WHERE user_id = $1 ORDER BY id DESC LIMIT 1`, [user.id])).rows[0];
+    expect(note.title).toBe('Dara Sok moved their booking');
+    const tl = (await c.get(`/timeline/contact/${bk.contact_id}`)).body.items.filter((i: any) => i.type === 'event').map((i: any) => i.data.action);
+    expect(tl).toContain('booking_moved');
+    // Up to three moves. After moving away, the earlier times are free again; the new one isn't.
+    expect((await pub('POST', `/bookings/${token}/reschedule`, { start: slots[10] })).status).toBe(200);
+    const now = (await pub('GET', `/book/${p.slug}`)).body.days.flatMap((d: any) => d.slots);
+    expect(now).toEqual(expect.arrayContaining([slots[0], slots[1]]));
+    expect(now).not.toContain(slots[10]);
+    expect((await pub('POST', `/bookings/${token}/reschedule`, { start: slots[12] })).status).toBe(200);
+    expect((await pub('GET', `/bookings/${token}`)).body.canReschedule).toBe(false);
+    expect((await pub('POST', `/bookings/${token}/reschedule`, { start: slots[14] })).body.error.code).toBe('TOO_MANY_MOVES');
+    // Cancelling still works, and its calendar file outranks every earlier one.
+    expect((await pub('POST', `/bookings/${token}/cancel`)).status).toBe(200);
+    const cancelMail = (await mails('dara@move.test')).at(-1);
+    expect(ics(cancelMail)).toContain('SEQUENCE:4');
+    expect(ics(cancelMail)).toContain('METHOD:CANCEL');
+    expect((await pub('POST', `/bookings/${token}/reschedule`, { start: slots[16] })).status).toBe(409);
+
+    // A page that's off: the booking can't be moved (cancel still can).
+    const bo = /\/booking\/([\w-]+)/.exec((await mails('bo@move.test'))[0].text)![1];
+    await c.put(`/booking-pages/${p.id}`, { title: 'Showroom visit', slug: p.slug, hostId: user.id, durationMinutes: 60, days: allDays, start: '00:00', end: '23:30', active: false });
+    expect((await pub('GET', `/bookings/${bo}`)).body.canReschedule).toBe(false);
+    expect((await pub('GET', `/bookings/${bo}/slots`)).status).toBe(409);
+  });
 });

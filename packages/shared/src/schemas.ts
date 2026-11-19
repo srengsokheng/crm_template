@@ -547,6 +547,8 @@ export const bookingPageSchema = z.object({
   active: z.boolean().default(true),
 }).refine((v) => v.end > v.start, { message: 'Must be after the start', path: ['end'] });
 export type BookingPageInput = z.infer<typeof bookingPageSchema>;
+/** A customer moves their booking to another free time (public). */
+export const bookingRescheduleSchema = z.object({ start: z.iso.datetime({ offset: true }) });
 /** A customer books a time (public). */
 export const bookingCreateSchema = z.object({
   start: z.iso.datetime({ offset: true }),

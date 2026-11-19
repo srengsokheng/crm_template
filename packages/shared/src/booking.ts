@@ -54,11 +54,11 @@ export function dateIn(iso: string | Date, tz: string): string {
 }
 
 /** A calendar file (.ics) for one booked meeting. */
-export function icsEvent(o: { uid: string; start: Date; end: Date; title: string; description: string; location: string; status?: 'CONFIRMED' | 'CANCELLED' }): string {
+export function icsEvent(o: { uid: string; start: Date; end: Date; title: string; description: string; location: string; status?: 'CONFIRMED' | 'CANCELLED'; sequence?: number }): string {
   const f = (d: Date) => d.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '');
   const esc = (s: string) => s.replace(/\\/g, '\\\\').replace(/;/g, '\\;').replace(/,/g, '\\,').replace(/\r?\n/g, '\\n');
   return ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Acme CRM//Booking//EN', `METHOD:${o.status === 'CANCELLED' ? 'CANCEL' : 'PUBLISH'}`, 'BEGIN:VEVENT',
-    `UID:${o.uid}`, `DTSTAMP:${f(new Date())}`, `DTSTART:${f(o.start)}`, `DTEND:${f(o.end)}`, `SUMMARY:${esc(o.title)}`,
+    `UID:${o.uid}`, `SEQUENCE:${o.sequence ?? 0}`, `DTSTAMP:${f(new Date())}`, `DTSTART:${f(o.start)}`, `DTEND:${f(o.end)}`, `SUMMARY:${esc(o.title)}`,
     `DESCRIPTION:${esc(o.description)}`, `LOCATION:${esc(o.location)}`, `STATUS:${o.status ?? 'CONFIRMED'}`,
     'END:VEVENT', 'END:VCALENDAR', ''].join('\r\n');
 }

@@ -17,6 +17,43 @@ const both = (k: TextKey) => `${ct('km', k)} · ${ct('en', k)}`;
 const monthOf = (lang: CustomerLanguage, d: string) => { const parts = customerDate(lang, d).split(' '); return lang === 'en' ? parts[0] : parts[1]; };
 const when = (lang: CustomerLanguage, iso: string, tz: string) => { const d = dateIn(iso, tz); return `${customerWeekday(lang, d)} ${customerDate(lang, d)}, ${timeIn(iso, tz)}`; };
 
+type SlotDay = { date: string; slots: string[] };
+
+/** Pick a day, then a time (shared by booking and moving a booking). */
+function SlotPicker({ days, lang, tz, problem, onPick }: { days: SlotDay[]; lang: CustomerLanguage; tz: string; problem?: string; onPick: (iso: string) => void }) {
+  const [day, setDay] = useState<string | null>(null);
+  const t = (k: TextKey, vars?: Record<string, string | number>) => ct(lang, k, vars);
+  const selectedDay = days.find((d) => d.date === day) ?? days[0];
+  return (
+    <div className="space-y-4 p-5 sm:p-6">
+      {problem && <p className="rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:bg-amber-500/10 dark:text-amber-100" role="alert">{problem}</p>}
+      <div>
+        <h2 className="mb-2 text-sm font-semibold">{t('bookPickDay')}</h2>
+        <div className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1" role="listbox" aria-label={t('bookPickDay')}>
+          {days.map((d) => {
+            const on = d.date === selectedDay.date;
+            return (
+              <button key={d.date} type="button" role="option" aria-selected={on} onClick={() => setDay(d.date)}
+                className={cn('flex min-w-16 shrink-0 flex-col items-center whitespace-nowrap rounded-lg border px-3 py-2 text-center text-xs', on ? 'border-brand-600 bg-brand-50 text-brand-700 dark:bg-brand-600/20 dark:text-brand-100' : 'border-base hover:bg-[var(--surface-2)]')}>
+                <span className="font-medium">{customerWeekday(lang, d.date)}</span>
+                <span className="text-lg font-semibold">{Number(d.date.slice(8, 10))}</span>
+                <span className="text-muted">{monthOf(lang, d.date)}</span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+      <div>
+        <h2 className="mb-2 text-sm font-semibold">{t('bookPickTime')} · {customerWeekday(lang, selectedDay.date)} {customerDate(lang, selectedDay.date)}</h2>
+        <div className="grid grid-cols-3 gap-2 sm:grid-cols-5" aria-label={t('bookPickTime')}>
+          {selectedDay.slots.map((s) => <Button key={s} onClick={() => onPick(s)} className="justify-center tabular-nums">{timeIn(s, tz)}</Button>)}
+        </div>
+        <p className="mt-2 text-xs text-muted">{t('bookTz', { tz: tz.replace(/_/g, ' ') })}</p>
+      </div>
+    </div>
+  );
+}
+
 function Shell({ lang, children }: { lang?: CustomerLanguage; children: React.ReactNode }) {
   return (
     <main className="min-h-dvh bg-[var(--bg)] px-4 py-6 sm:py-10" lang={!lang || lang === 'en' ? 'en' : 'km'}>
@@ -33,7 +70,6 @@ export function PublicBookingPage() {
     if (!r.ok) throw new Error(r.status === 404 ? both('bookBadLink') : both('somethingWrong'));
     return (await r.json()) as PageInfo;
   } });
-  const [day, setDay] = useState<string | null>(null);
   const [slot, setSlot] = useState<string | null>(null);
   const [form, setForm] = useState({ name: '', email: '', phone: '', note: '' });
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -44,8 +80,6 @@ export function PublicBookingPage() {
   if (info.isError) return <Shell><EmptyState icon={<CalendarCheck className="size-5" />} title={both('bookBadLink')} description={(info.error as Error).message === both('bookBadLink') ? undefined : (info.error as Error).message} /></Shell>;
   const p = info.data!;
   const t = (k: TextKey, vars?: Record<string, string | number>) => ct(p.lang, k, vars);
-  const selectedDay = p.days.find((d) => d.date === day) ?? p.days[0];
-
   const book = async () => {
     if (!slot) return;
     setState('busy'); setErrors({}); setProblem('');
@@ -93,34 +127,7 @@ export function PublicBookingPage() {
     <Shell lang={p.lang}>
       {header}
       {!p.days.length ? <EmptyState title={t('bookNoSlots', { n: p.daysAhead })} /> : !slot ? (
-        <div className="space-y-4 p-5 sm:p-6">
-          {problem && <p className="rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:bg-amber-500/10 dark:text-amber-100" role="alert">{problem}</p>}
-          <div>
-            <h2 className="mb-2 text-sm font-semibold">{t('bookPickDay')}</h2>
-            <div className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1" role="listbox" aria-label={t('bookPickDay')}>
-              {p.days.map((d) => {
-                const on = d.date === selectedDay.date;
-                return (
-                  <button key={d.date} type="button" role="option" aria-selected={on} onClick={() => setDay(d.date)}
-                    className={cn('flex min-w-16 shrink-0 flex-col items-center whitespace-nowrap rounded-lg border px-3 py-2 text-center text-xs', on ? 'border-brand-600 bg-brand-50 text-brand-700 dark:bg-brand-600/20 dark:text-brand-100' : 'border-base hover:bg-[var(--surface-2)]')}>
-                    <span className="font-medium">{customerWeekday(p.lang, d.date)}</span>
-                    <span className="text-lg font-semibold">{Number(d.date.slice(8, 10))}</span>
-                    <span className="text-muted">{monthOf(p.lang, d.date)}</span>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-          <div>
-            <h2 className="mb-2 text-sm font-semibold">{t('bookPickTime')} · {customerWeekday(p.lang, selectedDay.date)} {customerDate(p.lang, selectedDay.date)}</h2>
-            <div className="grid grid-cols-3 gap-2 sm:grid-cols-5" aria-label={t('bookPickTime')}>
-              {selectedDay.slots.map((s) => (
-                <Button key={s} onClick={() => { setSlot(s); setProblem(''); }} className="justify-center tabular-nums">{timeIn(s, p.tz)}</Button>
-              ))}
-            </div>
-            <p className="mt-2 text-xs text-muted">{t('bookTz', { tz: p.tz.replace(/_/g, ' ') })}</p>
-          </div>
-        </div>
+        <SlotPicker days={p.days} lang={p.lang} tz={p.tz} problem={problem} onPick={(iso) => { setSlot(iso); setProblem(''); }} />
       ) : (
         <form className="space-y-3 p-5 sm:p-6" onSubmit={(e) => { e.preventDefault(); void book(); }}>
           <p className="flex flex-wrap items-center justify-between gap-2 rounded-md bg-[var(--surface-2)] px-3 py-2 text-sm">
@@ -144,9 +151,12 @@ export function PublicBookingPage() {
   );
 }
 
-interface Mine { title: string; start: string; end: string; status: 'booked' | 'canceled'; host: string; company: string; tz: string; lang: CustomerLanguage; name: string; past: boolean; videoUrl: string | null }
+interface Mine {
+  title: string; start: string; end: string; status: 'booked' | 'canceled'; host: string; company: string; tz: string; lang: CustomerLanguage; name: string; past: boolean;
+  videoUrl: string | null; canReschedule: boolean;
+}
 
-/** /booking/:token — the customer's booking from the email: details, video link, cancel. */
+/** /booking/:token — the customer's booking from the email: details, video link, move to another time, cancel. */
 export function ManageBookingPage() {
   const token = useParams().token ?? '';
   const q = useQuery({ queryKey: ['my-booking', token], retry: false, queryFn: async () => {
@@ -158,6 +168,15 @@ export function ManageBookingPage() {
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState(false);
   const [problem, setProblem] = useState('');
+  const [moving, setMoving] = useState<null | 'pick' | 'confirm'>(null);
+  const [target, setTarget] = useState<string | null>(null);
+  const [moved, setMoved] = useState<string | null>(null);
+  const slots = useQuery({ queryKey: ['my-booking-slots', token], enabled: moving === 'pick', retry: false, staleTime: 0, refetchOnMount: 'always', queryFn: async () => {
+    const r = await fetch(`/api/v1/public/bookings/${encodeURIComponent(token)}/slots`);
+    const data = await r.json().catch(() => null);
+    if (!r.ok) throw new Error(data?.error?.message ?? both('somethingWrong'));
+    return data as { days: SlotDay[]; tz: string; lang: CustomerLanguage; daysAhead: number };
+  } });
   if (q.isLoading) return <Shell><div className="p-6"><Skeleton className="h-24" /></div></Shell>;
   if (q.isError) return <Shell><EmptyState title={both('bookBadLink')} /></Shell>;
   const b = q.data!;
@@ -170,12 +189,51 @@ export function ManageBookingPage() {
       setDone(true); setAsking(false); await q.refetch();
     } catch { setProblem(t('somethingWrong')); } finally { setBusy(false); }
   };
+  const move = async () => {
+    if (!target) return;
+    setBusy(true); setProblem('');
+    try {
+      const r = await fetch(`/api/v1/public/bookings/${encodeURIComponent(token)}/reschedule`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ start: target }) });
+      const data = await r.json().catch(() => null);
+      if (r.status === 409 && data?.error?.code === 'TAKEN') { setProblem(t('bookTaken')); setTarget(null); setMoving('pick'); await slots.refetch(); return; }
+      if (!r.ok) throw new Error(data?.error?.message ?? t('somethingWrong'));
+      setMoved(target); setMoving(null); setTarget(null); await q.refetch();
+    } catch (e) { setProblem((e as Error).message); } finally { setBusy(false); }
+  };
+  if (moving) {
+    return (
+      <Shell lang={b.lang}>
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-base p-5 sm:p-6">
+          <div className="min-w-0">
+            <p className="text-sm text-muted">{b.title}</p>
+            <h1 className="text-lg font-semibold">{t('bookReschedule')}</h1>
+          </div>
+          <Button size="sm" variant="ghost" onClick={() => { setMoving(null); setTarget(null); setProblem(''); }}>{t('bookKeep')}</Button>
+        </div>
+        {moving === 'confirm' && target ? (
+          <div className="space-y-3 p-5 sm:p-6">
+            <p className="text-sm"><span className="line-through text-muted">{when(b.lang, b.start, b.tz)}</span></p>
+            <p className="text-base font-semibold">{when(b.lang, target, b.tz)}</p>
+            {problem && <p className="text-sm text-rose-600" role="alert">{problem}</p>}
+            <div className="flex flex-wrap gap-2">
+              <Button variant="primary" loading={busy} onClick={() => void move()}>{t('bookConfirm', { when: timeIn(target, b.tz) })}</Button>
+              <Button onClick={() => { setMoving('pick'); setTarget(null); }}>{t('bookBack')}</Button>
+            </div>
+          </div>
+        ) : slots.isLoading ? <div className="p-6"><Skeleton className="h-40" /></div>
+          : slots.isError ? <div className="p-6"><p className="text-sm text-rose-600" role="alert">{(slots.error as Error).message}</p></div>
+          : !slots.data!.days.length ? <EmptyState title={t('bookNoSlots', { n: slots.data!.daysAhead })} />
+          : <SlotPicker days={slots.data!.days} lang={b.lang} tz={b.tz} problem={problem} onPick={(iso) => { setTarget(iso); setProblem(''); setMoving('confirm'); }} />}
+      </Shell>
+    );
+  }
   return (
     <Shell lang={b.lang}>
       <div className="space-y-3 p-6">
         <p className="text-sm text-muted">{b.company}</p>
         <h1 className="text-xl font-semibold">{b.title}</h1>
         <p className={cn('text-sm', b.status === 'canceled' && 'line-through')}>{when(b.lang, b.start, b.tz)} · {t('bookWith', { host: b.host })}</p>
+        {moved && b.status === 'booked' && <p className="rounded-md bg-emerald-50 px-3 py-2 text-sm text-emerald-800 dark:bg-emerald-500/10 dark:text-emerald-200" role="status">{t('bookMoved', { when: when(b.lang, moved, b.tz) })}</p>}
         {done ? <p className="text-sm" role="status">{t('bookCancelDone', { host: b.host })}</p>
           : b.status === 'canceled' ? <p className="text-sm" role="status">{t('bookCanceled')}</p>
           : b.past ? <p className="text-sm text-muted">{t('bookPast')}</p> : null}
@@ -183,6 +241,7 @@ export function ManageBookingPage() {
         {b.status === 'booked' && !b.past && (
           <div className="flex flex-wrap gap-2 pt-1">
             {b.videoUrl && <a href={b.videoUrl} className="inline-flex h-9 items-center gap-2 rounded-[var(--radius-control)] bg-brand-600 px-3 text-sm font-medium text-white hover:bg-brand-700"><Video className="size-4" aria-hidden="true" />{t('bookEmailJoin')}</a>}
+            {b.canReschedule && <Button onClick={() => { setMoving('pick'); setProblem(''); setMoved(null); }}>{t('bookReschedule')}</Button>}
             <Button onClick={() => setAsking(true)}>{t('bookCancel')}</Button>
           </div>
         )}

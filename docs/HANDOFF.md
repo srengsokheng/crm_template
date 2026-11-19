@@ -451,7 +451,11 @@ The research behind every decision is in this folder:
   linked to it (15-minute reminder; the host is notified), opens a video call for it on video pages (guest link in the
   meeting's location; planned calls stay open until a day after their time), and emails the customer a confirmation
   in the customer language with a calendar file (.ics) and a link to `/booking/<token>` (join the call, cancel).
-  Cancelling cancels the meeting and its call, tells the host and frees the time. Bookings for one host are serialised
+  Cancelling cancels the meeting and its call, tells the host and frees the time. **Moving** (migration 0040): on the
+  same page, "Pick a new time" shows the free times (their own booking doesn't block nearby ones); the booking, the
+  meeting (and its 15-minute reminder) and the video call move, the host is told, the contact's timeline notes it, and
+  a new confirmation with the calendar file's SEQUENCE raised replaces the old calendar entry. Up to 3 moves per booking;
+  not when the page was turned off or deleted (cancel still works). Bookings for one host are serialised
   (no double booking); at most 3 upcoming bookings per email per page; public endpoints are rate-limited. The contact's
   timeline shows "Booked …" and cancellations; the page's upcoming bookings are listed for admins and the host.
 
@@ -517,7 +521,7 @@ The research behind every decision is in this folder:
   one at their request (the email choice covers every contact with the same address). Every change — the customer’s
   STOP/START or link, or a team member — is on the contact’s timeline.
 
-**Quality:** 273 Vitest tests (API against real PostgreSQL), 77 Playwright tests (desktop, tablet, phone), lint and
+**Quality:** 274 Vitest tests (API against real PostgreSQL), 77 Playwright tests (desktop, tablet, phone), lint and
 typecheck clean, `npm audit` = 0, GitHub Actions CI in `.github/workflows/ci.yml`.
 
 ## 3. Not built yet — suggested next work (in priority order)
@@ -541,8 +545,8 @@ The earlier list is done (see section 2). Known follow-ups, collected from the p
    bulk-mail rules (SPF/DKIM/DMARC for the sending domain).
 7. Payment reminders: WhatsApp isn't used (outside the 24-hour window it needs an approved template per language);
    could be added like broadcasts. Reminders stop when an invoice is paid in the CRM — record bank payments promptly.
-8. Booking: no sync with Google/Outlook calendars (only CRM meetings block times); no rescheduling (cancel and book
-   again); one host per page (no round-robin).
+8. Booking: no sync with Google/Outlook calendars (only CRM meetings block times); one host per page (no round-robin);
+   the team can't move a booking for the customer yet (they edit the meeting; the customer isn't emailed).
 9. KHQR: confirm payments automatically through the Bakong Open API (needs a token from the NBC); scan a printed QR
    with a real bank app before relying on it.
 
