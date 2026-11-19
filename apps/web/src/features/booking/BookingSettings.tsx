@@ -6,10 +6,13 @@ import { BOOKING_DURATIONS } from '@crm/shared';
 import { api, ApiError, errorMessage } from '../../lib/api.ts';
 import { dateTime, fromLocalInput, toLocalInput } from '../../lib/format.ts';
 import { useMe, useMeta } from '../../lib/hooks.ts';
+import { WhatsAppTemplateField } from '../settings/WhatsAppTemplateField.tsx';
+import { WA_BOOKING_FIELDS, type WaTemplateSetting } from '@crm/shared';
 import { Badge, Button, Card, Checkbox, EmptyState, ErrorState, Field, IconButton, Input, Select, Skeleton, Textarea } from '../../components/ui/primitives.tsx';
 import { ConfirmDialog, Dialog } from '../../components/ui/overlays.tsx';
 
 export interface BookingPageRow {
+  whatsapp: WaTemplateSetting | null;
   id: number; slug: string; title: string; description: string; hostId: number; hostIds: (number | string)[]; hostName: string; durationMinutes: number; days: number[];
   startTime: string; endTime: string; minNoticeHours: number; daysAhead: number; video: boolean; location: string; active: boolean; upcoming: number; url: string;
 }
@@ -68,7 +71,8 @@ function PageDialog({ page, onClose }: { page: BookingPageRow | null; onClose: (
   const [f, setF] = useState(() => page ? {
     title: page.title, slug: page.slug, description: page.description, hostIds: page.hostIds.map(Number), durationMinutes: page.durationMinutes, days: page.days,
     start: page.startTime, end: page.endTime, minNoticeHours: page.minNoticeHours, daysAhead: page.daysAhead, video: page.video, location: page.location, active: page.active,
-  } : { title: '', slug: '', description: '', hostIds: me ? [me.user.id] : [], durationMinutes: 30, days: [1, 2, 3, 4, 5], start: '09:00', end: '17:00', minNoticeHours: 4, daysAhead: 30, video: true, location: '', active: true });
+    whatsapp: page.whatsapp,
+  } : { title: '', slug: '', description: '', hostIds: me ? [me.user.id] : [], durationMinutes: 30, days: [1, 2, 3, 4, 5], start: '09:00', end: '17:00', minNoticeHours: 4, daysAhead: 30, video: true, location: '', active: true, whatsapp: null as WaTemplateSetting | null });
   const meta = useMeta();
   const users = (meta.data?.users ?? []).filter((u) => u.status === 'active' || f.hostIds.includes(u.id));
   const [slugTouched, setSlugTouched] = useState(!!page);
@@ -136,6 +140,8 @@ function PageDialog({ page, onClose }: { page: BookingPageRow | null; onClose: (
         <Checkbox checked={f.video} onChange={(v) => setF({ ...f, video: v })} label="Video call (each booking gets its own call link)" />
         {!f.video && <Field label="Where" htmlFor="bp-loc" hint="Address or phone, shown to the customer" error={errors.location}><Input id="bp-loc" maxLength={200} value={f.location} onChange={(e) => setF({ ...f, location: e.target.value })} /></Field>}
         <Field label="Description (optional)" htmlFor="bp-desc" error={errors.description}><Textarea id="bp-desc" rows={3} maxLength={2000} value={f.description} onChange={(e) => setF({ ...f, description: e.target.value })} placeholder="What the meeting is about, what to bring…" /></Field>
+        <WhatsAppTemplateField id="bp-wa" fields={WA_BOOKING_FIELDS} value={f.whatsapp} onChange={(v) => setF({ ...f, whatsapp: v })} error={errors.whatsapp}
+          samples={{ name: 'Dara Sok', title: f.title || 'Showroom visit', when: 'Fri 20 Nov 2026, 10:30', link: 'https://…/booking/…', company: 'Acme Robotics' }} />
         <Checkbox checked={f.active} onChange={(v) => setF({ ...f, active: v })} label="Taking bookings" />
       </div>
       {page && (

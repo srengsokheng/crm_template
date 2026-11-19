@@ -10,9 +10,9 @@ import { Button, Card, Checkbox, ErrorState, Skeleton } from '../../components/u
 import { dateOnly } from './common.tsx';
 
 interface Status {
-  enabled: boolean; off: boolean; owed: boolean; emailTo: string[]; chats: number; telegram: boolean;
+  enabled: boolean; off: boolean; owed: boolean; emailTo: string[]; chats: number; telegram: boolean; whatsapp: number;
   next: { step: string; date: string; label: string } | null;
-  sent: { id: number; step: string; sentTo: string[]; chats: number; balance: string; sentAt: string; sentByName: string | null }[];
+  sent: { id: number; step: string; sentTo: string[]; chats: number; whatsapp: number; balance: string; sentAt: string; sentByName: string | null }[];
 }
 
 export const stepLabel = (step: string) => {
@@ -33,7 +33,10 @@ export function RemindersCard({ docId, canEdit, currency }: { docId: number; can
   if (q.isError) return <Card title="Payment reminders"><ErrorState message={errorMessage(q.error)} onRetry={() => q.refetch()} /></Card>;
   const s = q.data!;
   if (!s.owed && !s.sent.length) return null;
-  const nobody = !s.emailTo.length && !s.chats;
+  const nobody = !s.emailTo.length && !s.chats && !s.whatsapp;
+  const chatList = (telegram: number, whatsapp: number) => [
+    ...(telegram ? [`${telegram} Telegram chat${telegram === 1 ? '' : 's'}`] : []), ...(whatsapp ? [`${whatsapp} WhatsApp chat${whatsapp === 1 ? '' : 's'}`] : []),
+  ];
   const sendNow = async () => {
     setBusy('send');
     try { await api.post(`/documents/${docId}/remind`); toast.success('Reminder sent'); refresh(); } catch (e) { toast.error(errorMessage(e)); } finally { setBusy(''); }
@@ -55,10 +58,10 @@ export function RemindersCard({ docId, canEdit, currency }: { docId: number; can
               <p className="text-muted">Automatic reminders are off for the workspace.{' '}
                 {me?.role.isAdmin && <Link className="text-brand-600 underline underline-offset-2 dark:text-brand-200" to="/settings/documents">Turn them on</Link>}</p>
             ) : s.off ? <p className="text-muted">No automatic reminders for this invoice.</p>
-              : nobody ? <p className="text-amber-700 dark:text-amber-300">Nobody to remind yet: email the invoice to the customer, or link their Telegram chat to a contact on the deal.</p>
+              : nobody ? <p className="text-amber-700 dark:text-amber-300">Nobody to remind yet: email the invoice to the customer, link their Telegram chat to a contact on the deal, or add a phone number for WhatsApp.</p>
               : s.next ? <p>Next: <span className="font-medium">{dateOnly(s.next.date)}</span> <span className="text-muted">({s.next.label})</span></p>
               : <p className="text-muted">No more automatic reminders are planned.</p>}
-            {!nobody && <p className="break-words text-xs text-muted">To {[...s.emailTo, ...(s.chats && s.telegram ? [`${s.chats} Telegram chat${s.chats === 1 ? '' : 's'}`] : [])].join(', ')}</p>}
+            {!nobody && <p className="break-words text-xs text-muted">To {[...s.emailTo, ...chatList(s.telegram ? s.chats : 0, s.whatsapp)].join(', ')}</p>}
             {s.enabled && canEdit && <Checkbox checked={s.off} disabled={!!busy} onChange={(v) => void setOff(v)} label="Don’t remind for this invoice" />}
           </div>
         )}
@@ -69,7 +72,7 @@ export function RemindersCard({ docId, canEdit, currency }: { docId: number; can
               {s.sent.map((r) => (
                 <li key={r.id}>
                   <p>{stepLabel(r.step)}{r.sentByName ? ` by ${r.sentByName}` : ''} <span className="text-muted">· {dateTime(r.sentAt)}</span></p>
-                  <p className="break-words text-xs text-muted">{money(r.balance, currency)} due · {[...r.sentTo, ...(r.chats ? [`${r.chats} Telegram chat${r.chats === 1 ? '' : 's'}`] : [])].join(', ')}</p>
+                  <p className="break-words text-xs text-muted">{money(r.balance, currency)} due · {[...r.sentTo, ...chatList(r.chats, r.whatsapp)].join(', ')}</p>
                 </li>
               ))}
             </ul>

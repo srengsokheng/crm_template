@@ -496,6 +496,16 @@ The research behind every decision is in this folder:
   waiting don't count), and the average customer rating received (with how many). Totals on top; CSV export (export
   rights) has every column, including the user id and the rating count.
 
+- **WhatsApp reminders and booking confirmations** (migration 0043, `inbox/waNotify.ts`,
+  `features/settings/WhatsAppTemplateField.tsx`): payment reminders (Settings → Quotes & invoices) and each booking page
+  can also send on WhatsApp: pick a WhatsApp channel, one of its approved templates, and which value fills each {{n}}
+  blank (customer name, invoice number, amount due, due date, link, company; for bookings: what was booked, date and
+  time), with a preview. It goes to the contact's WhatsApp chat on that channel, else the phone number on the contact
+  (a chat is started in the Inbox and linked), else — for bookings — the number typed when booking. It's a normal Inbox
+  message (delivery queue, retries, errors on the message). A reminder counts as sendable when WhatsApp can reach
+  someone, even without an email; the invoice card shows "1 WhatsApp chat". If the channel is off or Meta withdrew the
+  template, WhatsApp is skipped and the email still goes. Booking confirmations go on booking and on every move.
+
 - **Installable app (PWA)** (`apps/web/public/manifest.webmanifest`, `sw.js`, `offline.html`, `lib/install.ts`):
   add to the home screen (Android, iPhone via Safari → Share → Add to Home Screen) or install on desktop Chrome/Edge;
   opens full-screen with its own icon (192/512, maskable, Apple 180 — rendered from the logo) and shortcuts to Inbox,
@@ -533,7 +543,7 @@ The research behind every decision is in this folder:
   one at their request (the email choice covers every contact with the same address). Every change — the customer’s
   STOP/START or link, or a team member — is on the contact’s timeline.
 
-**Quality:** 276 Vitest tests (API against real PostgreSQL), 79 Playwright tests (desktop, tablet, phone), lint and
+**Quality:** 278 Vitest tests (API against real PostgreSQL), 80 Playwright tests (desktop, tablet, phone), lint and
 typecheck clean, `npm audit` = 0, GitHub Actions CI in `.github/workflows/ci.yml`.
 
 ## 3. Not built yet — suggested next work (in priority order)
@@ -555,8 +565,8 @@ The earlier list is done (see section 2). Known follow-ups, collected from the p
 6. Broadcasts: only fake Telegram/Graph APIs and the mail queue have been used. Before large sends, check the
    platforms' limits (Telegram ~30 messages/second per bot; WhatsApp tiers by number quality) and the SMTP provider's
    bulk-mail rules (SPF/DKIM/DMARC for the sending domain).
-7. Payment reminders: WhatsApp isn't used (outside the 24-hour window it needs an approved template per language);
-   could be added like broadcasts. Reminders stop when an invoice is paid in the CRM — record bank payments promptly.
+7. Payment reminders: they stop when an invoice is paid in the CRM — record bank payments promptly. WhatsApp uses one
+   template language per workspace/page (no per-customer language choice yet); cancellations aren't sent on WhatsApp.
 8. Booking: no sync with Google/Outlook calendars (only CRM meetings block times); round-robin takes turns but doesn't
    weigh people (e.g. "Rita gets twice as many");
    editing a booked meeting directly in Activities doesn't update the booking or email the customer (use Move).

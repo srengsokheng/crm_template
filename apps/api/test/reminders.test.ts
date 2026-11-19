@@ -15,7 +15,7 @@ async function setup(opts: { enabled?: boolean } = {}) {
   const s = await signup();
   const { c } = s;
   const settings = (await c.get('/settings/documents')).body;
-  expect(settings.reminders).toEqual({ enabled: false, beforeDays: 3, onDue: true, afterDays: [7], telegram: true });
+  expect(settings.reminders).toEqual({ enabled: false, beforeDays: 3, onDue: true, afterDays: [7], telegram: true, whatsapp: { channelId: null, name: '', language: '', params: [] } });
   await c.put('/settings/documents', { ...settings, reminders: { enabled: opts.enabled ?? true, beforeDays: 3, onDue: true, afterDays: [7], telegram: true } });
   const deal = (await c.post('/deals', { title: 'Arms' })).body;
   await c.put(`/deals/${deal.id}/line-items`, { items: [{ name: 'Robot arm', unitPrice: '100', quantity: 1, unit: 'pcs' }] });

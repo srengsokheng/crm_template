@@ -27,6 +27,8 @@ import { requireAdmin } from '../lib/permissions.ts';
 import { assertMembers, camel, camelAll } from '../lib/records.ts';
 import { parse } from '../lib/validate.ts';
 import { createCall, guestUrlOf } from '../calls/calls.ts';
+import { sendWaTemplate } from '../inbox/waNotify.ts';
+import type { WaTemplateSetting } from '@crm/shared';
 import { createActivity } from './activities.ts';
 import { createContact } from './parties.ts';
 import { documentSettings } from './documents.ts';
@@ -35,13 +37,14 @@ interface PageRow {
   id: number; workspace_id: number; slug: string; title: string; description: string; host_id: number; duration_minutes: number; days: number[];
   start_time: string; end_time: string; min_notice_hours: number; days_ahead: number; video: boolean; location: string; active: boolean;
   team_ids: number[];
+  whatsapp: WaTemplateSetting | null;
 }
 type Host = { id: number; name: string };
 type LivePage = PageRow & { hosts: Host[] };
 interface BookingRow {
   id: number; workspace_id: number; page_id: number | null; host_id: number | null; activity_id: number | null; contact_id: number | null; call_id: number | null;
   title: string; starts_at: Date; ends_at: Date; name: string; email: string; status: 'booked' | 'canceled'; reschedules?: number;
-  token_hash: string; token_sealed: string | null; ics_sequence: number;
+  token_hash: string; token_sealed: string | null; ics_sequence: number; phone?: string;
 }
 
 const base = () => config.appUrl.replace(/\/$/, '');
@@ -107,13 +110,14 @@ async function publicPage(slug: string, db: Db = pool): Promise<LivePage> {
 const PAGE_FIELDS = sql`bp.id, bp.slug, bp.title, bp.description, bp.host_id,
   coalesce((SELECT string_agg(x.name, ', ' ORDER BY array_position(bp.team_ids, x.id)) FROM users x WHERE x.id = ANY(bp.team_ids)), u.name) AS host_name,
   CASE WHEN cardinality(bp.team_ids) > 0 THEN bp.team_ids ELSE ARRAY[bp.host_id] END AS host_ids, bp.duration_minutes, bp.days, bp.start_time, bp.end_time,
-  bp.min_notice_hours, bp.days_ahead, bp.video, bp.location, bp.active, bp.created_at,
+  bp.min_notice_hours, bp.days_ahead, bp.video, bp.location, bp.active, bp.whatsapp, bp.created_at,
   (SELECT count(*)::int FROM bookings b WHERE b.page_id = bp.id AND b.status = 'booked' AND b.starts_at > now()) AS upcoming`;
 const pageOut = (r: Record<string, unknown>) => ({ ...camel(r), url: pageUrl(String(r.slug)) });
 
 function dbFields(b: ReturnType<typeof bookingPageSchema.parse>) {
   return {
-    slug: b.slug, title: b.title, description: b.description, host_id: b.hostIds[0], team_ids: b.hostIds.length > 1 ? b.hostIds : [], duration_minutes: b.durationMinutes, days: b.days,
+    slug: b.slug, title: b.title, description: b.description, host_id: b.hostIds[0], team_ids: b.hostIds.length > 1 ? b.hostIds : [],
+    whatsapp: b.whatsapp?.channelId ? JSON.stringify(b.whatsapp) : null, duration_minutes: b.durationMinutes, days: b.days,
     start_time: b.start, end_time: b.end, min_notice_hours: b.minNoticeHours, days_ahead: b.daysAhead, video: b.video, location: b.location, active: b.active,
   };
 }
@@ -182,6 +186,11 @@ async function moveBooking(db: Db, b: BookingRow, start: Date, durationMinutes: 
         ${b.contact_id ? 'contact' : null}, ${b.contact_id})`, db);
   }
   const host = b.host_id ? await q1<{ name: string; email: string }>(sql`SELECT name, email FROM users WHERE id = ${b.host_id}`, db) : null;
+  const pg = b.page_id ? await q1<{ whatsapp: WaTemplateSetting | null }>(sql`SELECT whatsapp FROM booking_pages WHERE id = ${b.page_id}`, db) : null;
+  const manage = manageLinkOf(b, by.kind === 'customer' ? by.token : undefined);
+  await sendWaTemplate(db, { workspaceId: b.workspace_id, setting: pg?.whatsapp, contactIds: b.contact_id ? [Number(b.contact_id)] : [], extraPhones: b.phone ? [b.phone] : [],
+    values: { name: b.name, title: b.title, when: whenText(w.lang, start, w.tz), link: manage ?? '', company: w.name },
+    senderName: by.kind === 'team' ? by.ctx.userName : w.name, authorId: by.kind === 'team' ? by.ctx.userId : null, title: b.name });
   await confirmationMail(db, { workspaceId: b.workspace_id, to: b.email, title: b.title, start, end, durationMinutes, tokenHash: b.token_hash,
     manage: manageLinkOf(b, by.kind === 'customer' ? by.token : undefined), videoUrl: call?.status === 'open' ? guestUrlOf(call) : null, place, note: '',
     host: host ?? null, sequence: seq, moved: true, movedBy: by.kind === 'team' ? by.ctx.userName : null });
@@ -234,9 +243,9 @@ export async function bookingRoutes(app: FastifyInstance) {
     const b = parse(bookingPageSchema, req.body);
     await assertMembers(ctx, b.hostIds);
     const f = dbFields(b);
-    const r = await q1<{ id: number }>(sql`INSERT INTO booking_pages (workspace_id, slug, title, description, host_id, team_ids, duration_minutes, days, start_time, end_time,
+    const r = await q1<{ id: number }>(sql`INSERT INTO booking_pages (workspace_id, slug, title, description, host_id, team_ids, whatsapp, duration_minutes, days, start_time, end_time,
         min_notice_hours, days_ahead, video, location, active, created_by)
-      VALUES (${ctx.workspaceId}, ${f.slug}, ${f.title}, ${f.description}, ${f.host_id}, ${f.team_ids}::bigint[], ${f.duration_minutes}, ${f.days}, ${f.start_time}, ${f.end_time},
+      VALUES (${ctx.workspaceId}, ${f.slug}, ${f.title}, ${f.description}, ${f.host_id}, ${f.team_ids}::bigint[], ${f.whatsapp}::jsonb, ${f.duration_minutes}, ${f.days}, ${f.start_time}, ${f.end_time},
         ${f.min_notice_hours}, ${f.days_ahead}, ${f.video}, ${f.location}, ${f.active}, ${ctx.userId})
       ON CONFLICT (slug) DO NOTHING RETURNING id`);
     if (!r) throw slugTaken();
@@ -253,7 +262,7 @@ export async function bookingRoutes(app: FastifyInstance) {
     const f = dbFields(b);
     const id = Number(req.params.id);
     if (await q1(sql`SELECT 1 FROM booking_pages WHERE slug = ${f.slug} AND id <> ${id}`)) throw slugTaken();
-    const r = await q1(sql`UPDATE booking_pages SET slug = ${f.slug}, title = ${f.title}, description = ${f.description}, host_id = ${f.host_id}, team_ids = ${f.team_ids}::bigint[],
+    const r = await q1(sql`UPDATE booking_pages SET slug = ${f.slug}, title = ${f.title}, description = ${f.description}, host_id = ${f.host_id}, team_ids = ${f.team_ids}::bigint[], whatsapp = ${f.whatsapp}::jsonb,
         duration_minutes = ${f.duration_minutes}, days = ${f.days}, start_time = ${f.start_time}, end_time = ${f.end_time}, min_notice_hours = ${f.min_notice_hours},
         days_ahead = ${f.days_ahead}, video = ${f.video}, location = ${f.location}, active = ${f.active}
       WHERE id = ${id} AND workspace_id = ${ctx.workspaceId} RETURNING id`);
@@ -409,6 +418,8 @@ export async function publicBookingRoutes(app: FastifyInstance) {
 
       await confirmationMail(db, { workspaceId: p.workspace_id, to: body.email.trim(), title: p.title, start, end, durationMinutes: p.duration_minutes,
         tokenHash: hash(token), manage: manageUrl(token), videoUrl, place: p.location, note: body.note, host: host ?? null, sequence: 0, moved: false });
+      await sendWaTemplate(db, { workspaceId: p.workspace_id, setting: p.whatsapp, contactIds: [contactId], extraPhones: body.phone ? [body.phone] : [],
+        values: { name: body.name, title: p.title, when: whenText(w.lang, start, w.tz), link: manageUrl(token), company: w.name }, senderName: w.name, title: body.name });
       return { start: start.toISOString(), end: end.toISOString(), email: body.email.trim() };
     });
     return reply.code(201).send(out);
