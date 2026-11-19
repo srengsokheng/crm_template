@@ -472,6 +472,14 @@ The research behind every decision is in this folder:
   The timeline's "accepted" entry says whether it was signed. This is a simple electronic signature (typed name +
   drawing + IP), not a certificate-based digital signature.
 
+- **Team performance report** (Reports → Team performance, `teamPerformance()` in `routes/reports.ts`): one row per
+  active member the user may see (deal view scope; "Only me" / "My team" narrow it), for the chosen period: deals won
+  (and win rate over won + lost), won amount in the base currency, the sum of their monthly sales targets for the months
+  in the period and the share reached, activities completed, Inbox replies they wrote (broadcasts excluded), the median
+  time a customer waited for those replies (wall-clock, from their first unanswered message; follow-ups with nobody
+  waiting don't count), and the average customer rating received (with how many). Totals on top; CSV export (export
+  rights) has every column, including the user id and the rating count.
+
 - **Installable app (PWA)** (`apps/web/public/manifest.webmanifest`, `sw.js`, `offline.html`, `lib/install.ts`):
   add to the home screen (Android, iPhone via Safari → Share → Add to Home Screen) or install on desktop Chrome/Edge;
   opens full-screen with its own icon (192/512, maskable, Apple 180 — rendered from the logo) and shortcuts to Inbox,
@@ -509,7 +517,7 @@ The research behind every decision is in this folder:
   one at their request (the email choice covers every contact with the same address). Every change — the customer’s
   STOP/START or link, or a team member — is on the contact’s timeline.
 
-**Quality:** 272 Vitest tests (API against real PostgreSQL), 76 Playwright tests (desktop, tablet, phone), lint and
+**Quality:** 273 Vitest tests (API against real PostgreSQL), 77 Playwright tests (desktop, tablet, phone), lint and
 typecheck clean, `npm audit` = 0, GitHub Actions CI in `.github/workflows/ci.yml`.
 
 ## 3. Not built yet — suggested next work (in priority order)

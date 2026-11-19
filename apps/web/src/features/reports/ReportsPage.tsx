@@ -11,6 +11,7 @@ import { useListParams } from '../records/list.tsx';
 
 const REPORTS = [
   { key: 'won-deals', title: 'Won deals', desc: 'Deals closed as won in the period.' },
+  { key: 'team-performance', title: 'Team performance', desc: 'Per person: deals won and win rate, sales target reached, activities done, Inbox replies and how long customers waited (median), customer rating.' },
   { key: 'deals-by-stage', title: 'Deals by stage', desc: 'Where deals sit across your pipeline stages.' },
   { key: 'deals-by-owner', title: 'Sales by owner', desc: 'Compare people by deals, win rate and revenue.' },
   { key: 'lead-conversion', title: 'Lead conversion', desc: 'How many leads became customers, by source.' },
@@ -20,10 +21,19 @@ const REPORTS = [
   { key: 'product-sales', title: 'Product sales', desc: 'Revenue per product in won deals.' },
 ] as const;
 
-const MONEY = new Set(['amount', 'totalAmount', 'wonAmount', 'avgWonDeal', 'weighted', 'revenue']);
-const PCT = new Set(['share', 'winRate', 'conversionRate']);
+const MONEY = new Set(['amount', 'totalAmount', 'wonAmount', 'avgWonDeal', 'weighted', 'revenue', 'target']);
+const PCT = new Set(['share', 'winRate', 'conversionRate', 'targetReached']);
 const DATE = new Set(['closedAt', 'expectedCloseDate']);
-const HIDDEN = new Set(['id', 'currency', 'kind']);
+// "ratings" (how many) is shown inside the rating cell; the CSV keeps both columns.
+const HIDDEN = new Set(['id', 'currency', 'kind', 'userId', 'ratings']);
+/** Minutes as "45 min", "2 h 5 min", "1 d 3 h". */
+export function minutesText(v: number): string {
+  if (v < 60) return `${v} min`;
+  if (v < 1440) { const h = Math.floor(v / 60); const m = v % 60; return m ? `${h} h ${m} min` : `${h} h`; }
+  const d = Math.floor(v / 1440); const h = Math.floor((v % 1440) / 60);
+  return h ? `${d} d ${h} h` : `${d} d`;
+}
+const COLUMN_TITLES: Record<string, string> = { replyTime: 'Reply time', rating: 'Rating', targetReached: 'Of target', activitiesDone: 'Activities' };
 const human = (k: string) => k.replace(/([A-Z])/g, (c) => ` ${c.toLowerCase()}`).replace(/^./, (c) => c.toUpperCase());
 
 function presetRange(p: string): { from: string; to: string } {
@@ -58,6 +68,8 @@ export function ReportsPage() {
     if (MONEY.has(c)) return money(String(v), (row.currency as string) ?? cur);
     if (PCT.has(c)) return `${v}%`;
     if (DATE.has(c)) return date(String(v));
+    if (c === 'replyTime') return minutesText(Number(v));
+    if (c === 'rating' && row.ratings) return `${v} (${row.ratings})`;
     return String(v);
   };
   const canExport = can('deal', 'export');
@@ -127,7 +139,7 @@ export function ReportsPage() {
                 <div className="overflow-x-auto">
                   <table className="w-full min-w-[560px] text-sm">
                     <thead className="border-b border-base bg-[var(--surface-2)]/60 text-left text-xs text-muted">
-                      <tr>{cols.map((c) => <th key={c} className={cn('whitespace-nowrap px-3 py-2.5 font-medium', (MONEY.has(c) || c === 'amountInBase' || PCT.has(c) || typeof q.data!.rows[0][c] === 'number') && 'text-right')}>{c === 'amountInBase' ? `In ${cur}` : human(c)}</th>)}</tr>
+                      <tr>{cols.map((c) => <th key={c} className={cn('whitespace-nowrap px-3 py-2.5 font-medium', (MONEY.has(c) || c === 'amountInBase' || PCT.has(c) || typeof q.data!.rows[0][c] === 'number') && 'text-right')}>{c === 'amountInBase' ? `In ${cur}` : COLUMN_TITLES[c] ?? human(c)}</th>)}</tr>
                     </thead>
                     <tbody className="divide-y divide-[var(--border)]">
                       {q.data.rows.map((r, i) => (

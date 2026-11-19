@@ -45,6 +45,77 @@ function sendCsv(reply: FastifyReply, name: string, rows: Record<string, unknown
   return reply.send(body);
 }
 
+/**
+ * Team performance: one row per person (everyone the user may see by deal permissions, narrowed by "me"/"team"):
+ * deals won and lost in the period (win rate), won amount in the base currency, the sum of their monthly sales targets
+ * for the months in the period and how much of it was reached, activities completed, Inbox replies they wrote
+ * (broadcasts excluded) and the median time a customer waited for that reply (wall-clock minutes, from the first
+ * unanswered customer message), and the average customer rating of answers received in the period.
+ */
+async function teamPerformance(ctx: Ctx, p: Period, query: Record<string, unknown>, pipeFilter: Fragment) {
+  const ws = ctx.workspaceId;
+  const scope = ctx.isAdmin ? 'all' : scopeOf(ctx, 'deal', 'view');
+  if (scope === 'none') throw forbidden();
+  const asked = qs.str(query.scope);
+  let ids: number[] | null = scope === 'all' ? null : scope === 'team' ? ctx.teamUserIds : [ctx.userId];
+  if (asked === 'me') ids = [ctx.userId];
+  else if (asked === 'team') ids = ids ? ids.filter((i) => ctx.teamUserIds.includes(i)) : ctx.teamUserIds;
+  const people = await q<{ id: number; name: string }>(sql`SELECT u.id, u.name FROM memberships m JOIN users u ON u.id = m.user_id
+    WHERE m.workspace_id = ${ws} AND m.status = 'active' ${ids ? sql`AND u.id = ANY(${ids})` : sql``} ORDER BY u.name`);
+  const who = people.map((x) => x.id);
+  if (!who.length) return { rows: [], totals: undefined };
+  const inPeriod = (col: string) => sql`${raw(col)}::date BETWEEN ${p.from}::date AND ${p.to}::date`;
+
+  const deals = await q<{ uid: number; won: number; lost: number; won_amount: string }>(sql`SELECT d.owner_id AS uid,
+      count(*) FILTER (WHERE d.status = 'won')::int AS won, count(*) FILTER (WHERE d.status = 'lost')::int AS lost,
+      coalesce(sum(${dealInBase(ctx)}) FILTER (WHERE d.status = 'won'), 0)::numeric(18,2)::text AS won_amount
+    FROM deals d WHERE d.workspace_id = ${ws} AND d.deleted_at IS NULL AND d.status IN ('won', 'lost') AND ${inPeriod('d.closed_at')}
+      AND d.owner_id = ANY(${who}) ${pipeFilter} GROUP BY d.owner_id`);
+  const targets = await q<{ uid: number; target: string }>(sql`SELECT user_id AS uid, sum(amount)::text AS target FROM sales_targets
+    WHERE workspace_id = ${ws} AND user_id = ANY(${who}) AND month BETWEEN date_trunc('month', ${p.from}::date) AND ${p.to}::date GROUP BY user_id`);
+  const acts = await q<{ uid: number; n: number }>(sql`SELECT assignee_id AS uid, count(*)::int AS n FROM activities
+    WHERE workspace_id = ${ws} AND deleted_at IS NULL AND status = 'done' AND ${inPeriod('completed_at')} AND assignee_id = ANY(${who}) GROUP BY assignee_id`);
+  // Replies and how long the customer had been waiting (since their first message after the previous reply).
+  const replies = await q<{ uid: number; replies: number; minutes: number | null }>(sql`
+    WITH msgs AS (
+      SELECT m.id, m.conversation_id, m.direction, m.author_id, m.created_at,
+        max(m.created_at) FILTER (WHERE m.direction = 'out') OVER (PARTITION BY m.conversation_id ORDER BY m.created_at, m.id
+          ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING) AS prev_out
+      FROM messages m WHERE m.workspace_id = ${ws}
+        AND m.created_at >= ${p.from}::date - interval '30 days' AND m.created_at < ${p.to}::date + interval '1 day'
+    ), mine AS (
+      SELECT o.author_id, o.created_at,
+        (SELECT min(i.created_at) FROM msgs i WHERE i.conversation_id = o.conversation_id AND i.direction = 'in'
+          AND i.created_at > coalesce(o.prev_out, '-infinity'::timestamptz) AND i.created_at <= o.created_at) AS waiting_since
+      FROM msgs o WHERE o.direction = 'out' AND o.author_id = ANY(${who}) AND ${inPeriod('o.created_at')}
+        AND NOT EXISTS (SELECT 1 FROM broadcast_recipients br WHERE br.message_id = o.id)
+    )
+    SELECT author_id AS uid, count(*)::int AS replies,
+      round((percentile_cont(0.5) WITHIN GROUP (ORDER BY extract(epoch FROM created_at - waiting_since) / 60)
+        FILTER (WHERE waiting_since IS NOT NULL))::numeric)::int AS minutes
+    FROM mine GROUP BY author_id`);
+  const ratings = await q<{ uid: number; rating: string; n: number }>(sql`SELECT owner_id AS uid, round(avg(rating), 1)::text AS rating, count(*)::int AS n
+    FROM feedback_requests WHERE workspace_id = ${ws} AND rating IS NOT NULL AND ${inPeriod('responded_at')} AND owner_id = ANY(${who}) GROUP BY owner_id`);
+
+  const by = <T extends { uid: number }>(list: T[]) => new Map(list.map((r) => [Number(r.uid), r]));
+  const D = by(deals), T = by(targets), A = by(acts), R = by(replies), F = by(ratings);
+  const rows = people.map((u) => {
+    const d = D.get(u.id), t = T.get(u.id), r = R.get(u.id), fb = F.get(u.id);
+    const won = d?.won ?? 0, lost = d?.lost ?? 0, amount = d?.won_amount ?? '0.00';
+    return {
+      person: u.name, user_id: u.id, deals_won: won, won_amount: amount, win_rate: won + lost ? Math.round((won / (won + lost)) * 100) : null,
+      target: t?.target ?? null, target_reached: t && Number(t.target) > 0 ? Math.round((Number(amount) / Number(t.target)) * 100) : null,
+      activities_done: A.get(u.id)?.n ?? 0, replies: r?.replies ?? 0, reply_time: r?.minutes ?? null,
+      rating: fb?.rating ?? null, ratings: fb?.n ?? 0,
+    };
+  }).sort((a, b) => Number(b.won_amount) - Number(a.won_amount) || b.deals_won - a.deals_won || a.person.localeCompare(b.person));
+  const sum = (k: 'deals_won' | 'activities_done' | 'replies') => rows.reduce((n, r) => n + r[k], 0);
+  return {
+    rows: rows as Record<string, unknown>[],
+    totals: { dealsWon: sum('deals_won'), wonAmount: rows.reduce((n, r) => n + Number(r.won_amount), 0).toFixed(2), activitiesDone: sum('activities_done'), replies: sum('replies') },
+  };
+}
+
 export async function reportRoutes(app: FastifyInstance) {
   app.get('/dashboard', async (req) => {
     const ctx = ctxOf(req);
@@ -194,6 +265,10 @@ export async function reportRoutes(app: FastifyInstance) {
           FROM line_items li JOIN deals d ON d.id = li.parent_id AND li.parent_type = 'deal'
           WHERE d.workspace_id = ${ws} AND d.deleted_at IS NULL AND d.status = 'won' AND d.closed_at::date BETWEEN ${p.from}::date AND ${p.to}::date
             ${pipeFilter} AND ${ownerScope(ctx, 'deal', 'd', query)} GROUP BY li.name ORDER BY sum(li.line_total) DESC`);
+        break;
+      }
+      case 'team-performance': {
+        ({ rows, totals } = await teamPerformance(ctx, p, query, pipeFilter));
         break;
       }
       default:
