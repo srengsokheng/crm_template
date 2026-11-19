@@ -37,6 +37,8 @@ import { CallPage, GuestCallPage } from '../features/calls/CallPages.tsx';
 import { TargetsSettings } from '../features/targets/Targets.tsx';
 import { CustomerDocumentPage } from '../features/documents/CustomerPage.tsx';
 import { BroadcastRoute, BroadcastsPage, UnsubscribePage } from '../features/broadcasts/Broadcasts.tsx';
+import { ManageBookingPage, PublicBookingPage } from '../features/booking/PublicBooking.tsx';
+import { BookingSettings } from '../features/booking/BookingSettings.tsx';
 import { ChannelsSettings } from '../features/settings/ChannelsSettings.tsx';
 import { AccountSettings } from '../features/settings/AccountSettings.tsx';
 
@@ -50,6 +52,8 @@ export const router = createBrowserRouter([
   { path: '/join/:token', element: <GuestCallPage /> },
   { path: '/d/:token', element: <CustomerDocumentPage /> },
   { path: '/unsubscribe/:token', element: <UnsubscribePage /> },
+  { path: '/book/:slug', element: <PublicBookingPage /> },
+  { path: '/booking/:token', element: <ManageBookingPage /> },
   {
     path: '/',
     element: <AppLayout />,
@@ -95,6 +99,7 @@ export const router = createBrowserRouter([
           { path: 'currencies', element: <CurrenciesSettings /> },
           { path: 'documents', element: <DocumentSettings /> },
           { path: 'targets', element: <TargetsSettings /> },
+          { path: 'booking', element: <BookingSettings /> },
           { path: 'channels', element: <ChannelsSettings /> },
           { path: 'recycle-bin', element: <RecycleBin /> },
         ],

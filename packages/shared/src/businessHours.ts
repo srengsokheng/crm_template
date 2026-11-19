@@ -21,13 +21,13 @@ function fmt(tz: string) {
 }
 const WD: Record<string, number> = { Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6, Sun: 7 };
 
-/** Wall-clock parts of an instant in a time zone. */
-function local(t: number, tz: string): Local & { s: number } {
+/** Wall-clock parts of an instant in a time zone (wd: 1 = Monday … 7 = Sunday). */
+export function local(t: number, tz: string): Local & { s: number } {
   const p = Object.fromEntries(fmt(tz).formatToParts(new Date(t)).map((x) => [x.type, x.value]));
   return { y: +p.year, m: +p.month, d: +p.day, h: +p.hour, mi: +p.minute, s: +p.second, wd: WD[p.weekday] };
 }
 /** UTC instant of a wall-clock time in a time zone (handles DST by re-checking the offset). */
-function utcOf(y: number, m: number, d: number, h: number, mi: number, tz: string): number {
+export function utcOf(y: number, m: number, d: number, h: number, mi: number, tz: string): number {
   const guess = Date.UTC(y, m - 1, d, h, mi);
   const offset = (t: number) => { const l = local(t, tz); return Date.UTC(l.y, l.m - 1, l.d, l.h, l.mi, l.s) - t; };
   let t = guess - offset(guess);

@@ -47,6 +47,17 @@ const en = {
   reminderBefore: 'Invoice {number} for {amount} is due on {date}.', reminderDue: 'Invoice {number} for {amount} is due today.',
   reminderAfter: 'Invoice {number} for {amount} was due on {date}.', reminderPaidAlready: 'If you have already paid, thank you — please ignore this message.',
   reminderLink: 'View and pay it here: {url}', reminderThanks: 'Thank you!',
+  // Online booking
+  bookMinutes: '{n} min', bookWith: 'with {host}', bookVideo: 'Video call — the link comes by email', bookPlace: 'At {place}',
+  bookPickDay: 'Pick a day', bookPickTime: 'Pick a time', bookTz: 'Times are in {tz} time.', bookNoSlots: 'No free times in the next {n} days. Please contact us.',
+  bookYourDetails: 'Your details', bookName: 'Your name', bookEmail: 'Email', bookPhone: 'Phone (optional)', bookNote: 'Anything we should know? (optional)',
+  bookConfirm: 'Book {when}', bookBack: 'Change time', bookDone: 'You’re booked!', bookDoneHelp: 'We sent the details to {email}.',
+  bookTaken: 'Sorry, someone just took this time. Please pick another.', bookBadLink: 'This booking link isn’t valid.',
+  bookEmailSubject: 'Booked: {title} on {when}', bookEmailWhen: 'When: {when} ({tz} time), {n} minutes', bookEmailWith: 'With: {host}, {company}',
+  bookEmailJoin: 'Join the video call', bookEmailWhere: 'Where: {place}', bookEmailCalendar: 'The attached file adds it to your calendar.',
+  bookCancelLink: 'Need to cancel? {url}', bookCanceled: 'This booking was canceled.', bookCancel: 'Cancel booking', bookKeep: 'Keep it',
+  bookCancelQ: 'Cancel your booking for {when}?', bookCancelDone: 'Your booking is canceled. {host} has been told.', bookPast: 'This booking has already taken place.',
+  bookCanceledSubject: 'Canceled: {title} on {when}',
 };
 export type TextKey = keyof typeof en;
 
@@ -86,6 +97,16 @@ const km: Record<TextKey, string> = {
   reminderBefore: 'វិក្កយបត្រ {number} ចំនួន {amount} ត្រូវបង់នៅថ្ងៃទី {date}។', reminderDue: 'វិក្កយបត្រ {number} ចំនួន {amount} ត្រូវបង់នៅថ្ងៃនេះ។',
   reminderAfter: 'វិក្កយបត្រ {number} ចំនួន {amount} ត្រូវបង់កាលពីថ្ងៃទី {date}។', reminderPaidAlready: 'ប្រសិនបើអ្នកបានបង់រួចហើយ សូមអរគុណ — សូមកុំខ្វល់នឹងសារនេះ។',
   reminderLink: 'មើល និងបង់ប្រាក់នៅទីនេះ៖ {url}', reminderThanks: 'សូមអរគុណ!',
+  bookMinutes: '{n} នាទី', bookWith: 'ជាមួយ {host}', bookVideo: 'ការហៅជាវីដេអូ — តំណនឹងផ្ញើតាមអ៊ីមែល', bookPlace: 'នៅ {place}',
+  bookPickDay: 'ជ្រើសរើសថ្ងៃ', bookPickTime: 'ជ្រើសរើសម៉ោង', bookTz: 'ម៉ោងទាំងនេះគិតតាមម៉ោង {tz}។', bookNoSlots: 'មិនមានម៉ោងទំនេរក្នុងរយៈពេល {n} ថ្ងៃខាងមុខទេ។ សូមទាក់ទងមកយើង។',
+  bookYourDetails: 'ព័ត៌មានរបស់អ្នក', bookName: 'ឈ្មោះរបស់អ្នក', bookEmail: 'អ៊ីមែល', bookPhone: 'លេខទូរស័ព្ទ (ស្រេចចិត្ត)', bookNote: 'មានអ្វីដែលយើងគួរដឹងទេ? (ស្រេចចិត្ត)',
+  bookConfirm: 'កក់ {when}', bookBack: 'ប្តូរម៉ោង', bookDone: 'អ្នកបានកក់រួចហើយ!', bookDoneHelp: 'យើងបានផ្ញើព័ត៌មានលម្អិតទៅ {email}។',
+  bookTaken: 'សូមអភ័យទោស ម៉ោងនេះទើបតែមានគេកក់។ សូមជ្រើសរើសម៉ោងផ្សេង។', bookBadLink: 'តំណកក់នេះមិនត្រឹមត្រូវទេ។',
+  bookEmailSubject: 'បានកក់៖ {title} នៅ {when}', bookEmailWhen: 'ពេលវេលា៖ {when} (ម៉ោង {tz}) រយៈពេល {n} នាទី', bookEmailWith: 'ជាមួយ៖ {host}, {company}',
+  bookEmailJoin: 'ចូលរួមការហៅជាវីដេអូ', bookEmailWhere: 'ទីកន្លែង៖ {place}', bookEmailCalendar: 'ឯកសារភ្ជាប់នឹងបញ្ចូលវាទៅក្នុងប្រតិទិនរបស់អ្នក។',
+  bookCancelLink: 'ចង់បោះបង់? {url}', bookCanceled: 'ការកក់នេះត្រូវបានបោះបង់។', bookCancel: 'បោះបង់ការកក់', bookKeep: 'រក្សាទុក',
+  bookCancelQ: 'បោះបង់ការកក់របស់អ្នកនៅ {when}?', bookCancelDone: 'ការកក់របស់អ្នកត្រូវបានបោះបង់។ យើងបានជូនដំណឹងដល់ {host}។', bookPast: 'ការកក់នេះបានកន្លងផុតហើយ។',
+  bookCanceledSubject: 'បានបោះបង់៖ {title} នៅ {when}',
 };
 
 const fill = (s: string, vars?: Record<string, string | number>) => (vars ? s.replace(/\{(\w+)\}/g, (m, k) => (k in vars ? String(vars[k]) : m)) : s);
@@ -103,6 +124,15 @@ export function ctLabel(lang: CustomerLanguage, key: TextKey, vars?: Record<stri
 
 /** All texts for one language (the website chat widget gets these from the server). */
 export const customerTexts = (lang: CustomerLanguage): Record<TextKey, string> => (lang === 'en' ? { ...en } : { ...km });
+
+const KM_DAYS = ['ច័ន្ទ', 'អង្គារ', 'ពុធ', 'ព្រហស្បតិ៍', 'សុក្រ', 'សៅរ៍', 'អាទិត្យ'];
+const EN_DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+/** Short weekday of a date (YYYY-MM-DD): "Mon" or "ច័ន្ទ". */
+export function customerWeekday(lang: CustomerLanguage, d: string): string {
+  const [y, m, day] = d.slice(0, 10).split('-').map(Number);
+  const wd = (new Date(Date.UTC(y, m - 1, day)).getUTCDay() + 6) % 7;
+  return (lang === 'en' ? EN_DAYS : KM_DAYS)[wd];
+}
 
 const KM_MONTHS = ['មករា', 'កុម្ភៈ', 'មីនា', 'មេសា', 'ឧសភា', 'មិថុនា', 'កក្កដា', 'សីហា', 'កញ្ញា', 'តុលា', 'វិច្ឆិកា', 'ធ្នូ'];
 /** A date (YYYY-MM-DD…) for customers: "Nov 18, 2026" or "18 វិច្ឆិកា 2026". */

@@ -526,3 +526,30 @@ export function personalize(text: string, name: string): string {
   const full = name.trim();
   return text.replace(/\{\{\s*(name|first_name)\s*\}\}/g, (_m, k: string) => (k === 'name' ? full : full.split(/\s+/)[0] ?? ''));
 }
+
+/** Online booking pages (/book/<slug>): customers pick a free time with the host. */
+export const BOOKING_DURATIONS = [15, 20, 30, 45, 60, 90, 120] as const;
+export const bookingPageSchema = z.object({
+  title: trimmed(120).min(1, 'Required'),
+  slug: z.string().trim().toLowerCase().regex(/^[a-z0-9][a-z0-9-]{1,38}[a-z0-9]$/, 'Use 3–40 letters, numbers and dashes'),
+  description: z.string().trim().max(2000).default(''),
+  hostId: idSchema,
+  durationMinutes: z.coerce.number().int().refine((v) => (BOOKING_DURATIONS as readonly number[]).includes(v), 'Pick a length'),
+  days: z.array(z.coerce.number().int().min(1).max(7)).min(1, 'Pick at least one day').max(7).transform((a) => [...new Set(a)].sort()),
+  start: hhmm.default('09:00'),
+  end: hhmm.default('17:00'),
+  minNoticeHours: z.coerce.number().int().min(0).max(168).default(4),
+  daysAhead: z.coerce.number().int().min(1).max(90).default(30),
+  video: z.boolean().default(true),
+  location: z.string().trim().max(300).default(''),
+  active: z.boolean().default(true),
+}).refine((v) => v.end > v.start, { message: 'Must be after the start', path: ['end'] });
+export type BookingPageInput = z.infer<typeof bookingPageSchema>;
+/** A customer books a time (public). */
+export const bookingCreateSchema = z.object({
+  start: z.iso.datetime({ offset: true }),
+  name: trimmed(120).min(1, 'Required'),
+  email: z.email('Use a valid email address').max(200),
+  phone: z.string().trim().max(40).default(''),
+  note: z.string().trim().max(2000).default(''),
+});

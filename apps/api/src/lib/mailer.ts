@@ -257,6 +257,15 @@ export function broadcastMail(o: { to: string; subject: string; body: string; fo
   };
 }
 
+/** A booking confirmation or cancellation for the customer, with a calendar file. */
+export function bookingMail(o: { to: string; subject: string; lines: string[]; button?: { label: string; url: string }; footer: string; ics: string; replyTo?: string | null }): Mail {
+  return {
+    to: o.to, subject: oneLine(o.subject), replyTo: o.replyTo ?? null,
+    attachments: [{ filename: 'booking.ics', contentType: 'text/calendar', content: Buffer.from(o.ics, 'utf8').toString('base64') }],
+    ...layout({ heading: oneLine(o.subject), lines: o.lines, ...(o.button ? { button: o.button } : {}), footer: o.footer }),
+  };
+}
+
 export interface DigestItem { subject: string; kind: string; due: string; related: string[] }
 export function digestMail(o: { to: string; name: string; workspace: string; items: DigestItem[]; total: number; url: string }): Mail {
   const shown = o.items.slice(0, 10);

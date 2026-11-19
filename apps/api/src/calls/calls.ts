@@ -210,5 +210,5 @@ export const callSubscriberCount = () => subs.size;
 /** Housekeeping: old set-up messages; calls nobody ever joined are closed after a day. */
 export async function purgeCalls() {
   await q(sql`DELETE FROM call_signals WHERE created_at < now() - interval '1 day'`);
-  await q(sql`UPDATE calls SET status = 'ended', ended_at = now() WHERE status = 'open' AND started_at IS NULL AND created_at < now() - interval '1 day'`);
+  await q(sql`UPDATE calls SET status = 'ended', ended_at = now() WHERE status = 'open' AND started_at IS NULL AND greatest(created_at, coalesce(scheduled_for, created_at)) < now() - interval '1 day'`);
 }

@@ -1,0 +1,158 @@
+import { useEffect, useState } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { CalendarClock, Copy, ExternalLink, Pencil, Plus } from 'lucide-react';
+import { toast } from 'sonner';
+import { BOOKING_DURATIONS } from '@crm/shared';
+import { api, ApiError, errorMessage } from '../../lib/api.ts';
+import { dateTime } from '../../lib/format.ts';
+import { useMe } from '../../lib/hooks.ts';
+import { Badge, Button, Card, Checkbox, EmptyState, ErrorState, Field, IconButton, Input, Select, Skeleton, Textarea } from '../../components/ui/primitives.tsx';
+import { ConfirmDialog, Dialog } from '../../components/ui/overlays.tsx';
+import { UserSelect } from '../records/form.tsx';
+
+export interface BookingPageRow {
+  id: number; slug: string; title: string; description: string; hostId: number; hostName: string; durationMinutes: number; days: number[];
+  startTime: string; endTime: string; minNoticeHours: number; daysAhead: number; video: boolean; location: string; active: boolean; upcoming: number; url: string;
+}
+interface Booking { id: number; name: string; email: string; phone: string; note: string; startsAt: string; status: 'booked' | 'canceled'; canceledBy: string | null }
+
+const DAYS = [[1, 'Mon'], [2, 'Tue'], [3, 'Wed'], [4, 'Thu'], [5, 'Fri'], [6, 'Sat'], [7, 'Sun']] as const;
+const daysText = (d: number[]) => (d.join() === '1,2,3,4,5' ? 'Mon–Fri' : d.join() === '1,2,3,4,5,6,7' ? 'Every day' : d.map((x) => DAYS[x - 1][1]).join(', '));
+const slugify = (s: string) => s.toLowerCase().normalize('NFKD').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40);
+
+async function copy(url: string) {
+  try { await navigator.clipboard.writeText(url); toast.success('Link copied'); } catch { toast.error('Copy failed — select the link and copy it'); }
+}
+
+/** Settings → Booking pages: everyone sees the links (to share them); admins set pages up. */
+export function BookingSettings() {
+  const { data: me } = useMe();
+  const q = useQuery({ queryKey: ['booking-pages'], queryFn: () => api.get<{ data: BookingPageRow[]; canEdit: boolean }>('/booking-pages') });
+  const [editing, setEditing] = useState<BookingPageRow | 'new' | null>(null);
+  const [showing, setShowing] = useState<BookingPageRow | null>(null);
+  const canEdit = !!q.data?.canEdit;
+  const add = canEdit && <Button variant="primary" size="sm" icon={<Plus className="size-4" />} onClick={() => setEditing('new')}>New booking page</Button>;
+  return (
+    <Card title="Booking pages" actions={add} padded={false}>
+      <p className="border-b border-base px-4 py-3 text-sm text-muted">Send customers a link where they pick a free time with you. Each booking becomes a meeting in Activities (with a video-call link if you like), linked to the contact, and the customer gets a confirmation email with a calendar file.</p>
+      {q.isLoading ? <div className="space-y-2 p-4"><Skeleton className="h-14" /><Skeleton className="h-14" /></div>
+        : q.isError ? <ErrorState message={errorMessage(q.error)} onRetry={() => q.refetch()} />
+        : !q.data!.data.length ? <EmptyState icon={<CalendarClock className="size-5" />} title="No booking pages yet" description={canEdit ? 'Create one for showroom visits, demos or consultations.' : 'Ask an admin to create one.'} action={add || undefined} />
+        : (
+          <ul className="divide-y divide-[var(--border)]" aria-label="Booking pages">
+            {q.data!.data.map((p) => (
+              <li key={p.id} className="flex flex-wrap items-center gap-x-3 gap-y-2 px-4 py-3">
+                <div className="min-w-0 flex-1 basis-60">
+                  <p className="flex flex-wrap items-center gap-2 text-sm font-medium">{p.title}{!p.active && <Badge>Off</Badge>}</p>
+                  <p className="text-xs text-muted">{p.durationMinutes} min · {p.hostName} · {daysText(p.days)} {p.startTime}–{p.endTime}{p.video ? ' · video call' : ''}</p>
+                  <p className="truncate text-xs"><a className="text-brand-600 underline underline-offset-2 dark:text-brand-200" href={p.url} target="_blank" rel="noreferrer">{p.url.replace(/^https?:\/\//, '')}</a></p>
+                </div>
+                <div className="flex items-center gap-1">
+                  {(canEdit || p.hostId === me?.user.id) ? <Button size="sm" variant="ghost" onClick={() => setShowing(p)}>{p.upcoming} upcoming</Button> : <span className="px-2 text-xs text-muted">{p.upcoming} upcoming</span>}
+                  <IconButton label={`Copy link of ${p.title}`} onClick={() => void copy(p.url)}><Copy className="size-4" /></IconButton>
+                  <IconButton label={`Open ${p.title}`} onClick={() => window.open(p.url, '_blank', 'noopener')}><ExternalLink className="size-4" /></IconButton>
+                  {canEdit && <IconButton label={`Edit ${p.title}`} onClick={() => setEditing(p)}><Pencil className="size-4" /></IconButton>}
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
+      {editing && <PageDialog page={editing === 'new' ? null : editing} onClose={() => setEditing(null)} />}
+      {showing && <BookingsDialog page={showing} onClose={() => setShowing(null)} />}
+    </Card>
+  );
+}
+
+function PageDialog({ page, onClose }: { page: BookingPageRow | null; onClose: () => void }) {
+  const qc = useQueryClient();
+  const { data: me } = useMe();
+  const [f, setF] = useState(() => page ? {
+    title: page.title, slug: page.slug, description: page.description, hostId: page.hostId, durationMinutes: page.durationMinutes, days: page.days,
+    start: page.startTime, end: page.endTime, minNoticeHours: page.minNoticeHours, daysAhead: page.daysAhead, video: page.video, location: page.location, active: page.active,
+  } : { title: '', slug: '', description: '', hostId: me?.user.id ?? 0, durationMinutes: 30, days: [1, 2, 3, 4, 5], start: '09:00', end: '17:00', minNoticeHours: 4, daysAhead: 30, video: true, location: '', active: true });
+  const [slugTouched, setSlugTouched] = useState(!!page);
+  const [errors, setErrors] = useState<Record<string, string>>({});
+  const [busy, setBusy] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  useEffect(() => { if (!slugTouched) setF((v) => ({ ...v, slug: slugify(v.title) })); }, [f.title, slugTouched]);
+  const save = async () => {
+    setBusy(true); setErrors({});
+    try {
+      if (page) await api.put(`/booking-pages/${page.id}`, f); else await api.post('/booking-pages', f);
+      await qc.invalidateQueries({ queryKey: ['booking-pages'] });
+      toast.success(page ? 'Booking page saved' : 'Booking page created — copy the link and share it');
+      onClose();
+    } catch (e) {
+      if (e instanceof ApiError && e.fields) setErrors(Object.fromEntries(Object.entries(e.fields).map(([k, v]) => [k.split('.')[0], v])));
+      toast.error(errorMessage(e));
+    } finally { setBusy(false); }
+  };
+  const origin = typeof window !== 'undefined' ? window.location.origin : '';
+  return (
+    <Dialog open onOpenChange={(o) => { if (!o) onClose(); }} size="lg" title={page ? 'Edit booking page' : 'New booking page'}
+      footer={<>
+        {page && <Button variant="ghost" className="mr-auto" onClick={() => setDeleting(true)}>Delete</Button>}
+        <Button onClick={onClose}>Cancel</Button><Button variant="primary" loading={busy} onClick={save}>{page ? 'Save' : 'Create'}</Button>
+      </>}>
+      <div className="space-y-3">
+        <div className="grid gap-3 sm:grid-cols-2">
+          <Field label="Title" htmlFor="bp-title" required error={errors.title} hint="Customers see it, e.g. Showroom visit"><Input id="bp-title" maxLength={120} value={f.title} onChange={(e) => setF({ ...f, title: e.target.value })} /></Field>
+          <Field label="Link" htmlFor="bp-slug" required error={errors.slug} hint={`${origin}/book/${f.slug || '…'}`}>
+            <Input id="bp-slug" maxLength={40} value={f.slug} onChange={(e) => { setSlugTouched(true); setF({ ...f, slug: e.target.value.toLowerCase() }); }} /></Field>
+          <Field label="With" htmlFor="bp-host" error={errors.hostId} hint="Bookings become their meetings"><UserSelect id="bp-host" value={f.hostId} onChange={(v) => setF({ ...f, hostId: v ?? f.hostId })} /></Field>
+          <Field label="Length" htmlFor="bp-len" error={errors.durationMinutes}>
+            <Select id="bp-len" value={f.durationMinutes} onChange={(e) => setF({ ...f, durationMinutes: Number(e.target.value) })}>
+              {BOOKING_DURATIONS.map((n) => <option key={n} value={n}>{n < 60 ? `${n} minutes` : `${n / 60} hour${n === 60 ? '' : 's'}`}</option>)}
+            </Select></Field>
+        </div>
+        <fieldset>
+          <legend className="mb-1.5 text-[13px] font-medium">Days</legend>
+          <div className="flex flex-wrap gap-x-4 gap-y-2">
+            {DAYS.map(([n, label]) => <Checkbox key={n} label={label} checked={f.days.includes(n)} onChange={(v) => setF({ ...f, days: v ? [...f.days, n].sort() : f.days.filter((x) => x !== n) })} />)}
+          </div>
+          {errors.days && <p className="mt-1 text-xs text-rose-600" role="alert">{errors.days}</p>}
+        </fieldset>
+        <div className="grid gap-3 sm:grid-cols-4">
+          <Field label="From" htmlFor="bp-start" error={errors.start}><Input id="bp-start" type="time" value={f.start} onChange={(e) => setF({ ...f, start: e.target.value })} /></Field>
+          <Field label="Until" htmlFor="bp-end" error={errors.end}><Input id="bp-end" type="time" value={f.end} onChange={(e) => setF({ ...f, end: e.target.value })} /></Field>
+          <Field label="Notice (hours)" htmlFor="bp-notice" error={errors.minNoticeHours}><Input id="bp-notice" type="number" min={0} max={168} value={f.minNoticeHours} onChange={(e) => setF({ ...f, minNoticeHours: Number(e.target.value) })} /></Field>
+          <Field label="Days ahead" htmlFor="bp-ahead" error={errors.daysAhead}><Input id="bp-ahead" type="number" min={1} max={90} value={f.daysAhead} onChange={(e) => setF({ ...f, daysAhead: Number(e.target.value) })} /></Field>
+        </div>
+        <p className="text-xs text-muted">Times use the workspace time zone. Open meetings and calls of the person block their times.</p>
+        <Checkbox checked={f.video} onChange={(v) => setF({ ...f, video: v })} label="Video call (each booking gets its own call link)" />
+        {!f.video && <Field label="Where" htmlFor="bp-loc" hint="Address or phone, shown to the customer" error={errors.location}><Input id="bp-loc" maxLength={200} value={f.location} onChange={(e) => setF({ ...f, location: e.target.value })} /></Field>}
+        <Field label="Description (optional)" htmlFor="bp-desc" error={errors.description}><Textarea id="bp-desc" rows={3} maxLength={2000} value={f.description} onChange={(e) => setF({ ...f, description: e.target.value })} placeholder="What the meeting is about, what to bring…" /></Field>
+        <Checkbox checked={f.active} onChange={(v) => setF({ ...f, active: v })} label="Taking bookings" />
+      </div>
+      {page && (
+        <ConfirmDialog open={deleting} onOpenChange={setDeleting} danger confirmLabel="Delete" title={`Delete “${page.title}”?`}
+          description="The link stops working. Bookings already made stay in Activities."
+          onConfirm={async () => { setDeleting(false); try { await api.del(`/booking-pages/${page.id}`); await qc.invalidateQueries({ queryKey: ['booking-pages'] }); toast.success('Booking page deleted'); onClose(); } catch (e) { toast.error(errorMessage(e)); } }} />
+      )}
+    </Dialog>
+  );
+}
+
+function BookingsDialog({ page, onClose }: { page: BookingPageRow; onClose: () => void }) {
+  const q = useQuery({ queryKey: ['booking-page-bookings', page.id], queryFn: () => api.get<{ data: Booking[] }>(`/booking-pages/${page.id}/bookings`) });
+  return (
+    <Dialog open onOpenChange={(o) => { if (!o) onClose(); }} title={`Bookings · ${page.title}`} footer={<Button onClick={onClose}>Close</Button>}>
+      {q.isLoading ? <Skeleton className="h-24" /> : q.isError ? <ErrorState message={errorMessage(q.error)} onRetry={() => q.refetch()} />
+        : !q.data!.data.length ? <EmptyState title="No upcoming bookings" description="Share the link to get some." />
+        : (
+          <ul className="divide-y divide-[var(--border)]" aria-label="Bookings">
+            {q.data!.data.map((b) => (
+              <li key={b.id} className="flex items-start gap-3 py-2.5">
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-medium">{dateTime(b.startsAt)}</p>
+                  <p className="break-words text-xs text-muted">{b.name} · {b.email}{b.phone ? ` · ${b.phone}` : ''}</p>
+                  {b.note && <p className="mt-0.5 text-xs">{b.note}</p>}
+                </div>
+                {b.status === 'canceled' ? <Badge tone="red">Canceled</Badge> : <Badge tone="green">Booked</Badge>}
+              </li>
+            ))}
+          </ul>
+        )}
+    </Dialog>
+  );
+}

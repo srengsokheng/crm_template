@@ -443,6 +443,18 @@ The research behind every decision is in this folder:
   one, the recipients and what was sent; "Send reminder now" works even with automatic reminders off. Each reminder is
   on the deal's timeline.
 
+- **Online booking** (migration 0037, `routes/booking.ts`, `packages/shared/src/booking.ts`, `features/booking/`):
+  Settings → Booking pages (admins create, everyone can copy the links): title, link (`/book/<slug>`), the team member
+  customers meet, length (15 min – 2 h), days and hours, notice, days ahead, video call or a place. Customers pick a
+  day and a free time (the host's open meetings and calls block times; workspace time zone), enter name/email/phone/note
+  and are booked. The booking finds the contact by email or creates one (owned by the host), adds a meeting for the host
+  linked to it (15-minute reminder; the host is notified), opens a video call for it on video pages (guest link in the
+  meeting's location; planned calls stay open until a day after their time), and emails the customer a confirmation
+  in the customer language with a calendar file (.ics) and a link to `/booking/<token>` (join the call, cancel).
+  Cancelling cancels the meeting and its call, tells the host and frees the time. Bookings for one host are serialised
+  (no double booking); at most 3 upcoming bookings per email per page; public endpoints are rate-limited. The contact's
+  timeline shows "Booked …" and cancellations; the page's upcoming bookings are listed for admins and the host.
+
 - **Installable app (PWA)** (`apps/web/public/manifest.webmanifest`, `sw.js`, `offline.html`, `lib/install.ts`):
   add to the home screen (Android, iPhone via Safari → Share → Add to Home Screen) or install on desktop Chrome/Edge;
   opens full-screen with its own icon (192/512, maskable, Apple 180 — rendered from the logo) and shortcuts to Inbox,
@@ -480,7 +492,7 @@ The research behind every decision is in this folder:
   one at their request (the email choice covers every contact with the same address). Every change — the customer’s
   STOP/START or link, or a team member — is on the contact’s timeline.
 
-**Quality:** 257 Vitest tests (API against real PostgreSQL), 73 Playwright tests (desktop, tablet, phone), lint and
+**Quality:** 263 Vitest tests (API against real PostgreSQL), 74 Playwright tests (desktop, tablet, phone), lint and
 typecheck clean, `npm audit` = 0, GitHub Actions CI in `.github/workflows/ci.yml`.
 
 ## 3. Not built yet — suggested next work (in priority order)
@@ -504,7 +516,9 @@ The earlier list is done (see section 2). Known follow-ups, collected from the p
    bulk-mail rules (SPF/DKIM/DMARC for the sending domain).
 7. Payment reminders: WhatsApp isn't used (outside the 24-hour window it needs an approved template per language);
    could be added like broadcasts. Reminders stop when an invoice is paid in the CRM — record bank payments promptly.
-8. KHQR: confirm payments automatically through the Bakong Open API (needs a token from the NBC); scan a printed QR
+8. Booking: no sync with Google/Outlook calendars (only CRM meetings block times); no rescheduling (cancel and book
+   again); one host per page (no round-robin).
+9. KHQR: confirm payments automatically through the Bakong Open API (needs a token from the NBC); scan a printed QR
    with a real bank app before relying on it.
 
 Import limits and choices: 5 MB / 10,000 rows / 100 columns per file; lead rows only match *open* leads; list
