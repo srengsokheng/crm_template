@@ -428,6 +428,22 @@ export const khqrSettingsSchema = z.object({
 }).refine((k) => !k.enabled || (k.accountId && k.merchantName), { message: 'Enter the Bakong account ID and the name banks show', path: ['accountId'] });
 export type KhqrSettings = z.infer<typeof khqrSettingsSchema>;
 
+/**
+ * Automatic payment reminders for sent invoices with a balance: N days before the due date, on it, and N days after
+ * (up to three). By email to whoever the invoice was emailed to, and (optionally) the Telegram bot chats of the
+ * deal's contacts. Sent after 9:00 in the workspace's time zone.
+ */
+export const reminderSettingsSchema = z.object({
+  enabled: z.boolean().default(false),
+  beforeDays: z.union([z.coerce.number().int().min(1).max(30), z.null()]).default(3),
+  onDue: z.boolean().default(true),
+  afterDays: z.array(z.coerce.number().int().min(1).max(90)).max(3, 'Up to three').default([7])
+    .transform((a) => [...new Set(a)].sort((x, y) => x - y)),
+  telegram: z.boolean().default(true),
+});
+export type ReminderSettings = z.infer<typeof reminderSettingsSchema>;
+export const documentRemindersSchema = z.object({ off: z.boolean() });
+
 export const documentSettingsSchema = z.object({
   companyDetails: z.string().max(2000).default(''),
   footer: z.string().max(1000).default(''),
@@ -439,6 +455,7 @@ export const documentSettingsSchema = z.object({
   khqr: khqrSettingsSchema.prefault({}),
   /** What customers read (PDFs, the customer page, email button, website chat, video-call page): English, Khmer, or both. */
   customerLanguage: z.enum(['en', 'km', 'both']).default('en'),
+  reminders: reminderSettingsSchema.prefault({}),
 });
 
 // ───────── Field-level permissions ─────────

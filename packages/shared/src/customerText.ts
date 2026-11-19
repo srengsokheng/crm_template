@@ -1,6 +1,6 @@
 /**
  * Everything customers read, in English and Khmer: PDFs, the quote/invoice page, the email button, the website chat
- * widget, the video-call page and broadcast opt-outs. The workspace picks English, Khmer, or both (Settings → Quotes & invoices).
+ * widget, the video-call page, broadcast opt-outs and payment reminders. The workspace picks English, Khmer, or both (Settings → Quotes & invoices).
  *
  * Khmer wording: drafted for this CRM — have a native speaker review it; change it only here.
  */
@@ -42,6 +42,11 @@ const en = {
   unsubHelp: 'You’ll stop getting news and offers from {company} at {email}. Invoices and replies to your messages still come.',
   unsubDone: 'You’re unsubscribed. You won’t get these emails any more.', unsubResubscribed: 'You’re subscribed again.',
   unsubFooter: 'You get this email because you’re a customer of {company}. Unsubscribe: {url}', unsubBadLink: 'This unsubscribe link isn’t valid.',
+  // Payment reminders
+  reminderSubject: 'Payment reminder: invoice {number} from {company}', reminderHello: 'Hello {name},',
+  reminderBefore: 'Invoice {number} for {amount} is due on {date}.', reminderDue: 'Invoice {number} for {amount} is due today.',
+  reminderAfter: 'Invoice {number} for {amount} was due on {date}.', reminderPaidAlready: 'If you have already paid, thank you — please ignore this message.',
+  reminderLink: 'View and pay it here: {url}', reminderThanks: 'Thank you!',
 };
 export type TextKey = keyof typeof en;
 
@@ -77,6 +82,10 @@ const km: Record<TextKey, string> = {
   unsubHelp: 'អ្នកនឹងឈប់ទទួលព័ត៌មាន និងការផ្តល់ជូនពី {company} តាម {email}។ វិក្កយបត្រ និងការឆ្លើយតបនឹងសាររបស់អ្នក នៅតែផ្ញើមកដដែល។',
   unsubDone: 'អ្នកបានឈប់ទទួលហើយ។ អ្នកនឹងលែងទទួលអ៊ីមែលទាំងនេះទៀត។', unsubResubscribed: 'អ្នកបានចុះឈ្មោះទទួលម្តងទៀតហើយ។',
   unsubFooter: 'អ្នកទទួលអ៊ីមែលនេះ ព្រោះអ្នកជាអតិថិជនរបស់ {company}។ ឈប់ទទួល៖ {url}', unsubBadLink: 'តំណឈប់ទទួលនេះមិនត្រឹមត្រូវទេ។',
+  reminderSubject: 'ការរំលឹកការបង់ប្រាក់៖ វិក្កយបត្រ {number} ពី {company}', reminderHello: 'ជម្រាបសួរ {name},',
+  reminderBefore: 'វិក្កយបត្រ {number} ចំនួន {amount} ត្រូវបង់នៅថ្ងៃទី {date}។', reminderDue: 'វិក្កយបត្រ {number} ចំនួន {amount} ត្រូវបង់នៅថ្ងៃនេះ។',
+  reminderAfter: 'វិក្កយបត្រ {number} ចំនួន {amount} ត្រូវបង់កាលពីថ្ងៃទី {date}។', reminderPaidAlready: 'ប្រសិនបើអ្នកបានបង់រួចហើយ សូមអរគុណ — សូមកុំខ្វល់នឹងសារនេះ។',
+  reminderLink: 'មើល និងបង់ប្រាក់នៅទីនេះ៖ {url}', reminderThanks: 'សូមអរគុណ!',
 };
 
 const fill = (s: string, vars?: Record<string, string | number>) => (vars ? s.replace(/\{(\w+)\}/g, (m, k) => (k in vars ? String(vars[k]) : m)) : s);

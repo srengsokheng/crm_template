@@ -14,6 +14,7 @@ import { EmailDialog, PaymentDialog, PaymentsCard } from './DocumentExtras.tsx';
 import { KhqrCard } from './Khqr.tsx';
 import { CustomerLinkCard } from './CustomerPage.tsx';
 import { RepeatDialog, RepeatsCard } from './Recurring.tsx';
+import { RemindersCard } from './Reminders.tsx';
 
 /** The next steps offered for each status (the server enforces the same rules). */
 const ACTIONS: Record<string, Record<string, { status: string; label: string; primary?: boolean; danger?: boolean }[]>> = {
@@ -128,6 +129,7 @@ export function DocumentPage() {
         {d.customerUrl && <CustomerLinkCard url={d.customerUrl} viewedAt={d.viewedAt} kind={d.kind} status={d.status} respondedByName={d.respondedByName} customerNote={d.customerNote} />}
         {d.kind === 'invoice' && d.status === 'sent' && <KhqrCard docId={d.id} balance={d.balance} />}
         {d.kind === 'invoice' && d.status !== 'draft' && <PaymentsCard doc={d} onChange={refresh} onRecord={() => setDialog('payment')} />}
+        {d.kind === 'invoice' && d.status !== 'draft' && <RemindersCard docId={d.id} canEdit={d.canEdit} currency={d.currency} />}
         <LineItemsEditor title="Items" items={d.items} currency={d.currency} canEdit={editable}
           onSave={async (items) => { await api.patch(`/documents/${id}`, { items: itemsPayload(items) }); await refresh(); toast.success('Items saved'); }} />
         {d.sourceQuoteId && <p className="text-sm text-muted">Created from <Link className="text-brand-600 hover:underline dark:text-brand-200" to={`/documents/${d.sourceQuoteId}`}>the accepted quote</Link>.</p>}

@@ -56,7 +56,7 @@ export async function loadDeal(db: Db, ctx: Ctx, dealId: number, action: 'view' 
   return deal;
 }
 
-async function loadDoc(db: Db, ctx: Ctx, id: number, action: 'view' | 'edit', lock = false) {
+export async function loadDoc(db: Db, ctx: Ctx, id: number, action: 'view' | 'edit', lock = false) {
   if (!Number.isInteger(id)) throw notFound('Document');
   const doc = await q1<Doc>(sql`SELECT * FROM documents WHERE id = ${id} AND workspace_id = ${ctx.workspaceId} ${lock ? sql`FOR UPDATE` : sql``}`, db);
   if (!doc) throw notFound('Document');
@@ -337,7 +337,9 @@ export async function documentRoutes(app: FastifyInstance) {
           button: { label: ctLabel((await documentSettings(ctx.workspaceId, db)).customerLanguage, doc.kind === 'quote' ? 'viewAccept' : 'viewPay'), url: link } }),
         fromName: await workspaceSender(ctx.workspaceId, db),
       }, db, { workspaceId: ctx.workspaceId });
-      const after = (await q1<Doc>(sql`UPDATE documents SET last_emailed_at = now() WHERE id = ${doc.id} RETURNING *`, db))!;
+      // Invoices remember who they went to: payment reminders go to the same people.
+      const after = (await q1<Doc>(sql`UPDATE documents SET last_emailed_at = now(), email_to = CASE WHEN kind = 'invoice' THEN ${body.to}::text[] ELSE email_to END
+        WHERE id = ${doc.id} RETURNING *`, db))!;
       await audit(db, ctx, 'deal', doc.deal_id, `${doc.kind}_emailed`, { document: { id: doc.id, number: after.number }, to: body.to });
       return after;
     });

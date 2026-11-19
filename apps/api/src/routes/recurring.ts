@@ -56,7 +56,7 @@ async function runOnce(db: Db, s: Schedule): Promise<Doc> {
       }),
       fromName: await workspaceSender(s.workspace_id, db),
     }, db, { workspaceId: s.workspace_id });
-    doc = (await q1<Doc>(sql`UPDATE documents SET last_emailed_at = now() WHERE id = ${doc.id} RETURNING *`, db))!;
+    doc = (await q1<Doc>(sql`UPDATE documents SET last_emailed_at = now(), email_to = ${s.email_to}::text[] WHERE id = ${doc.id} RETURNING *`, db))!;
   }
   const runs = s.runs + 1;
   const ended = s.ends_after !== null && runs >= s.ends_after;

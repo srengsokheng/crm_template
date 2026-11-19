@@ -432,6 +432,17 @@ The research behind every decision is in this folder:
   that passed) / Stop on the invoice’s "Repeats" card and in Quotes & invoices → Recurring. The creator is notified
   each time (also on Telegram, #51).
 
+- **Payment reminders** (migration 0036, `routes/reminders.ts`, `features/documents/Reminders.tsx`): Settings → Quotes &
+  invoices → *Payment reminders* (off by default): N days before the due date, on it, and up to three "N days after".
+  Sent invoices with a balance get them by email to the addresses the invoice was last emailed to (now kept on the
+  invoice as `email_to`; older invoices were filled from their "emailed" history) with the PDF and the "View and pay"
+  button, and optionally in the Telegram bot chats of the deal's contacts — in the customer language. The worker (every
+  10 minutes) sends after 9:00 workspace time, one step per invoice per day, only steps of the last 3 days (turning it on
+  doesn't flood old invoices), never the same step twice and never an earlier step after a later one. Paid/void invoices
+  and invoices marked "Don't remind for this invoice" get none. The invoice's "Payment reminders" card shows the next
+  one, the recipients and what was sent; "Send reminder now" works even with automatic reminders off. Each reminder is
+  on the deal's timeline.
+
 - **Installable app (PWA)** (`apps/web/public/manifest.webmanifest`, `sw.js`, `offline.html`, `lib/install.ts`):
   add to the home screen (Android, iPhone via Safari → Share → Add to Home Screen) or install on desktop Chrome/Edge;
   opens full-screen with its own icon (192/512, maskable, Apple 180 — rendered from the logo) and shortcuts to Inbox,
@@ -469,7 +480,7 @@ The research behind every decision is in this folder:
   one at their request (the email choice covers every contact with the same address). Every change — the customer’s
   STOP/START or link, or a team member — is on the contact’s timeline.
 
-**Quality:** 251 Vitest tests (API against real PostgreSQL), 72 Playwright tests (desktop, tablet, phone), lint and
+**Quality:** 257 Vitest tests (API against real PostgreSQL), 73 Playwright tests (desktop, tablet, phone), lint and
 typecheck clean, `npm audit` = 0, GitHub Actions CI in `.github/workflows/ci.yml`.
 
 ## 3. Not built yet — suggested next work (in priority order)
@@ -491,7 +502,9 @@ The earlier list is done (see section 2). Known follow-ups, collected from the p
 6. Broadcasts: only fake Telegram/Graph APIs and the mail queue have been used. Before large sends, check the
    platforms' limits (Telegram ~30 messages/second per bot; WhatsApp tiers by number quality) and the SMTP provider's
    bulk-mail rules (SPF/DKIM/DMARC for the sending domain).
-7. KHQR: confirm payments automatically through the Bakong Open API (needs a token from the NBC); scan a printed QR
+7. Payment reminders: WhatsApp isn't used (outside the 24-hour window it needs an approved template per language);
+   could be added like broadcasts. Reminders stop when an invoice is paid in the CRM — record bank payments promptly.
+8. KHQR: confirm payments automatically through the Bakong Open API (needs a token from the NBC); scan a printed QR
    with a real bank app before relying on it.
 
 Import limits and choices: 5 MB / 10,000 rows / 100 columns per file; lead rows only match *open* leads; list

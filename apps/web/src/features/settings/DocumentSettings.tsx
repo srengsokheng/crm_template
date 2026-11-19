@@ -6,7 +6,8 @@ import { Button, Card, Checkbox, ErrorState, Field, Input, Select, Skeleton, Tex
 import { AdminOnly } from './SettingsLayout.tsx';
 
 interface K { enabled: boolean; accountId: string; merchantName: string; city: string; accountType: 'individual' | 'merchant'; merchantId: string; acquiringBank: string; validDays: number }
-interface S { companyDetails: string; footer: string; quotePrefix: string; invoicePrefix: string; quoteValidDays: number; paymentTermsDays: number; khqr: K; customerLanguage: 'en' | 'km' | 'both' }
+interface R { enabled: boolean; beforeDays: number | null; onDue: boolean; afterDays: number[]; telegram: boolean }
+interface S { companyDetails: string; footer: string; quotePrefix: string; invoicePrefix: string; quoteValidDays: number; paymentTermsDays: number; khqr: K; customerLanguage: 'en' | 'km' | 'both'; reminders: R }
 
 /** What appears on quote and invoice PDFs, and how they are numbered. */
 export function DocumentSettings() {
@@ -18,11 +19,15 @@ export function DocumentSettings() {
   useEffect(() => { if (q.data) setF(q.data); }, [q.data]);
   const set = (patch: Partial<S>) => setF((v) => (v ? { ...v, ...patch } : v));
   const setK = (patch: Partial<K>) => setF((v) => (v ? { ...v, khqr: { ...v.khqr, ...patch } } : v));
+  const setR = (patch: Partial<R>) => setF((v) => (v ? { ...v, reminders: { ...v.reminders, ...patch } } : v));
+  const [afterText, setAfterText] = useState('');
+  useEffect(() => { if (q.data) setAfterText(q.data.reminders.afterDays.join(', ')); }, [q.data]);
   const kErr = (k: string) => errors[`khqr.${k}`] ?? (k === 'accountId' ? errors.khqr : undefined);
   const save = async () => {
     if (!f) return;
     setSaving(true); setErrors({});
-    try { await api.put('/settings/documents', f); await qc.invalidateQueries({ queryKey: ['document-settings'] }); toast.success('Settings saved'); }
+    const afterDays = afterText.split(/[s,;]+/).filter(Boolean).map(Number);
+    try { await api.put('/settings/documents', { ...f, reminders: { ...f.reminders, afterDays } }); await qc.invalidateQueries({ queryKey: ['document-settings'] }); toast.success('Settings saved'); }
     catch (e) { if (e instanceof ApiError && e.fields) setErrors(e.fields); toast.error(errorMessage(e)); } finally { setSaving(false); }
   };
   return (
@@ -67,6 +72,26 @@ export function DocumentSettings() {
                       <Field label="Bank" htmlFor="kq-bank" hint="e.g. ABA Bank" error={kErr('acquiringBank')}><Input id="kq-bank" value={f.khqr.acquiringBank} onChange={(e) => setK({ acquiringBank: e.target.value })} /></Field>
                     </>}
                     <Field label="A QR stays valid for (days)" htmlFor="kq-days" hint="Banks refuse expired ones; each view or PDF makes a fresh one" error={kErr('validDays')}><Input id="kq-days" type="number" min={1} max={90} value={f.khqr.validDays} onChange={(e) => setK({ validDays: Number(e.target.value) })} /></Field>
+                  </div>
+                )}
+              </fieldset>
+              <fieldset className="space-y-3 rounded-md border border-base p-3">
+                <legend className="px-1 text-sm font-medium">Payment reminders</legend>
+                <Checkbox checked={f.reminders.enabled} onChange={(v) => setR({ enabled: v })} label="Remind customers automatically about sent invoices that aren’t paid yet" />
+                <p className="text-xs text-muted">By email to whoever the invoice was emailed to (with the PDF and the pay link), in the language for customers, after 9:00 your time. Paid and void invoices get none; you can turn them off for one invoice.</p>
+                {f.reminders.enabled && (
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <Field label="Before the due date" htmlFor="rm-before" error={errors['reminders.beforeDays']}>
+                      <Select id="rm-before" value={f.reminders.beforeDays ?? ''} onChange={(e) => setR({ beforeDays: e.target.value ? Number(e.target.value) : null })}>
+                        <option value="">No reminder</option>
+                        {[1, 2, 3, 5, 7, 14].map((n) => <option key={n} value={n}>{n} day{n === 1 ? '' : 's'} before</option>)}
+                      </Select>
+                    </Field>
+                    <Field label="After the due date (days)" htmlFor="rm-after" hint="Up to three, e.g. 7, 14, 30 — empty for none" error={errors['reminders.afterDays'] ?? Object.entries(errors).find(([k]) => k.startsWith('reminders.afterDays'))?.[1]}>
+                      <Input id="rm-after" inputMode="numeric" value={afterText} onChange={(e) => setAfterText(e.target.value)} />
+                    </Field>
+                    <Checkbox checked={f.reminders.onDue} onChange={(v) => setR({ onDue: v })} label="On the due date" />
+                    <Checkbox checked={f.reminders.telegram} onChange={(v) => setR({ telegram: v })} label="Also in the Telegram chats of the deal’s contacts" />
                   </div>
                 )}
               </fieldset>

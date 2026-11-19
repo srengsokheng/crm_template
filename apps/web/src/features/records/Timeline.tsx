@@ -4,6 +4,7 @@ import { useInfiniteQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { ArrowRightLeft, Bot, CalendarClock, CheckCircle2, Circle, Mail, MessageSquare, Phone, Pin, PinOff, Trash2, Users, Flag, CheckSquare, History } from 'lucide-react';
 import { api, errorMessage, qsOf } from '../../lib/api.ts';
+import { stepLabel } from '../documents/Reminders.tsx';
 import { cn } from '../../lib/cn.ts';
 import { dateTime, dueLabel, fromLocalInput, money, relative, toLocalInput } from '../../lib/format.ts';
 import { useMe, useMeta } from '../../lib/hooks.ts';
@@ -234,6 +235,13 @@ export function describeEvent(d: Record<string, any>, userName: (id: number) => 
       const chosen = Object.keys(ch).filter((k) => !['merged', 'movedMethods'].includes(k) && !k.startsWith('_')).map((k) => FIELD_LABELS[k] ?? k.replace(/^custom\./, ''));
       return { icon: History, text: `Merged with ${ch.merged?.name ?? 'a duplicate'} (#${ch.merged?.id})${chosen.length ? ` — took ${[...new Set(chosen)].join(', ')}` : ''}` };
     }
+    case 'invoice_reminder': {
+      const to = [...((ch.to as string[] | undefined) ?? []), ...(ch.chats ? [`${ch.chats} Telegram chat${ch.chats === 1 ? '' : 's'}`] : [])].join(', ');
+      const step = String(ch.step);
+      return { icon: History, text: `Payment reminder for ${ch.document?.number ?? 'an invoice'}${step.startsWith('manual:') ? '' : ` (${stepLabel(step).toLowerCase()})`}${to ? ` to ${to}` : ''}` };
+    }
+    case 'invoice_reminders_off': return { icon: History, text: `Turned off payment reminders for ${ch.document?.number ?? 'an invoice'}` };
+    case 'invoice_reminders_on': return { icon: History, text: `Turned payment reminders back on for ${ch.document?.number ?? 'an invoice'}` };
     case 'email_unsubscribed': return { icon: Flag, text: ch.via === 'link' ? 'Unsubscribed from broadcast emails (their unsubscribe link)' : 'Opted out of broadcast emails' };
     case 'email_resubscribed': return { icon: History, text: ch.via === 'link' ? 'Subscribed to broadcast emails again (their link)' : 'Opted back in to broadcast emails' };
     case 'chat_opted_out': return { icon: Flag, text: `${ch.via === 'customer' ? 'Replied STOP: no more broadcasts' : 'Opted out of broadcasts'} on ${CHAT_CHANNEL[String(ch.channel)] ?? 'chat'}${ch.channelName ? ` (${ch.channelName})` : ''}` };
