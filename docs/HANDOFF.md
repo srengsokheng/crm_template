@@ -461,7 +461,13 @@ The research behind every decision is in this folder:
   cancel with an optional message. The customer is emailed ("Rita moved your booking" / "Rita canceled this booking",
   with the message) with their link and a calendar file; the host is told when someone else did it; the contact's
   timeline notes it. Team moves don't count against the customer's 3 moves (the calendar version has its own counter).
-  The customer's link is now also kept encrypted, so team emails can include it (bookings made before: no link). Bookings for one host are serialised
+  The customer's link is now also kept encrypted, so team emails can include it (bookings made before: no link).
+  **Shared pages (round-robin, migration 0042)**: "With" can be several people (`team_ids`; `host_id` stays the first).
+  A time is offered when any of them is free; each booking goes to a free one, taking turns (whoever went longest
+  without a booking from this page, then the page's order); the meeting, new contact and video call are theirs. The
+  customer page says "with <company>". Everyone on the page sees its bookings ("with Rita"). A customer's move stays
+  with their person (only their free times are offered); people taken off the page keep their bookings, but those
+  customers can't move them any more (cancel still works). The API takes `hostIds` (or the old `hostId`). Bookings for one host are serialised
   (no double booking); at most 3 upcoming bookings per email per page; public endpoints are rate-limited. The contact's
   timeline shows "Booked …" and cancellations; the page's upcoming bookings are listed for admins and the host.
 
@@ -527,7 +533,7 @@ The research behind every decision is in this folder:
   one at their request (the email choice covers every contact with the same address). Every change — the customer’s
   STOP/START or link, or a team member — is on the contact’s timeline.
 
-**Quality:** 275 Vitest tests (API against real PostgreSQL), 78 Playwright tests (desktop, tablet, phone), lint and
+**Quality:** 276 Vitest tests (API against real PostgreSQL), 79 Playwright tests (desktop, tablet, phone), lint and
 typecheck clean, `npm audit` = 0, GitHub Actions CI in `.github/workflows/ci.yml`.
 
 ## 3. Not built yet — suggested next work (in priority order)
@@ -551,7 +557,8 @@ The earlier list is done (see section 2). Known follow-ups, collected from the p
    bulk-mail rules (SPF/DKIM/DMARC for the sending domain).
 7. Payment reminders: WhatsApp isn't used (outside the 24-hour window it needs an approved template per language);
    could be added like broadcasts. Reminders stop when an invoice is paid in the CRM — record bank payments promptly.
-8. Booking: no sync with Google/Outlook calendars (only CRM meetings block times); one host per page (no round-robin);
+8. Booking: no sync with Google/Outlook calendars (only CRM meetings block times); round-robin takes turns but doesn't
+   weigh people (e.g. "Rita gets twice as many");
    editing a booked meeting directly in Activities doesn't update the booking or email the customer (use Move).
 9. KHQR: confirm payments automatically through the Bakong Open API (needs a token from the NBC); scan a printed QR
    with a real bank app before relying on it.

@@ -535,7 +535,10 @@ export const bookingPageSchema = z.object({
   title: trimmed(120).min(1, 'Required'),
   slug: z.string().trim().toLowerCase().regex(/^[a-z0-9][a-z0-9-]{1,38}[a-z0-9]$/, 'Use 3–40 letters, numbers and dashes'),
   description: z.string().trim().max(2000).default(''),
-  hostId: idSchema,
+  /** One person… */
+  hostId: idSchema.optional(),
+  /** …or several, sharing the bookings (round-robin). */
+  hostIds: z.array(idSchema).max(20, 'Up to 20 people').optional(),
   durationMinutes: z.coerce.number().int().refine((v) => (BOOKING_DURATIONS as readonly number[]).includes(v), 'Pick a length'),
   days: z.array(z.coerce.number().int().min(1).max(7)).min(1, 'Pick at least one day').max(7).transform((a) => [...new Set(a)].sort()),
   start: hhmm.default('09:00'),
@@ -545,7 +548,9 @@ export const bookingPageSchema = z.object({
   video: z.boolean().default(true),
   location: z.string().trim().max(300).default(''),
   active: z.boolean().default(true),
-}).refine((v) => v.end > v.start, { message: 'Must be after the start', path: ['end'] });
+}).refine((v) => v.end > v.start, { message: 'Must be after the start', path: ['end'] })
+  .refine((v) => v.hostId || v.hostIds?.length, { message: 'Pick who customers meet', path: ['hostIds'] })
+  .transform(({ hostId, hostIds, ...v }) => ({ ...v, hostIds: [...new Set([...(hostId ? [hostId] : []), ...(hostIds ?? [])])] }));
 export type BookingPageInput = z.infer<typeof bookingPageSchema>;
 /** A customer moves their booking to another free time (public). */
 export const bookingRescheduleSchema = z.object({ start: z.iso.datetime({ offset: true }) });

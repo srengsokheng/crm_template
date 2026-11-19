@@ -271,4 +271,55 @@ describe('online booking', () => {
     const ws2 = await signup();
     expect((await ws2.c.post(`/bookings/${dara.id}/cancel`)).status).toBe(404);
   });
+
+  it('round-robin: several people share a page; times free for anyone; bookings take turns; moves stay with the person', async () => {
+    const { c, me } = await signup(); const admin = me.user.id;
+    const { c: rita, id: ritaId } = await inviteUser(c, 'Sales rep', 'Rita Rep');
+    const { id: ottoId } = await inviteUser(c, 'Sales rep', 'Otto Rep');
+    const { c: outsider } = await inviteUser(c, 'Sales rep', 'Not On It');
+    expect((await c.post('/booking-pages', { title: 'X', slug: slug(), hostIds: [], durationMinutes: 30, days: allDays })).status).toBe(400);
+    const p = (await c.post('/booking-pages', { title: 'Sales call', slug: slug(), hostIds: [ritaId, ottoId], durationMinutes: 30, days: allDays,
+      start: '00:00', end: '23:30', minNoticeHours: 1, daysAhead: 3, video: false })).body;
+    expect(p.hostIds.map(Number)).toEqual([ritaId, ottoId]);
+    expect(p.hostName).toBe('Rita Rep, Otto Rep');
+    const info = (await pub('GET', `/book/${p.slug}`)).body;
+    expect(info).toMatchObject({ team: true, host: expect.any(String) });
+    const slots = info.days.flatMap((d: any) => d.slots) as string[];
+
+    // Rita is busy at the first time: it's still offered (Otto is free) and goes to Otto.
+    await c.post('/activities', { kind: 'meeting', subject: 'Rita busy', dueAt: slots[0], durationMinutes: 30, assigneeId: ritaId });
+    expect((await pub('GET', `/book/${p.slug}`)).body.days.flatMap((d: any) => d.slots)).toContain(slots[0]);
+    const book = (start: string, n: number) => pub('POST', `/book/${p.slug}`, { start, name: `Customer ${n}`, email: `c${n}@rr.test` });
+    expect((await book(slots[0], 1)).status).toBe(201);
+    // Now both are busy then: the time is gone.
+    expect((await pub('GET', `/book/${p.slug}`)).body.days.flatMap((d: any) => d.slots)).not.toContain(slots[0]);
+    expect((await book(slots[0], 9)).body.error.code).toBe('TAKEN');
+    // Free for both: taking turns — Rita (never had one), then Otto, then Rita.
+    for (const [i, n] of [[2, 2], [4, 3], [6, 4]]) expect((await book(slots[i], n)).status).toBe(201);
+    const hosts = (await pool.query(`SELECT name, host_id::int AS host FROM bookings WHERE page_id = $1 ORDER BY id`, [p.id])).rows.map((r) => [r.name, r.host]);
+    expect(hosts).toEqual([['Customer 1', ottoId], ['Customer 2', ritaId], ['Customer 3', ottoId], ['Customer 4', ritaId]]);
+    // The meeting and the new contact belong to that person.
+    const b2 = (await pool.query(`SELECT activity_id, contact_id FROM bookings WHERE page_id = $1 AND name = 'Customer 2'`, [p.id])).rows[0];
+    expect((await actOf(b2.activity_id)).assigneeId).toBe(ritaId);
+    expect((await pool.query(`SELECT owner_id::int AS o FROM contacts WHERE id = $1`, [b2.contact_id])).rows[0].o).toBe(ritaId);
+
+    // Everyone on the page sees its bookings, with who each is with; people not on it don't.
+    const seen = (await rita.get(`/booking-pages/${p.id}/bookings`)).body.data;
+    expect(seen.map((x: any) => x.hostName)).toEqual(['Otto Rep', 'Rita Rep', 'Otto Rep', 'Rita Rep']);
+    expect((await outsider.get(`/booking-pages/${p.id}/bookings`)).status).toBe(404);
+
+    // A customer move stays with their person: only that person's free times are offered.
+    const mail = (await pool.query(`SELECT payload->>'text' AS t FROM jobs WHERE type = 'email.send' AND payload->>'to' = 'c2@rr.test'`)).rows[0].t;
+    const token = /\/booking\/([\w-]+)/.exec(mail)![1];
+    const offered = (await pub('GET', `/bookings/${token}/slots`)).body.days.flatMap((d: any) => d.slots);
+    expect(offered).not.toContain(slots[0]); // Rita is busy then (Otto isn't — but the booking stays with Rita)
+    expect(offered).not.toContain(slots[6]); // Rita's other booking
+    expect(offered).toContain(slots[4]); // Otto's booking: Rita is free then
+    // Taking Rita off the page: her customers can't move any more (they can still cancel).
+    await c.put(`/booking-pages/${p.id}`, { title: 'Sales call', slug: p.slug, hostIds: [ottoId], durationMinutes: 30, days: allDays, start: '00:00', end: '23:30', video: false });
+    expect((await pub('GET', `/bookings/${token}`)).body.canReschedule).toBe(false);
+    // Single-person pages still answer with hostId (older clients).
+    expect((await c.get('/booking-pages')).body.data.find((x: any) => x.id === p.id)).toMatchObject({ hostId: ottoId, hostName: 'Otto Rep' });
+    expect(admin).toBeTruthy();
+  });
 });

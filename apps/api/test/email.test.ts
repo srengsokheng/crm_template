@@ -76,7 +76,7 @@ describe('email delivery', () => {
     const roleId = (await c.get('/roles')).body.data[1].id;
     expect((await c.post('/users/invite', { email, name: 'Me again', roleId })).status).toBe(400); // already a member
     await drain();
-    expect(outbox).toHaveLength(0);
+    expect(outbox.filter((m) => m.to === email)).toHaveLength(0); // other files may leave mail in the queue
   });
 
   it('emails activity reminders once to the assignee, respecting the opt-out and disabled members', async () => {
@@ -96,24 +96,28 @@ describe('email delivery', () => {
       expect(a.status).toBe(201);
     }
     await admin.patch(`/users/${gone.id}`, { status: 'disabled' });
+    // Reminders run for every workspace, and other test files leave meetings with reminders (e.g. bookings):
+    // only mail to this test's people counts.
+    const ours = () => outbox.filter((m) => [rep.email, off.email, gone.email].includes(m.to));
 
     await sendReminders(new Date(Date.now() + 1800_000 - 60_000)); // one minute too early
     await drain();
-    expect(outbox).toHaveLength(0);
+    expect(ours()).toHaveLength(0);
     await sendReminders(new Date(Date.now() + 1800_000 + 60_000));
     await drain();
-    expect(outbox.map((m) => m.to)).toEqual([rep.email]);
-    expect(outbox[0].subject).toBe(`Reminder: Call for ${rep.email}`);
-    expect(outbox[0].text).toContain('Hi Rita Rep,');
-    expect(outbox[0].text).toContain('Related to: Robot order');
-    expect(outbox[0].text).toMatch(/is due .+\(UTC\)/);
-    expect(outbox[0].text).toContain('/activities');
+    expect(ours().map((m) => m.to)).toEqual([rep.email]);
+    const mail = ours()[0];
+    expect(mail.subject).toBe(`Reminder: Call for ${rep.email}`);
+    expect(mail.text).toContain('Hi Rita Rep,');
+    expect(mail.text).toContain('Related to: Robot order');
+    expect(mail.text).toMatch(/is due .+\(UTC\)/);
+    expect(mail.text).toContain('/activities');
     // In-app notifications still go to everyone assigned, opt-out or not.
     expect((await off.c.get('/notifications')).body.data.map((n: any) => n.title)).toContain(`Reminder: Call for ${off.email}`);
     // Not sent twice.
     await sendReminders(new Date(Date.now() + 7200_000));
     await drain();
-    expect(outbox).toHaveLength(1);
+    expect(ours()).toHaveLength(1);
   });
 
   it('retries a failed delivery and then gives up without losing other jobs', async () => {

@@ -5,16 +5,15 @@ import { toast } from 'sonner';
 import { BOOKING_DURATIONS } from '@crm/shared';
 import { api, ApiError, errorMessage } from '../../lib/api.ts';
 import { dateTime, fromLocalInput, toLocalInput } from '../../lib/format.ts';
-import { useMe } from '../../lib/hooks.ts';
+import { useMe, useMeta } from '../../lib/hooks.ts';
 import { Badge, Button, Card, Checkbox, EmptyState, ErrorState, Field, IconButton, Input, Select, Skeleton, Textarea } from '../../components/ui/primitives.tsx';
 import { ConfirmDialog, Dialog } from '../../components/ui/overlays.tsx';
-import { UserSelect } from '../records/form.tsx';
 
 export interface BookingPageRow {
-  id: number; slug: string; title: string; description: string; hostId: number; hostName: string; durationMinutes: number; days: number[];
+  id: number; slug: string; title: string; description: string; hostId: number; hostIds: (number | string)[]; hostName: string; durationMinutes: number; days: number[];
   startTime: string; endTime: string; minNoticeHours: number; daysAhead: number; video: boolean; location: string; active: boolean; upcoming: number; url: string;
 }
-interface Booking { id: number; name: string; email: string; phone: string; note: string; startsAt: string; endsAt: string; status: 'booked' | 'canceled'; canceledBy: string | null }
+interface Booking { id: number; name: string; email: string; phone: string; note: string; startsAt: string; endsAt: string; status: 'booked' | 'canceled'; canceledBy: string | null; hostName: string | null }
 
 const DAYS = [[1, 'Mon'], [2, 'Tue'], [3, 'Wed'], [4, 'Thu'], [5, 'Fri'], [6, 'Sat'], [7, 'Sun']] as const;
 const daysText = (d: number[]) => (d.join() === '1,2,3,4,5' ? 'Mon–Fri' : d.join() === '1,2,3,4,5,6,7' ? 'Every day' : d.map((x) => DAYS[x - 1][1]).join(', '));
@@ -48,7 +47,7 @@ export function BookingSettings() {
                   <p className="truncate text-xs"><a className="text-brand-600 underline underline-offset-2 dark:text-brand-200" href={p.url} target="_blank" rel="noreferrer">{p.url.replace(/^https?:\/\//, '')}</a></p>
                 </div>
                 <div className="flex items-center gap-1">
-                  {(canEdit || p.hostId === me?.user.id) ? <Button size="sm" variant="ghost" onClick={() => setShowing(p)}>{p.upcoming} upcoming</Button> : <span className="px-2 text-xs text-muted">{p.upcoming} upcoming</span>}
+                  {(canEdit || p.hostIds.map(Number).includes(me?.user.id ?? -1)) ? <Button size="sm" variant="ghost" onClick={() => setShowing(p)}>{p.upcoming} upcoming</Button> : <span className="px-2 text-xs text-muted">{p.upcoming} upcoming</span>}
                   <IconButton label={`Copy link of ${p.title}`} onClick={() => void copy(p.url)}><Copy className="size-4" /></IconButton>
                   <IconButton label={`Open ${p.title}`} onClick={() => window.open(p.url, '_blank', 'noopener')}><ExternalLink className="size-4" /></IconButton>
                   {canEdit && <IconButton label={`Edit ${p.title}`} onClick={() => setEditing(p)}><Pencil className="size-4" /></IconButton>}
@@ -67,9 +66,11 @@ function PageDialog({ page, onClose }: { page: BookingPageRow | null; onClose: (
   const qc = useQueryClient();
   const { data: me } = useMe();
   const [f, setF] = useState(() => page ? {
-    title: page.title, slug: page.slug, description: page.description, hostId: page.hostId, durationMinutes: page.durationMinutes, days: page.days,
+    title: page.title, slug: page.slug, description: page.description, hostIds: page.hostIds.map(Number), durationMinutes: page.durationMinutes, days: page.days,
     start: page.startTime, end: page.endTime, minNoticeHours: page.minNoticeHours, daysAhead: page.daysAhead, video: page.video, location: page.location, active: page.active,
-  } : { title: '', slug: '', description: '', hostId: me?.user.id ?? 0, durationMinutes: 30, days: [1, 2, 3, 4, 5], start: '09:00', end: '17:00', minNoticeHours: 4, daysAhead: 30, video: true, location: '', active: true });
+  } : { title: '', slug: '', description: '', hostIds: me ? [me.user.id] : [], durationMinutes: 30, days: [1, 2, 3, 4, 5], start: '09:00', end: '17:00', minNoticeHours: 4, daysAhead: 30, video: true, location: '', active: true });
+  const meta = useMeta();
+  const users = (meta.data?.users ?? []).filter((u) => u.status === 'active' || f.hostIds.includes(u.id));
   const [slugTouched, setSlugTouched] = useState(!!page);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
@@ -99,7 +100,20 @@ function PageDialog({ page, onClose }: { page: BookingPageRow | null; onClose: (
           <Field label="Title" htmlFor="bp-title" required error={errors.title} hint="Customers see it, e.g. Showroom visit"><Input id="bp-title" maxLength={120} value={f.title} onChange={(e) => setF({ ...f, title: e.target.value })} /></Field>
           <Field label="Link" htmlFor="bp-slug" required error={errors.slug} hint={`${origin}/book/${f.slug || '…'}`}>
             <Input id="bp-slug" maxLength={40} value={f.slug} onChange={(e) => { setSlugTouched(true); setF({ ...f, slug: e.target.value.toLowerCase() }); }} /></Field>
-          <Field label="With" htmlFor="bp-host" error={errors.hostId} hint="Bookings become their meetings"><UserSelect id="bp-host" value={f.hostId} onChange={(v) => setF({ ...f, hostId: v ?? f.hostId })} /></Field>
+          <fieldset className="sm:col-span-2">
+            <legend className="mb-1.5 text-[13px] font-medium">With</legend>
+            <div className="flex flex-wrap gap-x-4 gap-y-2">
+              {users.map((u) => (
+                <Checkbox key={u.id} label={u.name} checked={f.hostIds.includes(u.id)}
+                  onChange={(v) => setF({ ...f, hostIds: v ? [...f.hostIds, u.id] : f.hostIds.filter((x) => x !== u.id) })} />
+              ))}
+            </div>
+            <p className={errors.hostIds ? 'mt-1 text-xs text-rose-600' : 'mt-1 text-xs text-muted'} role={errors.hostIds ? 'alert' : undefined}>
+              {errors.hostIds ?? (f.hostIds.length > 1
+                ? 'Shared: a time is offered when any of them is free, and each booking goes to one of them, taking turns.'
+                : 'Bookings become their meetings.')}
+            </p>
+          </fieldset>
           <Field label="Length" htmlFor="bp-len" error={errors.durationMinutes}>
             <Select id="bp-len" value={f.durationMinutes} onChange={(e) => setF({ ...f, durationMinutes: Number(e.target.value) })}>
               {BOOKING_DURATIONS.map((n) => <option key={n} value={n}>{n < 60 ? `${n} minutes` : `${n / 60} hour${n === 60 ? '' : 's'}`}</option>)}
@@ -191,7 +205,7 @@ function BookingsDialog({ page, onClose }: { page: BookingPageRow; onClose: () =
             {q.data!.data.map((b) => (
               <li key={b.id} className="flex items-start gap-3 py-2.5">
                 <div className="min-w-0 flex-1">
-                  <p className="text-sm font-medium">{dateTime(b.startsAt)}</p>
+                  <p className="text-sm font-medium">{dateTime(b.startsAt)}{page.hostIds.length > 1 && b.hostName ? <span className="font-normal text-muted"> · with {b.hostName}</span> : null}</p>
                   <p className="break-words text-xs text-muted">{b.name} · {b.email}{b.phone ? ` · ${b.phone}` : ''}</p>
                   {b.note && <p className="mt-0.5 text-xs">{b.note}</p>}
                 </div>
