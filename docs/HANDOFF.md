@@ -455,6 +455,14 @@ The research behind every decision is in this folder:
   (no double booking); at most 3 upcoming bookings per email per page; public endpoints are rate-limited. The contact's
   timeline shows "Booked …" and cancellations; the page's upcoming bookings are listed for admins and the host.
 
+- **Customer feedback** (migration 0038, `routes/feedback.ts`, `features/feedback/Feedback.tsx`): Settings → Customer
+  feedback (off by default): N days after a deal is won (0–30; only deals won after it was turned on, within 30 days)
+  the worker emails the deal's main contact with an address a link `/r/<token>` to rate 1–5 with an optional comment,
+  in the customer language. One request per deal; "Ask now" on a won deal's "Customer feedback" card. Contacts who
+  unsubscribed from emails are never asked. The rating counts for the deal owner at the time of asking, who gets a
+  notification ("Low rating: 2/5 …" for 1–2). Customers can change their answer for 30 days. Deal timeline entries;
+  Home → "Customer rating": average, answered/asked, per person (deal view scope, like sales targets), latest comments.
+
 - **Installable app (PWA)** (`apps/web/public/manifest.webmanifest`, `sw.js`, `offline.html`, `lib/install.ts`):
   add to the home screen (Android, iPhone via Safari → Share → Add to Home Screen) or install on desktop Chrome/Edge;
   opens full-screen with its own icon (192/512, maskable, Apple 180 — rendered from the logo) and shortcuts to Inbox,
@@ -492,7 +500,7 @@ The research behind every decision is in this folder:
   one at their request (the email choice covers every contact with the same address). Every change — the customer’s
   STOP/START or link, or a team member — is on the contact’s timeline.
 
-**Quality:** 263 Vitest tests (API against real PostgreSQL), 74 Playwright tests (desktop, tablet, phone), lint and
+**Quality:** 267 Vitest tests (API against real PostgreSQL), 75 Playwright tests (desktop, tablet, phone), lint and
 typecheck clean, `npm audit` = 0, GitHub Actions CI in `.github/workflows/ci.yml`.
 
 ## 3. Not built yet — suggested next work (in priority order)

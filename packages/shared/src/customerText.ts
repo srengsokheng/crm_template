@@ -1,6 +1,6 @@
 /**
  * Everything customers read, in English and Khmer: PDFs, the quote/invoice page, the email button, the website chat
- * widget, the video-call page, broadcast opt-outs and payment reminders. The workspace picks English, Khmer, or both (Settings → Quotes & invoices).
+ * widget, the video-call page, broadcast opt-outs, payment reminders, online booking and feedback requests. The workspace picks English, Khmer, or both (Settings → Quotes & invoices).
  *
  * Khmer wording: drafted for this CRM — have a native speaker review it; change it only here.
  */
@@ -58,6 +58,13 @@ const en = {
   bookCancelLink: 'Need to cancel? {url}', bookCanceled: 'This booking was canceled.', bookCancel: 'Cancel booking', bookKeep: 'Keep it',
   bookCancelQ: 'Cancel your booking for {when}?', bookCancelDone: 'Your booking is canceled. {host} has been told.', bookPast: 'This booking has already taken place.',
   bookCanceledSubject: 'Canceled: {title} on {when}',
+  // Feedback after a won deal
+  fbTitle: 'How was your experience with {company}?', fbHello: 'Hello {name},',
+  fbAsk: 'Thank you for choosing {company}. How happy are you with us? It takes 10 seconds.', fbButton: 'Rate us',
+  fbStars: '{n} out of 5', fbComment: 'Tell us more (optional)', fbSend: 'Send feedback', fbThanks: 'Thank you for your feedback!',
+  fbThanksLow: 'Thank you — we’re sorry it wasn’t better. {owner} will get in touch.', fbChange: 'Change my answer',
+  fbBadLink: 'This feedback link isn’t valid.', fbExpired: 'This feedback link has expired. Thank you anyway!',
+  fb1: 'Very unhappy', fb2: 'Unhappy', fb3: 'Okay', fb4: 'Happy', fb5: 'Very happy',
 };
 export type TextKey = keyof typeof en;
 
@@ -107,6 +114,12 @@ const km: Record<TextKey, string> = {
   bookCancelLink: 'ចង់បោះបង់? {url}', bookCanceled: 'ការកក់នេះត្រូវបានបោះបង់។', bookCancel: 'បោះបង់ការកក់', bookKeep: 'រក្សាទុក',
   bookCancelQ: 'បោះបង់ការកក់របស់អ្នកនៅ {when}?', bookCancelDone: 'ការកក់របស់អ្នកត្រូវបានបោះបង់។ យើងបានជូនដំណឹងដល់ {host}។', bookPast: 'ការកក់នេះបានកន្លងផុតហើយ។',
   bookCanceledSubject: 'បានបោះបង់៖ {title} នៅ {when}',
+  fbTitle: 'តើបទពិសោធន៍របស់អ្នកជាមួយ {company} យ៉ាងដូចម្តេច?', fbHello: 'ជម្រាបសួរ {name},',
+  fbAsk: 'សូមអរគុណដែលបានជ្រើសរើស {company}។ តើអ្នកពេញចិត្តនឹងយើងកម្រិតណា? ចំណាយពេលតែ 10 វិនាទីប៉ុណ្ណោះ។', fbButton: 'វាយតម្លៃយើង',
+  fbStars: '{n} ក្នុងចំណោម 5', fbComment: 'ប្រាប់យើងបន្ថែម (ស្រេចចិត្ត)', fbSend: 'ផ្ញើមតិ', fbThanks: 'សូមអរគុណចំពោះមតិរបស់អ្នក!',
+  fbThanksLow: 'សូមអរគុណ — យើងសុំទោសដែលវាមិនបានល្អជាងនេះ។ {owner} នឹងទាក់ទងទៅអ្នក។', fbChange: 'ប្តូរចម្លើយរបស់ខ្ញុំ',
+  fbBadLink: 'តំណមតិនេះមិនត្រឹមត្រូវទេ។', fbExpired: 'តំណមតិនេះផុតកំណត់ហើយ។ សូមអរគុណ!',
+  fb1: 'មិនពេញចិត្តខ្លាំង', fb2: 'មិនពេញចិត្ត', fb3: 'ធម្មតា', fb4: 'ពេញចិត្ត', fb5: 'ពេញចិត្តខ្លាំង',
 };
 
 const fill = (s: string, vars?: Record<string, string | number>) => (vars ? s.replace(/\{(\w+)\}/g, (m, k) => (k in vars ? String(vars[k]) : m)) : s);

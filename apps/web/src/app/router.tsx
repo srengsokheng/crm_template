@@ -39,6 +39,7 @@ import { CustomerDocumentPage } from '../features/documents/CustomerPage.tsx';
 import { BroadcastRoute, BroadcastsPage, UnsubscribePage } from '../features/broadcasts/Broadcasts.tsx';
 import { ManageBookingPage, PublicBookingPage } from '../features/booking/PublicBooking.tsx';
 import { BookingSettings } from '../features/booking/BookingSettings.tsx';
+import { FeedbackSettings, RatePage } from '../features/feedback/Feedback.tsx';
 import { ChannelsSettings } from '../features/settings/ChannelsSettings.tsx';
 import { AccountSettings } from '../features/settings/AccountSettings.tsx';
 
@@ -54,6 +55,7 @@ export const router = createBrowserRouter([
   { path: '/unsubscribe/:token', element: <UnsubscribePage /> },
   { path: '/book/:slug', element: <PublicBookingPage /> },
   { path: '/booking/:token', element: <ManageBookingPage /> },
+  { path: '/r/:token', element: <RatePage /> },
   {
     path: '/',
     element: <AppLayout />,
@@ -100,6 +102,7 @@ export const router = createBrowserRouter([
           { path: 'documents', element: <DocumentSettings /> },
           { path: 'targets', element: <TargetsSettings /> },
           { path: 'booking', element: <BookingSettings /> },
+          { path: 'feedback', element: <FeedbackSettings /> },
           { path: 'channels', element: <ChannelsSettings /> },
           { path: 'recycle-bin', element: <RecycleBin /> },
         ],

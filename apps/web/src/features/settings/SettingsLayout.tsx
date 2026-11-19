@@ -6,7 +6,7 @@ import { EmptyState, PageHeader } from '../../components/ui/primitives.tsx';
 
 const LINKS = [
   { to: 'account', label: 'Your account', everyone: true }, { to: 'workspace', label: 'Workspace' }, { to: 'pipelines', label: 'Pipelines & stages' }, { to: 'fields', label: 'Custom fields' },
-  { to: 'lists', label: 'Lists & options' }, { to: 'currencies', label: 'Currencies' }, { to: 'documents', label: 'Quotes & invoices' }, { to: 'targets', label: 'Sales targets' }, { to: 'booking', label: 'Booking pages', everyone: true }, { to: 'channels', label: 'Channels' }, { to: 'users', label: 'Users & teams' }, { to: 'roles', label: 'Roles & permissions' },
+  { to: 'lists', label: 'Lists & options' }, { to: 'currencies', label: 'Currencies' }, { to: 'documents', label: 'Quotes & invoices' }, { to: 'targets', label: 'Sales targets' }, { to: 'booking', label: 'Booking pages', everyone: true }, { to: 'feedback', label: 'Customer feedback' }, { to: 'channels', label: 'Channels' }, { to: 'users', label: 'Users & teams' }, { to: 'roles', label: 'Roles & permissions' },
   { to: 'automation', label: 'Automation' }, { to: 'audit-log', label: 'Audit log' }, { to: 'recycle-bin', label: 'Recycle bin', everyone: true },
 ];
 

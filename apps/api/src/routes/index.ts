@@ -21,6 +21,7 @@ import { broadcastRoutes, publicUnsubscribeRoutes } from './broadcasts.ts';
 import { contactMarketingRoutes } from './contactMarketing.ts';
 import { reminderRoutes } from './reminders.ts';
 import { bookingRoutes, publicBookingRoutes } from './booking.ts';
+import { feedbackRoutes, publicFeedbackRoutes } from './feedback.ts';
 import { savedReplyRoutes } from './savedReplies.ts';
 import { leadRoutes } from './leads.ts';
 import { mergeRoutes } from './merge.ts';
@@ -69,6 +70,8 @@ export async function registerRoutes(app: FastifyInstance) {
   await app.register(reminderRoutes);
   await app.register(bookingRoutes);
   await app.register(publicBookingRoutes);
+  await app.register(feedbackRoutes);
+  await app.register(publicFeedbackRoutes);
   await app.register(savedReplyRoutes);
   await app.register(recycleRoutes); // generic DELETE /:entity/:id last
 }

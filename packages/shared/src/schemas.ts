@@ -553,3 +553,15 @@ export const bookingCreateSchema = z.object({
   phone: z.string().trim().max(40).default(''),
   note: z.string().trim().max(2000).default(''),
 });
+
+/** Customer feedback after a won deal: ask automatically N days later (0 = the same day). */
+export const feedbackSettingsSchema = z.object({
+  enabled: z.boolean().default(false),
+  delayDays: z.coerce.number().int().min(0).max(30).default(2),
+});
+export type FeedbackSettings = z.infer<typeof feedbackSettingsSchema>;
+/** The customer's answer (public). */
+export const feedbackAnswerSchema = z.object({
+  rating: z.coerce.number().int().min(1, 'Pick 1 to 5').max(5, 'Pick 1 to 5'),
+  comment: z.string().trim().max(2000).default(''),
+});

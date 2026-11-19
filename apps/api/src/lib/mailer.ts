@@ -266,6 +266,14 @@ export function bookingMail(o: { to: string; subject: string; lines: string[]; b
   };
 }
 
+/** A short email to a customer: paragraphs, an optional button, a footer (e.g. a feedback request). */
+export function customerMail(o: { to: string; subject: string; lines: string[]; button?: { label: string; url: string }; footer: string; replyTo?: string | null }): Mail {
+  return {
+    to: o.to, subject: oneLine(o.subject), replyTo: o.replyTo ?? null,
+    ...layout({ heading: oneLine(o.subject), lines: o.lines, ...(o.button ? { button: o.button } : {}), footer: o.footer }),
+  };
+}
+
 export interface DigestItem { subject: string; kind: string; due: string; related: string[] }
 export function digestMail(o: { to: string; name: string; workspace: string; items: DigestItem[]; total: number; url: string }): Mail {
   const shown = o.items.slice(0, 10);

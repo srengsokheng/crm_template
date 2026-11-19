@@ -44,7 +44,7 @@ test('every main screen passes the accessibility scan, light and dark', async ({
     ['invoice', `/documents/${s.doc.id}`], ['reports', '/reports'], ['import', '/import/contact'], ['broadcasts', '/broadcasts'], ['new broadcast', '/broadcasts/new'],
     ['settings/account', '/settings/account'], ['settings/workspace', '/settings/workspace'], ['settings/pipelines', '/settings/pipelines'], ['settings/fields', '/settings/fields'],
     ['settings/lists', '/settings/lists'], ['settings/currencies', '/settings/currencies'], ['settings/documents', '/settings/documents'],
-    ['settings/channels', '/settings/channels'], ['settings/booking', '/settings/booking'], ['settings/users', '/settings/users'], ['settings/roles', '/settings/roles'],
+    ['settings/channels', '/settings/channels'], ['settings/booking', '/settings/booking'], ['settings/feedback', '/settings/feedback'], ['settings/users', '/settings/users'], ['settings/roles', '/settings/roles'],
     ['settings/automation', '/settings/automation'], ['settings/audit-log', '/settings/audit-log'], ['settings/recycle-bin', '/settings/recycle-bin'],
   ];
   for (const theme of ['light', 'dark'] as const) {

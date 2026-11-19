@@ -16,6 +16,7 @@ import { pushNotifications } from '../inbox/teamAlerts.ts';
 import { runRecurringInvoices } from '../routes/recurring.ts';
 import { runBroadcasts } from '../routes/broadcasts.ts';
 import { runPaymentReminders } from '../routes/reminders.ts';
+import { runFeedbackRequests } from '../routes/feedback.ts';
 import { files } from '../lib/files.ts';
 import { deliverWebhook, type Delivery } from '../lib/webhooks.ts';
 import { config } from '../config.ts';
@@ -405,6 +406,7 @@ export function startWorker(log: (m: string) => void = () => {}): () => void {
         lastRecurring = now;
         const made = await runRecurringInvoices(); if (made) log(`created ${made} recurring invoice(s)`);
         const reminded = await runPaymentReminders(); if (reminded) log(`sent ${reminded} payment reminder(s)`);
+        const asked = await runFeedbackRequests(); if (asked) log(`sent ${asked} feedback request(s)`);
       }
       { const b = await runBroadcasts(); if (b) log(`sent ${b} broadcast message(s)`); }
       if (now - lastCalls > 10_000) { lastCalls = now; const ended = await endEmptyCalls(); if (ended.length) log(`ended ${ended.length} empty call(s)`); }

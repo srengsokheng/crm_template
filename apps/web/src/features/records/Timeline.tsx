@@ -242,6 +242,9 @@ export function describeEvent(d: Record<string, any>, userName: (id: number) => 
     }
     case 'booked': return { icon: CheckCircle2, text: `Booked “${ch.page ?? 'a meeting'}” online for ${ch.start ? dateTime(String(ch.start)) : 'a time'}` };
     case 'booking_canceled': return { icon: Trash2, text: `Canceled their online booking “${ch.title ?? ''}” for ${ch.start ? dateTime(String(ch.start)) : 'a time'}` };
+    case 'feedback_requested': return { icon: History, text: `Asked ${ch.to ?? 'the customer'} for feedback` };
+    case 'feedback_received': return { icon: CheckCircle2, text: `Customer rated ${ch.rating}/5${ch.comment ? `: “${ch.comment}”` : ''}`, tone: Number(ch.rating) <= 2 ? 'text-rose-600' : undefined };
+    case 'feedback_changed': return { icon: History, text: `Customer changed their rating to ${ch.rating}/5${ch.comment ? `: “${ch.comment}”` : ''}` };
     case 'invoice_reminders_off': return { icon: History, text: `Turned off payment reminders for ${ch.document?.number ?? 'an invoice'}` };
     case 'invoice_reminders_on': return { icon: History, text: `Turned payment reminders back on for ${ch.document?.number ?? 'an invoice'}` };
     case 'email_unsubscribed': return { icon: Flag, text: ch.via === 'link' ? 'Unsubscribed from broadcast emails (their unsubscribe link)' : 'Opted out of broadcast emails' };
