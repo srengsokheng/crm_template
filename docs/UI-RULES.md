@@ -90,6 +90,9 @@ one-off in the feature.
 - Phones: one column; side panels stack below; list/detail screens become two screens (see the Inbox).
 - Controls are at least 36px tall (`h-9`); icon-only buttons at least 28px with 8px between them; phone navigation
   items at least 44px.
+- Touch screens: `styles.css` gives every button, tab, switch and menu item an invisible 44×44px tap area
+  (`@media (pointer: coarse)`), and checkboxes/radios 24px — don't override `::after` on controls. New controls must be
+  real `<button>`s (or carry one of those roles) to get it; `e2e/touch-targets.spec.ts` checks the main pages at 390px.
 - Content max width comes from the layout (`max-w-[1600px]`); forms in dialogs, not full-width pages.
 
 ## 8. Accessibility (WCAG 2.1 AA)
