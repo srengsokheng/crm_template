@@ -31,3 +31,17 @@ test('recycle bin pages with "Load more"', async ({ page }) => {
   await expect(bin.getByRole('listitem')).toHaveCount(55);
   await expect(page.getByRole('button', { name: 'Load more' })).toHaveCount(0);
 });
+
+test('kanban column shows 50 cards, then "Show more" loads the rest of that column', async ({ page }) => {
+  await signUp(page);
+  for (let i = 1; i <= 53; i++) await api(page, 'POST', '/deals', { title: `Bulk deal ${i}` });
+  await page.goto('/deals');
+  const col = page.getByRole('region', { name: 'New stage' });
+  await expect(col.getByText('Bulk deal 53', { exact: true })).toBeVisible();
+  await expect(col.getByText('Bulk deal 1', { exact: true })).toHaveCount(0);
+  const more = col.getByRole('button', { name: /Show more in New \(3 not shown\)/ });
+  await expect(more).toContainText('Show 3 more');
+  await more.click();
+  await expect(col.getByText('Bulk deal 1', { exact: true })).toBeVisible();
+  await expect(col.getByRole('button', { name: /Show more/ })).toHaveCount(0);
+});

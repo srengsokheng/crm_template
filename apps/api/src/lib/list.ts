@@ -109,3 +109,24 @@ export function feedResult<T extends { feed_us?: number | string; id: number }>(
   if (!more || !last) return { data, nextCursor: null };
   return { data, nextCursor: Buffer.from(`${last.feed_us}|${last.id}`).toString('base64url') };
 }
+
+/** Kanban: cards per column (default) and the most one column can be raised to with "Load more". */
+export const BOARD_DEFAULT = 50;
+export const BOARD_MAX = 500;
+
+/**
+ * Per-column card limits for a board. `limit` is the default for every column; `more` raises single columns
+ * ("Load more"), as `stageId:count` pairs separated by commas, e.g. `more=12:100,15:150`. Counts are capped at BOARD_MAX.
+ */
+export function boardLimits(query: { limit?: unknown; more?: unknown }): { limit: number; stageIds: number[]; limits: number[] } {
+  const limit = Math.min(qs.id(query.limit as string | undefined) ?? BOARD_DEFAULT, BOARD_MAX);
+  const stageIds: number[] = [];
+  const limits: number[] = [];
+  for (const part of String(query.more ?? '').split(',').slice(0, 50)) {
+    const m = /^(\d{1,15}):(\d{1,4})$/.exec(part.trim());
+    if (!m) continue;
+    stageIds.push(Number(m[1]));
+    limits.push(Math.min(Math.max(Number(m[2]), limit), BOARD_MAX));
+  }
+  return { limit, stageIds, limits };
+}

@@ -11,7 +11,7 @@ import { assertRequired, loadDefs, mergeCustom } from '../lib/customFields.ts';
 import { badRequest } from '../lib/errors.ts';
 import { emit } from '../lib/events.ts';
 import { ctxOf } from '../lib/http.ts';
-import { likeTerm, qs, runList, type ListSpec } from '../lib/list.ts';
+import { boardLimits, likeTerm, qs, runList, type ListSpec } from '../lib/list.ts';
 import { assertOnRecord, requireAny, scopeWhere } from '../lib/permissions.ts';
 import { assertMembers, assertRefs, camel, camelAll, getActive, insertRow, pickColumns, updateRow } from '../lib/records.ts';
 import { getStage, recordStageChange, resolvePipelineStage, stageOfKind, type MoveInput, type StageRow } from '../lib/stages.ts';
@@ -239,13 +239,14 @@ export async function dealRoutes(app: FastifyInstance) {
     requireAny(ctx, 'deal', 'view');
     const query = req.query as Record<string, string>;
     const pipelineId = qs.id(query.pipelineId) ?? (await resolvePipelineStage(pool, ctx, 'deal')).pipeline_id;
-    const limit = Math.min(qs.id(query.limit) ?? 50, 200);
+    const { limit, stageIds, limits } = boardLimits(query);
     const where = [...dealFilters(ctx, { ...query, pipelineId: String(pipelineId) }), query.q ? dealSearch(query.q) : null].filter(Boolean);
     const stats = await q<{ stage_id: number; count: number; sum: string }>(sql`SELECT d.stage_id, count(*)::int AS count, coalesce(sum(${dealInBase(ctx)}),0)::text AS sum
       FROM ${DEAL_FROM} WHERE ${and(where)} GROUP BY d.stage_id`);
     const rows = await q(sql`SELECT * FROM (
         SELECT ${DEAL_SELECT}, row_number() OVER (PARTITION BY d.stage_id ORDER BY d.stage_changed_at DESC, d.id DESC) AS rn
-        FROM ${DEAL_FROM} WHERE ${and(where)}) x WHERE rn <= ${limit}`);
+        FROM ${DEAL_FROM} WHERE ${and(where)}) x
+      WHERE rn <= coalesce((SELECT m.lim FROM unnest(${stageIds}::bigint[], ${limits}::int[]) AS m(sid, lim) WHERE m.sid = x.stage_id), ${limit})`);
     return { pipelineId, stats: camelAll(stats), deals: camelAll(rows) };
   });
 

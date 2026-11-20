@@ -30,7 +30,7 @@ import { Plus, CheckCircle2, XCircle, Clock, AlertTriangle, GripVertical } from 
 import { cn } from '../../lib/cn.ts';
 import { dueLabel, money } from '../../lib/format.ts';
 import type { NextActivity, Stage } from '../../lib/types.ts';
-import { Avatar } from '../../components/ui/primitives.tsx';
+import { Avatar, Button } from '../../components/ui/primitives.tsx';
 import { STAGE_SOLID } from '../../components/ui/stageColors.ts';
 
 export interface BoardCard {
@@ -39,9 +39,31 @@ export interface BoardCard {
 }
 export interface BoardStat { stageId: number; count: number; sum: string }
 
+/** Cards per column at first, per "Show more" click, and the most one column shows (the API caps it too). */
+export const BOARD_PAGE = 50;
+export const BOARD_MAX = 500;
+
+/**
+ * Per-column "Show more" state for a board query. Returns the `more` query parameter ("stageId:count,…") to send to
+ * /deals/board or /leads/board; it resets whenever `resetKey` (pipeline, search, filters) changes.
+ */
+export function useBoardMore(resetKey: unknown) {
+  const key = JSON.stringify(resetKey);
+  const [state, setState] = useState<{ key: string; limits: Record<number, number> }>({ key, limits: {} });
+  const limits = state.key === key ? state.limits : {};
+  const more = Object.entries(limits).map(([id, n]) => `${id}:${n}`).join(',') || undefined;
+  const [pending, setPending] = useState<number | null>(null);
+  const loadMore = (stageId: number) => {
+    setPending(stageId);
+    setState({ key, limits: { ...limits, [stageId]: Math.min((limits[stageId] ?? BOARD_PAGE) + BOARD_PAGE, BOARD_MAX) } });
+  };
+  return { more, loadMore, pending };
+}
+
 /** Generic pipeline board used for deals and leads. */
-export function Board({ stages, cards, stats, currency, onMove, onQuickAdd, closedZones, canDrag }: {
+export function Board({ stages, cards, stats, currency, onMove, onQuickAdd, closedZones, canDrag, onLoadMore, loadingStage }: {
   stages: Stage[]; cards: BoardCard[]; stats: BoardStat[]; currency: string;
+  /** "Show more" in a column that has more cards than it shows. */ onLoadMore?: (stageId: number) => void; loadingStage?: number | null;
   onMove: (card: BoardCard, target: Stage) => void; onQuickAdd?: (stage: Stage) => void;
   closedZones: { won?: Stage; lost?: Stage; wonLabel?: string; lostLabel?: string }; canDrag: (c: BoardCard) => boolean;
 }) {
@@ -70,7 +92,12 @@ export function Board({ stages, cards, stats, currency, onMove, onQuickAdd, clos
             return (
               <Column key={s.id} stage={s} count={st?.count ?? 0} sum={money(st?.sum ?? 0, currency, { compact: true })} onQuickAdd={onQuickAdd}>
                 {list.map((c) => <DraggableCard key={c.id} card={c} disabled={!canDrag(c)} />)}
-                {(st?.count ?? 0) > list.length && <p className="py-2 text-center text-xs text-muted">+{(st?.count ?? 0) - list.length} more — use the list view or search</p>}
+                {(st?.count ?? 0) > list.length && (onLoadMore && list.length < BOARD_MAX
+                  ? <Button size="sm" variant="ghost" className="w-full" loading={loadingStage === s.id} onClick={() => onLoadMore(s.id)}
+                      aria-label={`Show more in ${s.name} (${(st?.count ?? 0) - list.length} not shown)`}>
+                      Show {Math.min(BOARD_PAGE, (st?.count ?? 0) - list.length)} more <span className="text-muted">· {(st?.count ?? 0) - list.length} left</span>
+                    </Button>
+                  : <p className="py-2 text-center text-xs text-muted">+{(st?.count ?? 0) - list.length} more — use the list view or search</p>)}
                 {!list.length && <p className="py-6 text-center text-xs text-muted">Drop here</p>}
               </Column>
             );

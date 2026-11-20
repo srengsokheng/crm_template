@@ -13,7 +13,7 @@ import { StageBadge } from '../../components/ui/StageBadge.tsx';
 import { useCreate } from '../../app/create.tsx';
 import { SavedViews } from '../records/SavedViews.tsx';
 import { ExportLink, BulkBar, FilterSelect, SearchBox, Toolbar, useListParams } from '../records/list.tsx';
-import { Board, type BoardCard, type BoardStat } from '../deals/Board.tsx';
+import { Board, useBoardMore, type BoardCard, type BoardStat } from '../deals/Board.tsx';
 import { useStageMove } from '../deals/useStageMove.tsx';
 
 interface LeadRow {
@@ -33,7 +33,9 @@ export function LeadsPage() {
   const lp = useListParams({ sort: '-createdAt' });
   const view = (lp.get('view') || 'board') as 'board' | 'list';
   const [selected, setSelected] = useState<Set<number>>(new Set());
-  const filters = { q: lp.get('q'), ownerId: lp.get('ownerId'), sourceId: lp.get('sourceId') };
+  const baseFilters = { q: lp.get('q'), ownerId: lp.get('ownerId'), sourceId: lp.get('sourceId') };
+  const boardMore = useBoardMore(baseFilters);
+  const filters = { ...baseFilters, more: boardMore.more };
   const boardKey = ['leads-board', filters];
   const board = useQuery({ queryKey: boardKey, enabled: view === 'board', placeholderData: keepPreviousData, queryFn: () => api.get<{ stats: BoardStat[]; leads: LeadRow[] }>(`/leads/board${qsOf(filters)}`) });
   const listParams = { status: 'open', ...lp.params };
@@ -78,6 +80,7 @@ export function LeadsPage() {
           : board.error ? <ErrorState message={errorMessage(board.error)} onRetry={() => board.refetch()} />
           : <Board stages={pipeline.stages} cards={cards} stats={board.data?.stats ?? []} currency={me?.workspace.baseCurrency ?? 'USD'}
               canDrag={(c) => can('lead', 'edit', c.ownerId)}
+                onLoadMore={boardMore.loadMore} loadingStage={board.isFetching ? boardMore.pending : null}
               onMove={(card, to) => mover.move(card.id, card.title, pipeline.stages.find((s) => s.id === card.stageId), to)}
               onQuickAdd={can('lead', 'create') ? (s) => create.open('lead', { stageId: s.id, stay: true }) : undefined}
               closedZones={{ lost: pipeline.stages.find((s) => s.kind === 'lost'), lostLabel: 'Disqualify' }} />

@@ -30,7 +30,7 @@ webhooks, messaging, permissions). CI must be green; merge only with the owner's
 
 ## 2. Lists & pagination (api-design)
 
-- **Kanban columns** still stop with "+N more — use the list view or search" — add per-column "Load more".
+- ~~**Kanban columns**: per-column "Show more"~~ — done (`more=stageId:count` on `/deals/board` and `/leads/board`, up to 500 cards a column).
 - **Related deals** on contact and company pages are `LIMIT 50` with no total (`apps/api/src/routes/parties.ts`) —
   page them or show "Load more" with the count.
 - Column picker per list (saved with the saved view).
