@@ -41,7 +41,7 @@ webhooks, messaging, permissions). CI must be green; merge only with the owner's
 |---|---|
 | P1 | **Edit drawer** on record pages to edit many fields at once (inline edits stay for quick changes) |
 | P1 | **Calendar views**: deals by expected close date, activities and bookings by date (week/month, drag to reschedule) |
-| P1 | **Dashboard period picker** (this month / quarter / year / custom) and a pipeline picker; today only the Me / My team / Everyone scope switch exists |
+| ~~P1~~ | ~~**Dashboard period picker**~~ — done: this/last month, quarter, year, or a custom range (remembered per browser); the pipeline picker was already there |
 | P2 | **Lead scoring** (lead-scoring skill): fit + engagement score, Hot/Warm/Cold badge, sort and filter by score |
 | P2 | **User-flow diagrams** (user-flow-mapping skill) for lead→deal, import, merge, invoice→payment, booking — in `docs/flows/` |
 | P2 | Profile extras: personal time zone, sign out of other sessions |

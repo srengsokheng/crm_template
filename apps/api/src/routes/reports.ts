@@ -1,7 +1,7 @@
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import { q, q1, raw, sql, type Fragment } from '../db/index.ts';
 import type { Ctx } from '../lib/context.ts';
-import { badRequest, forbidden } from '../lib/errors.ts';
+import { badRequest, forbidden, notFound } from '../lib/errors.ts';
 import { ctxOf } from '../lib/http.ts';
 import { qs } from '../lib/list.ts';
 import { scopeOf, scopeWhere } from '../lib/permissions.ts';
@@ -123,8 +123,12 @@ export async function reportRoutes(app: FastifyInstance) {
     const p = period(query);
     const canDeals = scopeOf(ctx, 'deal', 'view') !== 'none';
     const dealScope = canDeals ? ownerScope(ctx, 'deal', 'd', query) : sql`FALSE`;
-    const pipelineId = qs.id(query.pipelineId) ?? (await q1<{ id: number }>(sql`SELECT id FROM pipelines WHERE workspace_id = ${ctx.workspaceId} AND entity_type = 'deal' ORDER BY is_default DESC, sort LIMIT 1`))?.id;
     const ws = ctx.workspaceId;
+    // The asked pipeline must be one of this workspace's deal pipelines the user may see; otherwise the default one.
+    const asked = qs.id(query.pipelineId);
+    const pipelineId = (await q1<{ id: number }>(sql`SELECT id FROM pipelines WHERE workspace_id = ${ws} AND entity_type = 'deal'
+      AND NOT (id = ANY(${ctx.blockedPipelineIds ?? []}::bigint[])) ${asked ? sql`AND id = ${asked}` : sql``} ORDER BY is_default DESC, sort LIMIT 1`))?.id;
+    if (asked && !pipelineId) throw notFound('Pipeline');
     const [kpi, byStage, trend, myDay, recent, leadKpi] = await Promise.all([
       q1(sql`SELECT
           coalesce(sum(${dealInBase(ctx)}) FILTER (WHERE status = 'open'), 0)::text AS open_amount,
