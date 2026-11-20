@@ -39,7 +39,7 @@ webhooks, messaging, permissions). CI must be green; merge only with the owner's
 
 | Priority | Feature |
 |---|---|
-| P1 | **Edit drawer** on record pages to edit many fields at once (inline edits stay for quick changes) |
+| ~~P1~~ | ~~**Edit drawer**~~ — done: **Edit** on deal, lead, contact and company pages opens the create form pre-filled; only changed fields are sent, with the record version (a conflicting save is refused) |
 | P1 | **Calendar views**: deals by expected close date, activities and bookings by date (week/month, drag to reschedule) |
 | ~~P1~~ | ~~**Dashboard period picker**~~ — done: this/last month, quarter, year, or a custom range (remembered per browser); the pipeline picker was already there |
 | P2 | **Lead scoring** (lead-scoring skill): fit + engagement score, Hot/Warm/Cold badge, sort and filter by score |
