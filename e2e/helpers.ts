@@ -26,11 +26,34 @@ export async function api<T = any>(page: Page, method: 'GET' | 'POST' | 'PATCH' 
 
 export async function meta(page: Page) { return api(page, 'GET', '/meta'); }
 
+const inflight = new WeakMap<Page, Set<unknown>>();
+/**
+ * Waits until the page has no API call in flight (event streams excluded) for `quietMs`. Unlike
+ * waitForLoadState('networkidle'), which resolves at once after the first page load, this sees later fetches too.
+ * Starts tracking on the first call for a page.
+ */
+export async function apiIdle(page: Page, quietMs = 300) {
+  let set = inflight.get(page);
+  if (!set) {
+    set = new Set();
+    inflight.set(page, set);
+    const tracked = (r: { url(): string; resourceType(): string }) => /\/api\//.test(r.url()) && !/\/events(\?|$)/.test(r.url()) && ['fetch', 'xhr'].includes(r.resourceType());
+    page.on('request', (r) => { if (tracked(r)) set!.add(r); });
+    page.on('requestfinished', (r) => set!.delete(r));
+    page.on('requestfailed', (r) => set!.delete(r));
+  }
+  await expect.poll(async () => {
+    if (set!.size) return false;
+    await page.waitForTimeout(quietMs);
+    return set!.size === 0;
+  }, { timeout: 10_000 }).toBe(true);
+}
+
 /** Drag with real pointer events (dnd-kit needs intermediate moves). */
 export async function drag(page: Page, from: ReturnType<Page['locator']>, to: ReturnType<Page['locator']>) {
-  // A previous move makes the board refetch; if that lands mid-drag the card re-renders and the drag is lost.
-  // Let the page settle first, then measure.
-  await page.waitForLoadState('networkidle');
+  // A previous move saves and then refetches the board; a drag started while that is in flight can be lost when the
+  // refetch lands. Let it settle first, then measure.
+  await apiIdle(page);
   await from.waitFor();
   const a = (await from.boundingBox())!;
   const b = (await to.boundingBox())!;
