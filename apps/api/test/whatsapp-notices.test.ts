@@ -105,7 +105,8 @@ describe('WhatsApp payment reminders and booking confirmations', () => {
       expect(fake.sent.length).toBe(sentBefore);
       const row = (await pool.query(`SELECT whatsapp, sent_to FROM invoice_reminders WHERE document_id = $1`, [inv2.id])).rows[0];
       expect(row).toEqual({ whatsapp: 0, sent_to: ['ap@umbrella.test'] });
-      const mail = (await pool.query(`SELECT 1 FROM jobs WHERE type = 'email.send' AND payload->>'to' = 'ap@umbrella.test' AND payload->>'subject' LIKE 'Payment reminder%'`)).rows;
+      const mail = (await pool.query(`SELECT 1 FROM jobs WHERE type = 'email.send' AND payload->>'to' = 'ap@umbrella.test' AND payload->>'subject' LIKE 'Payment reminder%'
+        AND workspace_id = (SELECT workspace_id FROM documents WHERE id = $1)`, [inv2.id])).rows;
       expect(mail.length).toBeGreaterThan(0);
     } finally { fake.templates = TEMPLATES; forgetTemplates(ch.id); }
   });
