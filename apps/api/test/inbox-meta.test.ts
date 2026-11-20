@@ -8,7 +8,7 @@ import { processJobs } from '../src/automation/engine.ts';
 
 /** Runs every due job (earlier test files may have left some ahead of ours in the queue). */
 const drainJobs = async () => { for (let i = 0; i < 50 && (await processJobs(100)) > 0; i++); };
-import { splitText } from '../src/inbox/meta.ts';
+import { metaFileUrlAllowed, splitText } from '../src/inbox/meta.ts';
 import { openSecret } from '../src/lib/secrets.ts';
 import { getApp, inviteUser, signup } from './helpers.ts';
 
@@ -333,5 +333,17 @@ describe('inbox: Facebook Messenger, Instagram, WhatsApp', () => {
   it('splits long replies by character, never inside an emoji', () => {
     expect(splitText('ab😀cd', 3)).toEqual(['ab😀', 'cd']);
     expect(splitText('', 10)).toEqual(['']);
+  });
+});
+
+describe('incoming Meta file URLs (they come from a payload signed with the workspace’s own app secret)', () => {
+  it('only Meta CDN hosts over https, or the configured Graph origin', () => {
+    for (const ok of ['https://scontent.xx.fbcdn.net/v/t1/a.jpg?x=1', 'https://lookaside.fbsbx.com/ig_messaging_cdn/?asset_id=1', 'https://scontent.cdninstagram.com/a.jpg', `${config.meta.graphUrl}/cdn/x`]) {
+      expect(metaFileUrlAllowed(ok)).toBe(true);
+    }
+    for (const bad of ['http://169.254.169.254/latest/meta-data/', 'http://localhost:5432/', 'https://127.0.0.1/x', 'http://scontent.xx.fbcdn.net/a.jpg',
+      'https://fbcdn.net.evil.example/a.jpg', 'https://evilfbcdn.net/a.jpg', 'https://scontent.fbcdn.net:8443/a.jpg', 'https://u:p@scontent.fbcdn.net/a', 'file:///etc/passwd', 'not a url']) {
+      expect(metaFileUrlAllowed(bad)).toBe(false);
+    }
   });
 });
