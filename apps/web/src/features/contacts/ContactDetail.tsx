@@ -24,7 +24,7 @@ import { MergeUndoBanner } from '../records/MergeUndoBanner.tsx';
 interface Contact {
   id: number; version: number; firstName: string | null; lastName: string | null; jobTitle: string | null; birthday: string | null; typeId: number | null;
   sourceId: number | null; ownerId: number; visibility: string; description: string | null; address: Address | null; custom: Record<string, unknown>; createdAt: string;
-  methods: Method[]; companies: { id: number; name: string }[]; deals: RelatedDeal[]; primaryCompanyId: number | null;
+  methods: Method[]; companies: { id: number; name: string }[]; deals: RelatedDeal[]; dealsTotal: number; primaryCompanyId: number | null;
 }
 
 export function ContactDetail() {
@@ -86,7 +86,7 @@ export function ContactDetail() {
             <CustomFieldsRows entity="contact" custom={c.custom} canEdit={edit} onSave={(p) => patch({ custom: p })} />
           </div>
         </Card>
-        <RelatedDeals deals={c.deals} onAdd={can('deal', 'create') ? () => create.open('deal', { contacts: [{ id, label: name }], stay: true }) : undefined} />
+        <RelatedDeals deals={c.deals} total={c.dealsTotal} filter={{ contactId: id }} onAdd={can('deal', 'create') ? () => create.open('deal', { contacts: [{ id, label: name }], stay: true }) : undefined} />
         <LinkedConversations contactId={id} />
         <ContactBroadcasts contactId={id} />
         <Attachments entityType="contact" entityId={id} canEdit={edit} />
