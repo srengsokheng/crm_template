@@ -1,3 +1,4 @@
+import { RadioGroup } from '../../components/ui/controls.tsx';
 import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
@@ -62,17 +63,15 @@ function PipelineAccess({ p, onSave }: { p: Pipeline; onSave: (ids: number[] | n
         footer={<><Button onClick={() => setOpen(false)}>Cancel</Button>
           <Button variant="primary"
             onClick={async () => { if (await onSave(mode === 'all' ? null : picked)) setOpen(false); }}>Save</Button></>}>
-        <fieldset className="space-y-2">
-          <legend className="sr-only">Access</legend>
-          <label className="flex items-center gap-2 text-sm"><input type="radio" name={`acc-${p.id}`} checked={mode === 'all'} onChange={() => setMode('all')} className="size-4 accent-[var(--color-brand-600)]" />Everyone</label>
-          <label className="flex items-center gap-2 text-sm"><input type="radio" name={`acc-${p.id}`} checked={mode === 'some'} onChange={() => setMode('some')} className="size-4 accent-[var(--color-brand-600)]" />Only these roles</label>
+        <div className="space-y-2">
+          <RadioGroup legend="Access" hideLegend value={mode} onChange={setMode} options={[{ value: 'all', label: 'Everyone' }, { value: 'some', label: 'Only these roles' }]} />
           {mode === 'some' && (
             <div className="ml-6 flex flex-col items-start gap-1.5" role="group" aria-label="Roles with access">
               {nonAdmin.map((r) => <Checkbox key={r.id} label={r.name} checked={picked.includes(r.id)} onChange={(v) => setPicked(v ? [...picked, r.id] : picked.filter((x) => x !== r.id))} />)}
               {picked.length === 0 && <p className="text-xs text-amber-700 dark:text-amber-300">No role selected: only admins will see this pipeline.</p>}
             </div>
           )}
-        </fieldset>
+        </div>
       </Dialog>
     </div>
   );

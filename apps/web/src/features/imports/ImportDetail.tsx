@@ -1,3 +1,4 @@
+import { RadioGroup } from '../../components/ui/controls.tsx';
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Link, useNavigate, useParams } from 'react-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -183,21 +184,14 @@ function Setup({ imp, onStarted }: { imp: ImportView; onStarted: () => void }) {
 
       {entity !== 'deal_line' && <Card title="Duplicates">
         <div className="space-y-4">
-          <fieldset className="space-y-2">
-            <legend className="mb-1 text-[13px] font-medium">When a row matches an existing {e.one}</legend>
-            {([
+          <RadioGroup legend={<>When a row matches an existing {e.one}</>} value={options.duplicateMode} onChange={(v) => set({ duplicateMode: v })}
+            options={([
               ['skip', 'Skip the row', `Keep the existing ${e.one} as it is.`],
               ['update', `Update the existing ${e.one}`, entity === 'deal' || entity === 'product'
                 ? `Fill in the mapped values${entity === 'deal' ? '; contacts in the file are added to the deal' : ''}. Empty cells change nothing.`
                 : 'Fill in the mapped values; new emails and phones are added, existing ones kept. Empty cells change nothing.'],
               ['create', `Create a new ${e.one} anyway`, entity === 'contact' || entity === 'company' ? 'Duplicates can be merged later.' : `You may end up with two ${e.many} with the same name.`],
-            ] as [DuplicateMode, string, string][]).map(([v, label, hint]) => (
-              <label key={v} className="flex cursor-pointer items-start gap-2.5 text-sm">
-                <input type="radio" name="duplicateMode" className="mt-0.5 size-4 accent-[var(--color-brand-600)]" checked={options.duplicateMode === v} onChange={() => set({ duplicateMode: v })} />
-                <span><span className="font-medium">{label}</span><span className="block text-xs text-muted">{hint}</span></span>
-              </label>
-            ))}
-          </fieldset>
+            ] as [DuplicateMode, string, string][]).map(([v, label, hint]) => ({ value: v, label: <span className="font-medium">{label}</span>, hint }))} />
           {options.duplicateMode !== 'create' && (
             <fieldset>
               <legend className="mb-1.5 text-[13px] font-medium">Recognise existing {e.many} by</legend>

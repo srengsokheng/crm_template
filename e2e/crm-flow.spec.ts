@@ -19,7 +19,7 @@ test('lead → note & activity → convert → deal → products → won → das
   await page.getByRole('textbox', { name: 'Note', exact: true }).fill('Wants three robotic arms');
   await page.getByRole('button', { name: 'Add note' }).click();
   await expect(page.getByText('Wants three robotic arms')).toBeVisible();
-  await page.getByRole('button', { name: 'Activity', exact: true }).click();
+  await page.getByRole('tab', { name: 'Activity', exact: true }).click();
   await page.getByRole('textbox', { name: 'Subject' }).fill('Call Alice to confirm requirements');
   await page.getByRole('button', { name: 'Schedule' }).click();
   await expect(page.getByRole('button', { name: 'Complete Call Alice to confirm requirements' })).toBeVisible();

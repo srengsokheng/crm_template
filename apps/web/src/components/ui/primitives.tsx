@@ -1,6 +1,7 @@
 import { forwardRef, type ButtonHTMLAttributes, type InputHTMLAttributes, type ReactNode, type SelectHTMLAttributes, type TextareaHTMLAttributes } from 'react';
 import { Loader2 } from 'lucide-react';
 import { cn } from '../../lib/cn.ts';
+import { useRovingKeys } from './controls.tsx';
 import { initials } from '../../lib/format.ts';
 
 type Variant = 'primary' | 'secondary' | 'ghost' | 'danger' | 'success';
@@ -145,11 +146,13 @@ export function Checkbox({ checked, onChange, label, disabled }: { checked: bool
   );
 }
 
+/** A compact either/or switch (Board / List, Me / Everyone). Arrow keys move between the options. */
 export function Segmented<T extends string>({ value, onChange, options, size = 'md' }: { value: T; onChange: (v: T) => void; options: { value: T; label: ReactNode; icon?: ReactNode }[]; size?: 'sm' | 'md' }) {
+  const keys = useRovingKeys(options.map((o) => o.value), value, onChange);
   return (
-    <div className="inline-flex rounded-[var(--radius-control)] border border-base surface p-0.5" role="tablist">
+    <div className="inline-flex rounded-[var(--radius-control)] border border-base surface p-0.5" role="tablist" onKeyDown={keys.onKeyDown}>
       {options.map((o) => (
-        <button key={o.value} type="button" role="tab" aria-selected={value === o.value} onClick={() => onChange(o.value)}
+        <button key={o.value} ref={keys.ref(o.value)} type="button" role="tab" aria-selected={value === o.value} tabIndex={value === o.value ? 0 : -1} onClick={() => onChange(o.value)}
           className={cn('inline-flex items-center gap-1.5 rounded-[calc(var(--radius-control)-2px)] font-medium transition-colors',
             size === 'sm' ? 'h-7 px-2 text-xs' : 'h-8 px-3 text-[13px]',
             value === o.value ? 'bg-[var(--surface-2)] text-[var(--text)] shadow-xs' : 'text-muted hover:text-[var(--text)]')}>

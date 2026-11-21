@@ -16,10 +16,10 @@ into `main`.
 
 ## 1. Design system (frontend-design, refactoring)
 
-- **More shared components.** `components/ui` still has 8 files; screens hand-build tabs, toolbars, filter bars,
-  section headers, radio groups, switches and tooltips. Add `Tabs`, `Toolbar`/`FilterBar`, `Section`, `RadioGroup`,
-  `Switch`, `Tooltip`, `KeyValueList`; replace the hand-built versions (behaviour unchanged, one refactor PR).
-- **Component gallery**: a dev-only `/dev/components` page showing every component in every state, light + dark.
+- ~~**Component gallery**~~ — done: `/dev/components` (every shared component and state; in the a11y scan).
+- **More shared components** — partly done: `Tabs`, `RadioGroup` and `Switch` (`components/ui/controls.tsx`) replace the
+  hand-built tab bars and radio lists; `Segmented` and `Tabs` move with the arrow keys. Still to do: `Toolbar`/`FilterBar`,
+  `Section`, `Tooltip`, `KeyValueList`, and moving settings on/off checkboxes that save at once to `Switch`.
 - ~~**Touch targets**~~ — done: 44px tap areas on touch screens (global rule in `styles.css`), checked by
   `e2e/touch-targets.spec.ts`.
 

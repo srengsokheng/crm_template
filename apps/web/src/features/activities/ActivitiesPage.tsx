@@ -7,6 +7,7 @@ import { useNavigate } from 'react-router';
 import { startCall } from '../calls/CallPages.tsx';
 import { api, errorMessage, qsOf } from '../../lib/api.ts';
 import { cn } from '../../lib/cn.ts';
+import { Tabs } from '../../components/ui/controls.tsx';
 import { dateTime, dueLabel, relative } from '../../lib/format.ts';
 import { useCan, useMeta } from '../../lib/hooks.ts';
 import type { Activity, ListResponse } from '../../lib/types.ts';
@@ -50,15 +51,9 @@ export function ActivitiesPage() {
     <div>
       <PageHeader title="Activities" subtitle="Your calls, meetings, tasks and deadlines"
         actions={can('activity', 'create') && <Button variant="primary" icon={<Plus className="size-4" />} onClick={() => create.open('activity')}>New activity</Button>} />
-      <div className="mb-3 flex gap-1 overflow-x-auto border-b border-base" role="tablist">
-        {BUCKETS.map((b) => (
-          <button key={b.value} type="button" role="tab" aria-selected={bucket === b.value} onClick={() => lp.set({ bucket: b.value })}
-            className={cn('-mb-px inline-flex items-center gap-1.5 whitespace-nowrap border-b-2 px-3 py-2 text-[13px] font-medium', bucket === b.value ? 'border-brand-600 text-brand-700 dark:text-brand-200' : 'border-transparent text-muted hover:text-[var(--text)]')}>
-            {b.label}
-            {b.value !== 'done' && counts.data && counts.data[b.value] > 0 && <span className={cn('rounded-full px-1.5 text-[11px]', b.value === 'overdue' ? 'bg-rose-500 text-white' : 'bg-[var(--surface-2)]')}>{counts.data[b.value]}</span>}
-          </button>
-        ))}
-      </div>
+      <Tabs label="Which activities" className="mb-3" value={bucket} onChange={(v) => lp.set({ bucket: v })}
+        items={BUCKETS.map((b) => ({ value: b.value, label: b.label,
+          badge: b.value !== 'done' && counts.data && counts.data[b.value] > 0 ? <span className={cn('rounded-full px-1.5 text-[11px]', b.value === 'overdue' ? 'bg-rose-500 text-white' : 'bg-[var(--surface-2)]')}>{counts.data[b.value]}</span> : undefined }))} />
       <Toolbar>
         <SearchBox value={lp.get('q')} onChange={(v) => lp.set({ q: v })} placeholder="Search activities" />
         <Select aria-label="Assigned to" className="w-auto min-w-40" value={lp.get('assigneeId') || 'me'} onChange={(e) => lp.set({ assigneeId: e.target.value === 'me' ? null : e.target.value })}>

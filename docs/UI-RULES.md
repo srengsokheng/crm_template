@@ -20,10 +20,14 @@ seb1n/awesome-ai-agent-skills, extended with the table, list, form and state rul
 
 ## 2. Components — use these, don't rebuild them
 
+See them all, in every state, at **`/dev/components`** (sign in; not in the menu). Add new shared components there.
+
 | Need | Use | Notes |
 |---|---|---|
 | Buttons | `Button` (`primary` / default / `ghost`), `IconButton` | `IconButton` requires `label` (becomes `aria-label` + tooltip). |
-| Inputs | `Input`, `Textarea`, `Select`, `Checkbox`, `Segmented` inside `Field` | `Field` gives the label, hint, required mark and error. |
+| Inputs | `Input`, `Textarea`, `Select`, `Checkbox` inside `Field` | `Field` gives the label, hint, required mark and error. |
+| Choices | `RadioGroup` (pick one, with hints), `Switch` (takes effect at once), `Checkbox` (saved with the form) | From `components/ui/controls.tsx`. |
+| Switching views | `Tabs` (underline: what a page/card shows), `Segmented` (compact either/or in a toolbar) | Both are ARIA tabs with arrow-key movement; don't hand-build tab bars. |
 | Record lists (paged) | `DataTable` + `Pagination` + `useListParams` | Filters, sort and page live in the URL. |
 | Feeds and secondary lists | `FeedList` + `useFeed` | Newest first, "Load more", never silently cut off. See §3. |
 | Cards / sections | `Card` (`title`, `actions`) | One card per topic; `padded={false}` for lists inside. |
