@@ -1,15 +1,17 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
-import { Building2, Plus, Upload } from 'lucide-react';
+import { Building2, CopyCheck, Plus, Upload } from 'lucide-react';
 import { api, errorMessage, qsOf } from '../../lib/api.ts';
 import { relative } from '../../lib/format.ts';
 import { useCan, useDict, useDictLabel } from '../../lib/hooks.ts';
 import type { ListResponse } from '../../lib/types.ts';
 import { Button, EmptyState, PageHeader } from '../../components/ui/primitives.tsx';
+import { HeaderActions } from '../../components/ui/overlays.tsx';
 import { DataTable, Pagination, type Column } from '../../components/ui/DataTable.tsx';
 import { useCreate } from '../../app/create.tsx';
-import { BulkBar, FilterSelect, SearchBox, Toolbar, useListParams } from '../records/list.tsx';
+import { SavedViews } from '../records/SavedViews.tsx';
+import { ExportLink, BulkBar, FilterSelect, SearchBox, Toolbar, useListParams } from '../records/list.tsx';
 
 interface Row { id: number; name: string; typeId: number | null; industryId: number | null; website: string | null; phone: string | null; ownerName: string | null; contactsCount: number; openDealsCount: number; createdAt: string }
 
@@ -37,10 +39,14 @@ export function CompaniesPage() {
   return (
     <div>
       <PageHeader title="Companies" subtitle="Organisations you do business with" actions={<>
-        {can('company', 'import') && <Button icon={<Upload className="size-4" />} onClick={() => nav('/import/company')}>Import</Button>}
+        <HeaderActions secondary={[
+          { label: 'Find duplicates', variant: 'ghost', icon: <CopyCheck className="size-4" />, onSelect: () => nav('/duplicates/company'), hidden: !can('company', 'edit') },
+          { label: 'Import', icon: <Upload className="size-4" />, onSelect: () => nav('/import/company'), hidden: !can('company', 'import') },
+        ]} />
         {can('company', 'create') && <Button variant="primary" icon={<Plus className="size-4" />} onClick={() => create.open('company')}>New company</Button>}
       </>} />
-      <Toolbar>
+      <SavedViews entity="company" />
+      <Toolbar right={can('company', 'export') && <ExportLink path="/companies" params={lp.params} />}>
         <SearchBox value={lp.get('q')} onChange={(v) => lp.set({ q: v })} placeholder="Search name, website, phone" />
         <FilterSelect label="Owner" value={lp.get('ownerId')} onChange={(v) => lp.set({ ownerId: v })} options={[{ value: 'me', label: 'Me' }]} />
         <FilterSelect label="Type" value={lp.get('typeId')} onChange={(v) => lp.set({ typeId: v })} options={types.map((t) => ({ value: String(t.id), label: t.label }))} />

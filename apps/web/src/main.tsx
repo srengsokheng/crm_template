@@ -6,9 +6,11 @@ import { Toaster } from 'sonner';
 import { queryClient } from './lib/api.ts';
 import { router } from './app/router.tsx';
 import { applyTheme, getTheme } from './app/theme.ts';
+import { setUpInstall } from './lib/install.ts';
 import './styles.css';
 
 applyTheme(getTheme());
+setUpInstall();
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

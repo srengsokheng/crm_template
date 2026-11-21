@@ -50,3 +50,19 @@ test('kanban: drag between stages, required-field prompt, lost reason, undo', as
   const deals = await api(page, 'GET', '/deals?status=lost');
   expect(deals.data[0]).toMatchObject({ title: 'Lose me' });
 });
+
+test('kanban: move a deal with the keyboard only (grip button, Space, arrow, Space)', async ({ page }) => {
+  await signUp(page);
+  await api(page, 'POST', '/deals', { title: 'Keyboard deal', amount: '500' });
+  await page.goto('/deals');
+  const col = (n: string) => page.getByRole('region', { name: `${n} stage` });
+  await expect(col('New').getByText('Keyboard deal')).toBeVisible();
+  const grip = page.getByRole('button', { name: 'Move Keyboard deal' });
+  await grip.focus();
+  // Real key presses are slower than a script; the board measures positions between frames.
+  for (const key of ['Space', 'ArrowRight', 'Space']) { await page.keyboard.press(key); await page.waitForTimeout(250); }
+  await expect(page.getByText('Moved to Qualified: Keyboard deal')).toBeVisible();
+  await expect(col('Qualified').getByText('Keyboard deal')).toBeVisible();
+  // The card's title is a plain link to the deal, not inside another button.
+  await expect(col('Qualified').getByRole('link', { name: 'Keyboard deal' })).toHaveAttribute('href', /\/deals\/\d+/);
+});

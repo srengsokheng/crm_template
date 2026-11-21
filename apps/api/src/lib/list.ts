@@ -69,3 +69,64 @@ export const qs = {
 };
 
 export const likeTerm = (t: string) => `%${t.replace(/[\\%_]/g, (c) => '\\' + c)}%`;
+
+/**
+ * Cursor paging for feeds (newest first): history, inbox, notifications, recycle bin, logs. The cursor is opaque to
+ * clients: base64url of "<microseconds since epoch>|<id>" of the last row they have. Microseconds (computed in SQL,
+ * see `feedCursorColumn`) because JavaScript dates only keep milliseconds and would skip rows. Rows are ordered by
+ * (time DESC, id DESC); the next page continues strictly after the cursor, so equal times are neither skipped nor
+ * repeated.
+ */
+export interface Feed { limit: number; after: { us: number; id: number } | null }
+export const FEED_DEFAULT = 50;
+export const FEED_MAX = 100;
+
+export function feedQuery(query: { limit?: unknown; before?: unknown }): Feed {
+  const n = Number(query.limit ?? FEED_DEFAULT);
+  const limit = Number.isInteger(n) && n > 0 ? Math.min(n, FEED_MAX) : FEED_DEFAULT;
+  const cursor = typeof query.before === 'string' ? query.before : '';
+  if (!cursor) return { limit, after: null };
+  const m = /^(-?\d{1,17})\|(\d{1,15})$/.exec(Buffer.from(cursor, 'base64url').toString('utf8'));
+  if (!m) throw badRequest('Invalid cursor');
+  return { limit, after: { us: Number(m[1]), id: Number(m[2]) } };
+}
+
+/** Select this (as `feed_us`) so feedResult can build the cursor; `timeCol` is a trusted column expression. */
+export const feedCursorColumn = (timeCol: string) => raw(`(extract(epoch from ${timeCol}) * 1000000)::bigint AS feed_us`);
+
+/** SQL condition for rows after the cursor; `timeCol`/`idCol` are trusted column expressions. */
+export function feedWhere(feed: Feed, timeCol: string, idCol: string): Fragment {
+  if (!feed.after) return sql`TRUE`;
+  return sql`((extract(epoch from ${raw(timeCol)}) * 1000000)::bigint, ${raw(idCol)}) < (${feed.after.us}::bigint, ${feed.after.id}::bigint)`;
+}
+
+/** Fetch `limit + 1` rows (with feed_us and id), then pass them here: trims the extra row, sets `nextCursor` if more. */
+export function feedResult<T extends { feed_us?: number | string; id: number }>(rows: T[], feed: Feed): { data: Omit<T, 'feed_us'>[]; nextCursor: string | null } {
+  const more = rows.length > feed.limit;
+  const page = more ? rows.slice(0, feed.limit) : rows;
+  const last = page[page.length - 1];
+  const data = page.map(({ feed_us: _f, ...rest }) => { void _f; return rest; });
+  if (!more || !last) return { data, nextCursor: null };
+  return { data, nextCursor: Buffer.from(`${last.feed_us}|${last.id}`).toString('base64url') };
+}
+
+/** Kanban: cards per column (default) and the most one column can be raised to with "Load more". */
+export const BOARD_DEFAULT = 50;
+export const BOARD_MAX = 500;
+
+/**
+ * Per-column card limits for a board. `limit` is the default for every column; `more` raises single columns
+ * ("Load more"), as `stageId:count` pairs separated by commas, e.g. `more=12:100,15:150`. Counts are capped at BOARD_MAX.
+ */
+export function boardLimits(query: { limit?: unknown; more?: unknown }): { limit: number; stageIds: number[]; limits: number[] } {
+  const limit = Math.min(qs.id(query.limit as string | undefined) ?? BOARD_DEFAULT, BOARD_MAX);
+  const stageIds: number[] = [];
+  const limits: number[] = [];
+  for (const part of String(query.more ?? '').split(',').slice(0, 50)) {
+    const m = /^(\d{1,15}):(\d{1,4})$/.exec(part.trim());
+    if (!m) continue;
+    stageIds.push(Number(m[1]));
+    limits.push(Math.min(Math.max(Number(m[2]), limit), BOARD_MAX));
+  }
+  return { limit, stageIds, limits };
+}

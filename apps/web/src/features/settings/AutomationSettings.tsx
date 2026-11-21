@@ -9,12 +9,21 @@ import { Badge, Button, Card, Checkbox, Field, IconButton, Input, Segmented, Sel
 import { Drawer } from '../../components/ui/overlays.tsx';
 import { StageBadge } from '../../components/ui/StageBadge.tsx';
 import { AdminOnly } from './SettingsLayout.tsx';
+import { WebhookDeliveries, WebhookSettings } from './WebhookSettings.tsx';
 
 interface Rule {
-  id: number; entityType: 'deal' | 'lead'; pipelineId: number; stageId: number | null; trigger: 'stage_entered' | 'created'; delayMinutes: number;
+  id: number; entityType: 'deal' | 'lead'; pipelineId: number; stageId: number | null; trigger: 'stage_entered' | 'created' | 'field_changed'; delayMinutes: number;
+  triggerField: string | null; businessHours: boolean;
   conditions: { field: string; op: string; value?: unknown }[]; action: string; config: Record<string, any>; isEnabled: boolean; successCount: number; failedCount: number;
 }
-const ACTIONS: Record<string, string> = { create_activity: 'Create an activity', notify: 'Send a notification', add_note: 'Add a note', update_field: 'Update a field', assign_owner: 'Assign an owner', move_stage: 'Move to another stage' };
+const ACTIONS: Record<string, string> = { create_activity: 'Create an activity', notify: 'Send a notification', add_note: 'Add a note', update_field: 'Update a field', assign_owner: 'Assign an owner', move_stage: 'Move to another stage', webhook: 'Call a webhook' };
+/** Built-in fields that can trigger rules (must match TRIGGER_FIELDS in the API). */
+const TRIGGER_FIELDS: Record<'deal' | 'lead', [string, string][]> = {
+  deal: [['amount', 'Amount'], ['title', 'Title'], ['owner_id', 'Owner'], ['expected_close_date', 'Expected close date'], ['probability', 'Probability'],
+    ['company_id', 'Company'], ['source_id', 'Source'], ['deal_type_id', 'Deal type'], ['visibility', 'Visibility'], ['description', 'Description']],
+  lead: [['amount', 'Amount'], ['title', 'Title'], ['owner_id', 'Owner'], ['source_id', 'Source'], ['company_name', 'Company name'],
+    ['first_name', 'First name'], ['last_name', 'Last name'], ['visibility', 'Visibility'], ['description', 'Description']],
+};
 const delayText = (m: number) => (m === 0 ? 'immediately' : m % 1440 === 0 ? `after ${m / 1440} day${m === 1440 ? '' : 's'}` : m % 60 === 0 ? `after ${m / 60} hour${m === 60 ? '' : 's'}` : `after ${m} minutes`);
 
 function useDescribe() {
@@ -30,6 +39,7 @@ function useDescribe() {
       case 'update_field': return `set ${c.field} to “${c.value}”`;
       case 'assign_owner': return c.mode === 'round_robin' ? `assign an owner round-robin in team #${c.teamId}` : `assign to ${user(c.userId)}`;
       case 'move_stage': return `move to ${stage(c.stageId)}`;
+      case 'webhook': return `call ${String(c.url ?? '').replace(/^https?:\/\//, '').slice(0, 60)}`;
       default: return r.action;
     }
   };
@@ -46,9 +56,11 @@ export function AutomationSettings() {
   const describe = useDescribe();
   const toggle = async (r: Rule) => { try { await api.patch(`/automation-rules/${r.id}`, { isEnabled: !r.isEnabled }); qc.invalidateQueries({ queryKey: ['rules'] }); } catch (e) { toast.error(errorMessage(e)); } };
   const remove = async (r: Rule) => { try { await api.del(`/automation-rules/${r.id}`); qc.invalidateQueries({ queryKey: ['rules'] }); toast.success('Rule deleted'); } catch (e) { toast.error(errorMessage(e)); } };
+  const fieldLabel = useFieldLabel(entity);
   const groups: { key: string; title: React.ReactNode; stage: Stage | null; trigger: Rule['trigger'] }[] = pipeline ? [
     { key: 'created', title: `When a ${entity} is created`, stage: null, trigger: 'created' },
     ...pipeline.stages.filter((s) => s.kind !== 'won' || entity === 'deal').map((s) => ({ key: `s${s.id}`, title: <span className="flex items-center gap-1.5">When a {entity} enters <StageBadge name={s.name} color={s.color} /></span>, stage: s, trigger: 'stage_entered' as const })),
+    { key: 'field', title: `When a field of a ${entity} changes`, stage: null, trigger: 'field_changed' },
   ] : [];
   return (
     <AdminOnly>
@@ -59,16 +71,17 @@ export function AutomationSettings() {
         </div>
         <p className="text-sm text-muted">Rules run in the background. Use them to schedule follow-ups, notify people or keep data tidy.</p>
         {groups.map((g) => {
-          const list = (rules.data?.data ?? []).filter((r) => (g.trigger === 'created' ? r.trigger === 'created' : r.trigger === 'stage_entered' && r.stageId === g.stage?.id));
+          const list = (rules.data?.data ?? []).filter((r) => (g.trigger === 'stage_entered' ? r.trigger === 'stage_entered' && r.stageId === g.stage?.id : r.trigger === g.trigger));
           return (
-            <Card key={g.key} title={g.title} padded={false} actions={<Button size="sm" variant="ghost" icon={<Plus className="size-3.5" />} onClick={() => setEditing({ entityType: entity, pipelineId: pipeline!.id, stageId: g.stage?.id ?? null, trigger: g.trigger, delayMinutes: 0, action: 'create_activity', config: { kind: 'task', assignTo: 'owner', dueInDays: 1 }, conditions: [], isEnabled: true })}>Add rule</Button>}>
+            <Card key={g.key} title={g.title} padded={false} actions={<Button size="sm" variant="ghost" icon={<Plus className="size-3.5" />} onClick={() => setEditing({ entityType: entity, pipelineId: pipeline!.id, stageId: g.stage?.id ?? null, trigger: g.trigger, triggerField: g.trigger === 'field_changed' ? 'amount' : null, businessHours: false, delayMinutes: 0, action: 'create_activity', config: { kind: 'task', assignTo: 'owner', dueInDays: 1 }, conditions: [], isEnabled: true })}>Add rule</Button>}>
               {list.length ? (
                 <ol className="divide-y divide-[var(--border)]">
                   {list.map((r, i) => (
                     <li key={r.id} className="flex items-start gap-3 px-4 py-2.5">
                       <span className="mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full bg-violet-100 text-[11px] font-semibold text-violet-700 dark:bg-violet-500/20 dark:text-violet-200">{i + 1}</span>
                       <button type="button" className="min-w-0 flex-1 text-left text-sm" onClick={() => setEditing(r)}>
-                        <span className="font-medium capitalize">{delayText(r.delayMinutes)}</span>{r.conditions.length > 0 && <span className="text-muted"> (if {r.conditions.map((c) => `${c.field} ${c.op} ${c.value ?? ''}`).join(' and ')})</span>} → {describe(r)}
+                        {r.trigger === 'field_changed' && <span className="font-medium">{fieldLabel(r.triggerField)} changes{r.stageId ? ` (in ${pipeline?.stages.find((s) => s.id === r.stageId)?.name})` : ''}: </span>}
+                        <span className="font-medium capitalize">{delayText(r.delayMinutes)}{r.businessHours && r.delayMinutes ? ' (working hours)' : ''}</span>{r.conditions.length > 0 && <span className="text-muted"> (if {r.conditions.map((c) => `${c.field} ${c.op} ${c.value ?? ''}`).join(' and ')})</span>} → {describe(r)}
                         <div className="text-xs text-muted">{r.successCount} runs{r.failedCount ? ` · ${r.failedCount} failed` : ''}</div>
                       </button>
                       {!r.isEnabled && <Badge>Off</Badge>}
@@ -81,10 +94,18 @@ export function AutomationSettings() {
             </Card>
           );
         })}
+        <WebhookSettings />
       </div>
       {editing && pipeline && <RuleForm rule={editing} pipeline={pipeline} onClose={() => setEditing(null)} />}
     </AdminOnly>
   );
+}
+
+function useFieldLabel(entity: 'deal' | 'lead') {
+  const fields = useFields(entity);
+  return (key: string | null | undefined) => (key?.startsWith('custom.')
+    ? fields.find((f) => `custom.${f.key}` === key)?.label ?? key.slice(7)
+    : TRIGGER_FIELDS[entity].find(([k]) => k === key)?.[1] ?? key ?? '?');
 }
 
 function RuleForm({ rule, pipeline, onClose }: { rule: Partial<Rule>; pipeline: Pipeline; onClose: () => void }) {
@@ -98,7 +119,8 @@ function RuleForm({ rule, pipeline, onClose }: { rule: Partial<Rule>; pipeline: 
   const setCfg = (patch: Record<string, unknown>) => setR({ ...r, config: { ...cfg, ...patch } });
   const cond = r.conditions?.[0];
   const save = useAction(() => {
-    const body = { entityType: r.entityType, pipelineId: r.pipelineId, stageId: r.stageId ?? null, trigger: r.trigger, delayMinutes: r.delayMinutes ?? 0, conditions: r.conditions ?? [], action: r.action, config: r.config ?? {}, isEnabled: r.isEnabled ?? true };
+    const body = { entityType: r.entityType, pipelineId: r.pipelineId, stageId: r.stageId ?? null, trigger: r.trigger, delayMinutes: r.delayMinutes ?? 0, conditions: r.conditions ?? [], action: r.action, config: r.config ?? {}, isEnabled: r.isEnabled ?? true,
+      triggerField: r.trigger === 'field_changed' ? r.triggerField : null, businessHours: !!r.businessHours && !!r.delayMinutes };
     return r.id ? api.patch(`/automation-rules/${r.id}`, body) : api.post('/automation-rules', body);
   }, { success: 'Rule saved', onSuccess: () => { qc.invalidateQueries({ queryKey: ['rules'] }); onClose(); } });
   const users = meta?.users.filter((u) => u.status === 'active') ?? [];
@@ -107,10 +129,26 @@ function RuleForm({ rule, pipeline, onClose }: { rule: Partial<Rule>; pipeline: 
       footer={<><Button onClick={onClose}>Cancel</Button><Button variant="primary" loading={save.isPending} onClick={() => save.mutate(undefined)}>Save rule</Button></>}>
       <div className="space-y-4">
         <div className="flex items-center gap-2 rounded-lg bg-violet-50 p-3 text-sm text-violet-900 dark:bg-violet-500/10 dark:text-violet-100"><Bot className="size-4" />
-          {r.trigger === 'created' ? `When a ${r.entityType} is created` : `When a ${r.entityType} enters ${pipeline.stages.find((s) => s.id === r.stageId)?.name}`}
+          {r.trigger === 'created' ? `When a ${r.entityType} is created` : r.trigger === 'field_changed' ? `When a field of a ${r.entityType} changes` : `When a ${r.entityType} enters ${pipeline.stages.find((s) => s.id === r.stageId)?.name}`}
         </div>
+        {r.trigger === 'field_changed' && (
+          <div className="grid gap-3 sm:grid-cols-2">
+            <Field label="Field" htmlFor="rule-field">
+              <Select id="rule-field" value={r.triggerField ?? ''} onChange={(e) => setR({ ...r, triggerField: e.target.value })}>
+                {TRIGGER_FIELDS[r.entityType ?? 'deal'].map(([k, l]) => <option key={k} value={k}>{l}</option>)}
+                {fields.length > 0 && <optgroup label="Custom fields">{fields.map((f) => <option key={f.key} value={`custom.${f.key}`}>{f.label}</option>)}</optgroup>}
+              </Select>
+            </Field>
+            <Field label="Only in stage" htmlFor="rule-stage">
+              <Select id="rule-stage" value={r.stageId ?? ''} onChange={(e) => setR({ ...r, stageId: e.target.value ? Number(e.target.value) : null })}>
+                <option value="">Any stage</option>
+                {pipeline.stages.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+              </Select>
+            </Field>
+          </div>
+        )}
         <Field label="Run">
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             <Select aria-label="When" className="w-40" value={r.delayMinutes ? 'later' : 'now'} onChange={(e) => setR({ ...r, delayMinutes: e.target.value === 'now' ? 0 : delayUnit })}>
               <option value="now">Immediately</option><option value="later">After a delay</option>
             </Select>
@@ -121,6 +159,7 @@ function RuleForm({ rule, pipeline, onClose }: { rule: Partial<Rule>; pipeline: 
               </Select>
             </>}
           </div>
+          {!!r.delayMinutes && <div className="mt-2"><Checkbox checked={!!r.businessHours} onChange={(v) => setR({ ...r, businessHours: v })} label="Count working hours only (set in Settings → Workspace)" /></div>}
           {!!r.delayMinutes && r.trigger === 'stage_entered' && <p className="text-xs text-muted">Skipped if the record has left the stage by then.</p>}
         </Field>
         <Field label="Only if (optional)">
@@ -167,6 +206,9 @@ function RuleForm({ rule, pipeline, onClose }: { rule: Partial<Rule>; pipeline: 
             ? <Field label="Team" htmlFor="ro-team"><Select id="ro-team" value={cfg.teamId ?? ''} onChange={(e) => setCfg({ teamId: Number(e.target.value) })}><option value="">Choose…</option>{meta?.teams.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}</Select></Field>
             : <Field label="Person" htmlFor="ro-user"><Select id="ro-user" value={cfg.userId ?? ''} onChange={(e) => setCfg({ userId: Number(e.target.value) })}><option value="">Choose…</option>{users.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}</Select></Field>}
         </>}
+        {r.action === 'webhook' && <Field label="URL" htmlFor="rw-url" hint="Must be https:// and on the allow-list under Webhooks on this page. The record (title, amount, stage, owner, link) is sent as JSON.">
+          <Input id="rw-url" type="url" value={cfg.url ?? ''} onChange={(e) => setCfg({ url: e.target.value })} placeholder="https://hooks.zapier.com/hooks/catch/…" /></Field>}
+        {r.action === 'webhook' && rule.id && rule.action === 'webhook' && <WebhookDeliveries ruleId={rule.id} />}
         {r.action === 'move_stage' && <Field label="Target stage" htmlFor="rm-stage"><Select id="rm-stage" value={cfg.stageId ?? ''} onChange={(e) => setCfg({ stageId: Number(e.target.value) })}><option value="">Choose…</option>
           {pipeline.stages.filter((s) => s.id !== r.stageId && !(r.entityType === 'lead' && s.kind === 'won')).map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}</Select></Field>}
       </div>

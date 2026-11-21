@@ -1,11 +1,36 @@
 import { useState, type ReactNode } from 'react';
-import { DndContext, DragOverlay, KeyboardSensor, PointerSensor, TouchSensor, useDraggable, useDroppable, useSensor, useSensors, type DragEndEvent, type DragStartEvent } from '@dnd-kit/core';
+import { DndContext, DragOverlay, KeyboardSensor, PointerSensor, TouchSensor, useDraggable, useDroppable, useSensor, useSensors, type DragEndEvent, type DragStartEvent, type KeyboardCoordinateGetter } from '@dnd-kit/core';
+
+/**
+ * Keyboard moving: each arrow key jumps to the nearest drop area (stage column, Won / Lost) in that direction, instead
+ * of dnd-kit's default 25px nudge, which never reached the next column.
+ */
+const jumpToDropArea: KeyboardCoordinateGetter = (event, { context: { droppableRects, droppableContainers, collisionRect } }) => {
+  const dir = ({ ArrowRight: [1, 0], ArrowLeft: [-1, 0], ArrowDown: [0, 1], ArrowUp: [0, -1] } as Record<string, [number, number]>)[event.code];
+  if (!dir || !collisionRect) return undefined;
+  event.preventDefault();
+  const cx = collisionRect.left + collisionRect.width / 2;
+  const cy = collisionRect.top + collisionRect.height / 2;
+  let best: { x: number; y: number; d: number } | null = null;
+  for (const c of droppableContainers.getEnabled()) {
+    const r = droppableRects.get(c.id);
+    if (!r) continue;
+    const tx = r.left + r.width / 2, ty = r.top + Math.min(r.height / 2, 60);
+    const along = (tx - cx) * dir[0] + (ty - cy) * dir[1];
+    const inside = cx >= r.left && cx <= r.left + r.width && cy >= r.top && cy <= r.top + r.height;
+    if (along <= 1 || inside) continue; // only areas ahead in the arrow's direction
+    const across = Math.abs((tx - cx) * dir[1]) + Math.abs((ty - cy) * dir[0]);
+    const d = along + across * 2;
+    if (!best || d < best.d) best = { x: tx - collisionRect.width / 2, y: ty - collisionRect.height / 2, d };
+  }
+  return best ? { x: best.x, y: best.y } : undefined;
+};
 import { Link } from 'react-router';
-import { Plus, CheckCircle2, XCircle, Clock, AlertTriangle } from 'lucide-react';
+import { Plus, CheckCircle2, XCircle, Clock, AlertTriangle, GripVertical } from 'lucide-react';
 import { cn } from '../../lib/cn.ts';
 import { dueLabel, money } from '../../lib/format.ts';
 import type { NextActivity, Stage } from '../../lib/types.ts';
-import { Avatar } from '../../components/ui/primitives.tsx';
+import { Avatar, Button } from '../../components/ui/primitives.tsx';
 import { STAGE_SOLID } from '../../components/ui/stageColors.ts';
 
 export interface BoardCard {
@@ -14,9 +39,31 @@ export interface BoardCard {
 }
 export interface BoardStat { stageId: number; count: number; sum: string }
 
+/** Cards per column at first, per "Show more" click, and the most one column shows (the API caps it too). */
+export const BOARD_PAGE = 50;
+export const BOARD_MAX = 500;
+
+/**
+ * Per-column "Show more" state for a board query. Returns the `more` query parameter ("stageId:count,…") to send to
+ * /deals/board or /leads/board; it resets whenever `resetKey` (pipeline, search, filters) changes.
+ */
+export function useBoardMore(resetKey: unknown) {
+  const key = JSON.stringify(resetKey);
+  const [state, setState] = useState<{ key: string; limits: Record<number, number> }>({ key, limits: {} });
+  const limits = state.key === key ? state.limits : {};
+  const more = Object.entries(limits).map(([id, n]) => `${id}:${n}`).join(',') || undefined;
+  const [pending, setPending] = useState<number | null>(null);
+  const loadMore = (stageId: number) => {
+    setPending(stageId);
+    setState({ key, limits: { ...limits, [stageId]: Math.min((limits[stageId] ?? BOARD_PAGE) + BOARD_PAGE, BOARD_MAX) } });
+  };
+  return { more, loadMore, pending };
+}
+
 /** Generic pipeline board used for deals and leads. */
-export function Board({ stages, cards, stats, currency, onMove, onQuickAdd, closedZones, canDrag }: {
+export function Board({ stages, cards, stats, currency, onMove, onQuickAdd, closedZones, canDrag, onLoadMore, loadingStage }: {
   stages: Stage[]; cards: BoardCard[]; stats: BoardStat[]; currency: string;
+  /** "Show more" in a column that has more cards than it shows. */ onLoadMore?: (stageId: number) => void; loadingStage?: number | null;
   onMove: (card: BoardCard, target: Stage) => void; onQuickAdd?: (stage: Stage) => void;
   closedZones: { won?: Stage; lost?: Stage; wonLabel?: string; lostLabel?: string }; canDrag: (c: BoardCard) => boolean;
 }) {
@@ -24,7 +71,7 @@ export function Board({ stages, cards, stats, currency, onMove, onQuickAdd, clos
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
     useSensor(TouchSensor, { activationConstraint: { delay: 200, tolerance: 6 } }),
-    useSensor(KeyboardSensor),
+    useSensor(KeyboardSensor, { coordinateGetter: jumpToDropArea }),
   );
   const open = stages.filter((s) => s.kind === 'open');
   const onStart = (e: DragStartEvent) => setDragging(cards.find((c) => c.id === e.active.id) ?? null);
@@ -45,7 +92,12 @@ export function Board({ stages, cards, stats, currency, onMove, onQuickAdd, clos
             return (
               <Column key={s.id} stage={s} count={st?.count ?? 0} sum={money(st?.sum ?? 0, currency, { compact: true })} onQuickAdd={onQuickAdd}>
                 {list.map((c) => <DraggableCard key={c.id} card={c} disabled={!canDrag(c)} />)}
-                {(st?.count ?? 0) > list.length && <p className="py-2 text-center text-xs text-muted">+{(st?.count ?? 0) - list.length} more — use the list view or search</p>}
+                {(st?.count ?? 0) > list.length && (onLoadMore && list.length < BOARD_MAX
+                  ? <Button size="sm" variant="ghost" className="w-full" loading={loadingStage === s.id} onClick={() => onLoadMore(s.id)}
+                      aria-label={`Show more in ${s.name} (${(st?.count ?? 0) - list.length} not shown)`}>
+                      Show {Math.min(BOARD_PAGE, (st?.count ?? 0) - list.length)} more <span className="text-muted">· {(st?.count ?? 0) - list.length} left</span>
+                    </Button>
+                  : <p className="py-2 text-center text-xs text-muted">+{(st?.count ?? 0) - list.length} more — use the list view or search</p>)}
                 {!list.length && <p className="py-6 text-center text-xs text-muted">Drop here</p>}
               </Column>
             );
@@ -97,22 +149,36 @@ function DropZone({ stage, label, tone, active }: { stage: Stage; label: string;
   );
 }
 
+/**
+ * Mouse and touch drag the whole card; keyboard users focus the grip button ("Move …", Space to pick up, arrows, Space
+ * to drop). The card itself isn't a button, so its link isn't nested inside another control (WCAG 4.1.2).
+ */
 function DraggableCard({ card, disabled }: { card: BoardCard; disabled: boolean }) {
-  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({ id: card.id, disabled });
+  const { attributes, listeners, setNodeRef, setActivatorNodeRef, isDragging } = useDraggable({ id: card.id, disabled });
+  const { onKeyDown, ...pointer } = (listeners ?? {}) as Record<string, (e: unknown) => void>;
+  const handle = disabled ? null : (
+    <button type="button" ref={setActivatorNodeRef} {...attributes} onKeyDown={onKeyDown} aria-label={`Move ${card.title}`} title="Drag to another stage"
+      className="-mr-1 -mt-0.5 inline-flex size-6 shrink-0 cursor-grab items-center justify-center rounded text-muted hover:bg-[var(--surface-2)] hover:text-[var(--text)]">
+      <GripVertical className="size-3.5" />
+    </button>
+  );
   return (
-    <div ref={setNodeRef} {...listeners} {...attributes} className={cn('touch-manipulation', isDragging && 'opacity-30')} aria-roledescription="Draggable card">
-      <CardBody card={card} />
+    <div ref={setNodeRef} {...pointer} className={cn('touch-manipulation', isDragging && 'opacity-30')}>
+      <CardBody card={card} handle={handle} />
     </div>
   );
 }
 
-function CardBody({ card, overlay }: { card: BoardCard; overlay?: boolean }) {
+function CardBody({ card, overlay, handle }: { card: BoardCard; overlay?: boolean; handle?: ReactNode }) {
   const due = card.nextActivity ? dueLabel(card.nextActivity.dueAt) : null;
   const idleDays = Math.floor((Date.now() - new Date(card.stageChangedAt).getTime()) / 864e5);
   const rotting = card.rotDays && idleDays >= card.rotDays;
   return (
     <article className={cn('surface rounded-lg border border-base p-3 shadow-xs transition-shadow hover:shadow-md', overlay && 'rotate-1 shadow-xl')}>
-      <Link to={card.href} className="block text-sm font-medium leading-snug hover:text-brand-700 dark:hover:text-brand-200" onClick={(e) => overlay && e.preventDefault()}>{card.title}</Link>
+      <div className="flex items-start gap-1">
+        <Link to={card.href} className="block min-w-0 flex-1 text-sm font-medium leading-snug hover:text-brand-700 dark:hover:text-brand-200" onClick={(e) => overlay && e.preventDefault()}>{card.title}</Link>
+        {handle}
+      </div>
       {card.subtitle && <p className="mt-0.5 truncate text-xs text-muted">{card.subtitle}</p>}
       <div className="mt-2 flex items-center justify-between gap-2">
         <span className="text-sm font-semibold tabular">{card.amount && Number(card.amount) > 0 ? money(card.amount, card.currency) : <span className="font-normal text-muted">No value</span>}</span>

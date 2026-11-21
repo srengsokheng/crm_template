@@ -1,13 +1,15 @@
 /** CSV import: what a column can be mapped to, header auto-mapping, and tolerant cell parsers. Shared by API and web. */
 
-export const IMPORT_ENTITIES = ['contact', 'company', 'lead'] as const;
+export const IMPORT_ENTITIES = ['contact', 'company', 'lead', 'deal', 'product', 'deal_line'] as const;
 export type ImportEntity = (typeof IMPORT_ENTITIES)[number];
+/** Which role permission an import type uses ("Products on deals" adds lines to deals: the deal import permission). */
+export const importPermissionEntity = (e: ImportEntity): Exclude<ImportEntity, 'deal_line'> => (e === 'deal_line' ? 'deal' : e);
 
 export const IMPORT_LIMITS = { maxBytes: 5 * 1024 * 1024, maxRows: 10_000, maxColumns: 100, chunkSize: 200 } as const;
 
 export const DUPLICATE_MODES = ['skip', 'update', 'create'] as const;
 export type DuplicateMode = (typeof DUPLICATE_MODES)[number];
-export const MATCH_KEYS = ['email', 'phone', 'name', 'website'] as const;
+export const MATCH_KEYS = ['email', 'phone', 'name', 'website', 'sku'] as const;
 export type MatchKey = (typeof MATCH_KEYS)[number];
 export const DATE_FORMATS = ['ymd', 'dmy', 'mdy'] as const;
 export type DateFormat = (typeof DATE_FORMATS)[number];
@@ -17,13 +19,18 @@ export const MATCH_KEYS_BY_ENTITY: Record<ImportEntity, MatchKey[]> = {
   contact: ['email', 'phone', 'name'],
   company: ['name', 'website', 'email', 'phone'],
   lead: ['email', 'phone'],
+  /** Deals match by title (open, won and lost deals alike). */
+  deal: ['name'],
+  product: ['sku', 'name'],
+  /** Each row adds a line; there is nothing to match. */
+  deal_line: [],
 };
-export const MATCH_KEY_LABELS: Record<MatchKey, string> = { email: 'Email', phone: 'Phone', name: 'Name', website: 'Website' };
+export const MATCH_KEY_LABELS: Record<MatchKey, string> = { email: 'Email', phone: 'Phone', name: 'Name', website: 'Website', sku: 'SKU' };
 
 export interface ImportTarget {
   key: string;
   label: string;
-  group: 'Name' | 'Contact details' | 'Details' | 'Address';
+  group: 'Name' | 'Contact details' | 'Details' | 'Address' | 'Pricing';
   /** Several columns may map to it (e.g. "Work email" and "Home email"). */
   multiple?: boolean;
   aliases?: string[];
@@ -85,6 +92,41 @@ export const IMPORT_TARGETS: Record<ImportEntity, ImportTarget[]> = {
     { key: 'stage', label: 'Stage', group: 'Details', aliases: ['status', 'lead status', 'lead stage'] },
     ...ADDRESS, DESCRIPTION, OWNER,
   ],
+  deal: [
+    { key: 'title', label: 'Deal name', group: 'Name', aliases: ['title', 'deal', 'deal title', 'opportunity', 'opportunity name', 'name', 'subject'] },
+    { key: 'amount', label: 'Amount', group: 'Pricing', aliases: ['value', 'deal value', 'deal amount', 'revenue', 'price', 'total'] },
+    { key: 'currency', label: 'Currency', group: 'Pricing' },
+    { key: 'stage', label: 'Stage', group: 'Details', aliases: ['status', 'deal stage', 'pipeline stage', 'phase'] },
+    { key: 'expectedCloseDate', label: 'Expected close date', group: 'Details', aliases: ['close date', 'closing date', 'expected close', 'due date', 'close'] },
+    { key: 'probability', label: 'Probability %', group: 'Details', aliases: ['probability', 'chance', 'likelihood', 'win probability'] },
+    { key: 'company', label: 'Company', group: 'Details', aliases: ['company name', 'account', 'account name', 'customer', 'client', 'organization', 'organisation'] },
+    { key: 'contact', label: 'Contact (email or name)', group: 'Details', multiple: true, aliases: ['contact', 'contact email', 'contact name', 'email', 'person'] },
+    { key: 'dealType', label: 'Deal type', group: 'Details', aliases: ['type', 'deal type', 'category'] },
+    SOURCE, DESCRIPTION, OWNER,
+  ],
+  product: [
+    { key: 'name', label: 'Product name', group: 'Name', aliases: ['product', 'name', 'item', 'item name', 'title', 'product name'] },
+    { key: 'sku', label: 'SKU / code', group: 'Name', aliases: ['code', 'item code', 'product code', 'article', 'part number', 'ref'] },
+    { key: 'unitPrice', label: 'Price', group: 'Pricing', aliases: ['unit price', 'price', 'list price', 'rate', 'cost'] },
+    { key: 'currency', label: 'Currency', group: 'Pricing' },
+    { key: 'unit', label: 'Unit', group: 'Pricing', aliases: ['uom', 'unit of measure', 'units'] },
+    { key: 'taxRate', label: 'Tax %', group: 'Pricing', aliases: ['tax', 'vat', 'vat %', 'tax rate', 'gst'] },
+    { key: 'taxIncluded', label: 'Price includes tax (yes/no)', group: 'Pricing', aliases: ['tax included', 'incl tax', 'including tax', 'vat included'] },
+    { key: 'category', label: 'Category', group: 'Details', aliases: ['group', 'product category', 'family', 'type'] },
+    { key: 'isActive', label: 'Active (yes/no)', group: 'Details', aliases: ['active', 'enabled', 'status', 'available'] },
+    DESCRIPTION,
+  ],
+  deal_line: [
+    { key: 'deal', label: 'Deal name', group: 'Name', aliases: ['deal', 'deal name', 'deal title', 'opportunity', 'opportunity name'] },
+    { key: 'dealId', label: 'Deal ID', group: 'Name', aliases: ['deal id', 'deal #', 'deal number'] },
+    { key: 'product', label: 'Product (name or SKU)', group: 'Details', aliases: ['product', 'item', 'product name', 'sku', 'item name', 'line', 'description'] },
+    { key: 'quantity', label: 'Quantity', group: 'Pricing', aliases: ['qty', 'quantity', 'units', 'count', 'amount ordered'] },
+    { key: 'unitPrice', label: 'Unit price', group: 'Pricing', aliases: ['price', 'unit price', 'rate', 'list price'] },
+    { key: 'unit', label: 'Unit', group: 'Pricing', aliases: ['uom', 'unit of measure'] },
+    { key: 'discount', label: 'Discount %', group: 'Pricing', aliases: ['discount', 'discount %', 'disc', 'disc %'] },
+    { key: 'taxRate', label: 'Tax %', group: 'Pricing', aliases: ['tax', 'vat', 'vat %', 'tax rate', 'gst'] },
+    { key: 'taxIncluded', label: 'Price includes tax (yes/no)', group: 'Pricing', aliases: ['tax included', 'incl tax', 'vat included'] },
+  ],
 };
 
 export const customTargetKey = (fieldKey: string) => `custom.${fieldKey}`;
@@ -133,6 +175,10 @@ export function mappingErrors(entity: ImportEntity, mapping: (string | null)[], 
   if (entity === 'lead' && !has('title', 'fullName', 'firstName', 'lastName', 'companyName', 'email', 'phone')) {
     errors.push('Map at least a title, a name, a company or a phone/email column');
   }
+  if (entity === 'deal' && !has('title')) errors.push('Map a column to Deal name');
+  if (entity === 'product' && !has('name')) errors.push('Map a column to Product name');
+  if (entity === 'deal_line' && !has('deal', 'dealId')) errors.push('Map a column to Deal name or Deal ID');
+  if (entity === 'deal_line' && !has('product')) errors.push('Map a column to Product');
   return errors;
 }
 

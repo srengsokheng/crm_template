@@ -6,10 +6,12 @@ import { cn } from '../../lib/cn.ts';
 import { date, money } from '../../lib/format.ts';
 import { useCan, useMe, usePipelines } from '../../lib/hooks.ts';
 import { Card, EmptyState, ErrorState, Input, PageHeader, Select, Skeleton } from '../../components/ui/primitives.tsx';
+import { MissingRates } from '../settings/MissingRates.tsx';
 import { useListParams } from '../records/list.tsx';
 
 const REPORTS = [
   { key: 'won-deals', title: 'Won deals', desc: 'Deals closed as won in the period.' },
+  { key: 'team-performance', title: 'Team performance', desc: 'Per person: deals won and win rate, sales target reached, activities done, Inbox replies and how long customers waited (median), customer rating.' },
   { key: 'deals-by-stage', title: 'Deals by stage', desc: 'Where deals sit across your pipeline stages.' },
   { key: 'deals-by-owner', title: 'Sales by owner', desc: 'Compare people by deals, win rate and revenue.' },
   { key: 'lead-conversion', title: 'Lead conversion', desc: 'How many leads became customers, by source.' },
@@ -19,10 +21,19 @@ const REPORTS = [
   { key: 'product-sales', title: 'Product sales', desc: 'Revenue per product in won deals.' },
 ] as const;
 
-const MONEY = new Set(['amount', 'totalAmount', 'wonAmount', 'avgWonDeal', 'weighted', 'revenue']);
-const PCT = new Set(['share', 'winRate', 'conversionRate']);
+const MONEY = new Set(['amount', 'totalAmount', 'wonAmount', 'avgWonDeal', 'weighted', 'revenue', 'target']);
+const PCT = new Set(['share', 'winRate', 'conversionRate', 'targetReached']);
 const DATE = new Set(['closedAt', 'expectedCloseDate']);
-const HIDDEN = new Set(['id', 'currency', 'kind']);
+// "ratings" (how many) is shown inside the rating cell; the CSV keeps both columns.
+const HIDDEN = new Set(['id', 'currency', 'kind', 'userId', 'ratings']);
+/** Minutes as "45 min", "2 h 5 min", "1 d 3 h". */
+export function minutesText(v: number): string {
+  if (v < 60) return `${v} min`;
+  if (v < 1440) { const h = Math.floor(v / 60); const m = v % 60; return m ? `${h} h ${m} min` : `${h} h`; }
+  const d = Math.floor(v / 1440); const h = Math.floor((v % 1440) / 60);
+  return h ? `${d} d ${h} h` : `${d} d`;
+}
+const COLUMN_TITLES: Record<string, string> = { replyTime: 'Reply time', rating: 'Rating', targetReached: 'Of target', activitiesDone: 'Activities' };
 const human = (k: string) => k.replace(/([A-Z])/g, (c) => ` ${c.toLowerCase()}`).replace(/^./, (c) => c.toUpperCase());
 
 function presetRange(p: string): { from: string; to: string } {
@@ -48,14 +59,17 @@ export function ReportsPage() {
   const preset = lp.get('period') || 'month';
   const range = preset === 'custom' ? { from: lp.get('from') || presetRange('month').from, to: lp.get('to') || presetRange('month').to } : presetRange(preset);
   const params = { ...range, scope: lp.get('scope') || undefined, pipelineId: lp.get('pipelineId') || undefined, groupBy: key === 'lead-conversion' ? lp.get('groupBy') || undefined : undefined };
-  const q = useQuery({ queryKey: ['report', key, params], placeholderData: keepPreviousData, queryFn: () => api.get<{ rows: Record<string, unknown>[]; totals?: Record<string, unknown> }>(`/reports/${key}${qsOf(params)}`) });
+  const q = useQuery({ queryKey: ['report', key, params], placeholderData: keepPreviousData, queryFn: () => api.get<{ rows: Record<string, unknown>[]; totals?: Record<string, unknown>; baseCurrency?: string; missingRates?: string[] }>(`/reports/${key}${qsOf(params)}`) });
   const cur = me?.workspace.baseCurrency ?? 'USD';
   const cols = q.data?.rows[0] ? Object.keys(q.data.rows[0]).filter((c) => !HIDDEN.has(c)) : [];
   const fmt = (c: string, v: unknown, row: Record<string, unknown>) => {
     if (v === null || v === undefined) return '—';
+    if (c === 'amountInBase') return v === null || v === undefined ? 'no rate' : money(String(v), cur);
     if (MONEY.has(c)) return money(String(v), (row.currency as string) ?? cur);
     if (PCT.has(c)) return `${v}%`;
     if (DATE.has(c)) return date(String(v));
+    if (c === 'replyTime') return minutesText(Number(v));
+    if (c === 'rating' && row.ratings) return `${v} (${row.ratings})`;
     return String(v);
   };
   const canExport = can('deal', 'export');
@@ -63,7 +77,7 @@ export function ReportsPage() {
     <div>
       <PageHeader title="Reports" subtitle="Understand your pipeline and team performance" />
       <div className="grid gap-4 lg:grid-cols-[240px_minmax(0,1fr)]">
-        <nav aria-label="Reports" className="flex gap-1 overflow-x-auto lg:flex-col">
+        <nav aria-label="Reports" className="flex gap-1 overflow-x-auto md:flex-wrap md:overflow-visible lg:flex-col lg:flex-nowrap">
           {REPORTS.map((r) => (
             <button key={r.key} type="button" onClick={() => lp.set({ report: r.key === 'won-deals' ? null : r.key })}
               className={cn('whitespace-nowrap rounded-md px-3 py-2 text-left text-[13px] font-medium', r.key === key ? 'bg-brand-50 text-brand-700 dark:bg-brand-600/20 dark:text-brand-100' : 'text-muted hover:bg-[var(--surface-2)] hover:text-[var(--text)]')}>
@@ -76,6 +90,7 @@ export function ReportsPage() {
             <h2 className="text-base font-semibold">{report.title}</h2>
             <p className="text-sm text-muted">{report.desc}</p>
           </div>
+          <MissingRates currencies={q.data?.missingRates} base={q.data?.baseCurrency} />
           <div className="flex flex-wrap items-center gap-2">
             {key !== 'overdue-deals' && (
               <Select aria-label="Period" className="w-auto" value={preset} onChange={(e) => lp.set({ period: e.target.value === 'month' ? null : e.target.value })}>
@@ -124,13 +139,13 @@ export function ReportsPage() {
                 <div className="overflow-x-auto">
                   <table className="w-full min-w-[560px] text-sm">
                     <thead className="border-b border-base bg-[var(--surface-2)]/60 text-left text-xs text-muted">
-                      <tr>{cols.map((c) => <th key={c} className={cn('px-3 py-2.5 font-medium', (MONEY.has(c) || PCT.has(c) || typeof q.data!.rows[0][c] === 'number') && 'text-right')}>{human(c)}</th>)}</tr>
+                      <tr>{cols.map((c) => <th key={c} className={cn('whitespace-nowrap px-3 py-2.5 font-medium', (MONEY.has(c) || c === 'amountInBase' || PCT.has(c) || typeof q.data!.rows[0][c] === 'number') && 'text-right')}>{c === 'amountInBase' ? `In ${cur}` : COLUMN_TITLES[c] ?? human(c)}</th>)}</tr>
                     </thead>
                     <tbody className="divide-y divide-[var(--border)]">
                       {q.data.rows.map((r, i) => (
                         <tr key={i}>
                           {cols.map((c) => (
-                            <td key={c} className={cn('px-3 py-2', (MONEY.has(c) || PCT.has(c) || typeof r[c] === 'number') && 'text-right tabular')}>
+                            <td key={c} className={cn('max-w-[18rem] truncate whitespace-nowrap px-3 py-2', (MONEY.has(c) || c === 'amountInBase' || PCT.has(c) || typeof r[c] === 'number') && 'text-right tabular')}>
                               {c === 'title' && r.id ? <Link to={`/deals/${r.id}`} className="font-medium text-brand-600 hover:underline">{String(r[c])}</Link> : fmt(c, r[c], r)}
                             </td>
                           ))}

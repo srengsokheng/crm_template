@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
 import { Dialog as D, DropdownMenu as DM, Popover as P } from 'radix-ui';
-import { X } from 'lucide-react';
+import { MoreHorizontal, X } from 'lucide-react';
 import { cn } from '../../lib/cn.ts';
 import { Button, IconButton } from './primitives.tsx';
 
@@ -59,6 +59,27 @@ export function ConfirmDialog({ open, onOpenChange, title, description, confirmL
         <Button onClick={() => onOpenChange(false)}>Cancel</Button>
         <Button variant={danger ? 'danger' : 'primary'} loading={loading} onClick={onConfirm}>{confirmLabel}</Button>
       </>} />
+  );
+}
+
+/**
+ * Page header buttons: secondary ones (import, find duplicates, PDF…) show as buttons on tablets and desktops and fold
+ * into one "More actions" menu on phones, so a phone header stays on one line. Primary buttons (children) always show.
+ */
+export function HeaderActions({ secondary, children }: { secondary: (MenuItem & { variant?: 'ghost' | 'secondary' })[]; children?: ReactNode }) {
+  const shown = secondary.filter((s) => !s.hidden);
+  return (
+    <>
+      {shown.map((s, i) => (
+        <span key={i} className="max-sm:hidden"><Button variant={s.variant === 'ghost' ? 'ghost' : undefined} icon={s.icon} disabled={s.disabled} onClick={s.onSelect}>{s.label}</Button></span>
+      ))}
+      {shown.length > 0 && (
+        <span className="sm:hidden">
+          <Menu trigger={<IconButton label="More actions"><MoreHorizontal className="size-4" /></IconButton>} items={shown} />
+        </span>
+      )}
+      {children}
+    </>
   );
 }
 

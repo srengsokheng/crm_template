@@ -87,6 +87,9 @@ erDiagram
 | is_active | bool default true |
 | last_login_at | timestamptz |
 
+### `password_resets` (migration 0005)
+`id, user_id → users, token_hash (sha256, unique), expires_at, used_at, created_at`. Purged after 7 days.
+
 ### `sessions`
 `id text PK (random 32 bytes, hashed)`, `user_id → users`, `workspace_id → workspaces`,
 `expires_at`, `ip`, `user_agent`, `created_at`. Index on `user_id`.
@@ -97,7 +100,8 @@ erDiagram
 emails), PK `(workspace_id, user_id)`.
 
 ### `roles` / `role_grants`
-- `roles`: `id`, `workspace_id`, `name`, `is_admin bool`, `is_system bool`.
+- `roles`: `id`, `workspace_id`, `name`, `is_admin bool`, `is_system bool`, `field_rules jsonb` (migration 0015:
+  `{ "deal": { "amount": "readonly", "custom.margin": "hidden" } }`; ignored for admin roles).
 - `role_grants`: `role_id`, `entity ('lead','deal','contact','company','product','activity','report')`,
   `action ('view','create','edit','delete','export','import')`, `scope ('none','own','team','all')`,
   PK `(role_id, entity, action)`.
@@ -430,12 +434,29 @@ Index `(workspace_id, created_at desc)`. Admins see all imports of the workspace
 are deleted after 7 days. Records created/updated by an import carry `changes._import = {id, file}` in `audit_events`; the
 import itself is audited as `entity_type = 'import'` (`imported`, `undone`).
 
-### `saved_views`
-`id, workspace_id, owner_id (null = shared), entity_type, name, filters jsonb, sort text,
-columns text[], is_default bool`.
+### `duplicate_dismissals` (migration 0008)
+`workspace_id, entity_type (contact|company), a_id < b_id, dismissed_by, created_at`, PK on all four keys. Pairs listed
+here are hidden from the find-duplicates page.
 
-### `exchange_rates` (v1.1)
-`workspace_id, currency, rate_to_base numeric(18,8), valid_from date`.
+### `documents`, `document_items`, `document_counters` (migration 0014)
+`documents`: `id, workspace_id, deal_id (cascade), kind (quote|invoice), number (set when first sent; unique per workspace
++ kind), status (quote: draft|sent|accepted|declined; invoice: draft|sent|paid|void), currency, issue_date, due_date
+(valid-until for quotes), bill_to_name, bill_to_details, notes, list_total, discount, tax, total, source_quote_id,
+status_changed_at, created_by, created_at, updated_at`. `document_items` has the same columns as `line_items` plus
+`document_id` (cascade). `document_counters(workspace_id, kind, last_no)` hands out numbers under a row lock.
+
+### `attachments` (migration 0012)
+`id, workspace_id, entity_type (lead|deal|contact|company), entity_id, file_name, content_type, size_bytes, sha256,
+storage_key (server-generated, unique), uploaded_by, created_at`. Bytes live in file storage (`FILES_DIR`).
+
+### `saved_views`
+`id, workspace_id, owner_id (NULL = shared with the workspace), entity_type (lead|deal|contact|company, check added in
+migration 0007), name, query jsonb (the list URL parameters), created_at`. Index `(workspace_id, entity_type, owner_id)`.
+
+### `exchange_rates` (migration 0011)
+`id, workspace_id, currency, rate_to_base numeric(18,8) > 0, valid_from date, created_by, created_at`, unique per
+(workspace, currency, valid_from). `crm_to_base(amount, currency, base, ws, at)` returns the amount in the base currency
+using the newest rate on or before `at`, or NULL when there is none.
 
 ---
 

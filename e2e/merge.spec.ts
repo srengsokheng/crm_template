@@ -25,7 +25,7 @@ test('merge duplicate contacts: suggestion, keep choice, values, result and old 
   await expect(page.getByText('Contacts merged')).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Hank S.' })).toBeVisible();
   await expect(page.getByText('+1 555 0111')).toBeVisible();
-  await expect(page.getByText('Globex robots')).toBeVisible();
+  await expect(page.getByRole('link', { name: /^Globex robots New/ })).toBeVisible(); // the Deals card (history also links it)
   await expect(page.getByText('Met at the expo')).toBeVisible();
   await expect(page.getByText(/Merged with Hank S\. \(#\d+\) — took Last name/)).toBeVisible();
 

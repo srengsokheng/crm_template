@@ -1,6 +1,8 @@
 # Acme CRM — working rules for agents
 
-Read `docs/HANDOFF.md` first: it explains what exists, how to run it, and what to build next.
+Read `docs/HANDOFF.md` first (what exists, how to run it), then `docs/UI_AND_FEATURE_GAPS.md` (the backlog).
+Project skills in `.claude/skills/` (frontend-design, accessibility-testing, api-design, code-review, …) are loaded
+automatically — use them; these rules win where they disagree.
 
 ## Branches
 - `main` is the integration branch. Do work on a feature branch and open a pull request into `main`.
@@ -35,7 +37,9 @@ npm audit                       # must report 0 vulnerabilities
   also emits the outbox event automation listens to.
 - **Money:** `numeric(18,2)` in the DB, strings over JSON, arithmetic only via `packages/shared/src/money.ts`.
 - **API responses** are camelCase (`camel()` / `camelAll()`); errors are `{ error: { code, message, fields?, details? } }`.
-- **UI:** reuse components in `apps/web/src/components/ui` and `apps/web/src/features/records`. No buttons without
-  working behaviour. Every list/board needs loading, empty and error states. Check phone (390px), tablet (834px) and
-  desktop (1440px) — no horizontal page scroll.
-- Keep docs in `docs/` current when behaviour changes.
+- **UI:** follow `docs/UI-RULES.md` (tokens, components, lists & pagination, forms, states, accessibility). Reuse
+  components in `apps/web/src/components/ui` and `apps/web/src/features/records`. No buttons without working
+  behaviour. Every list/board needs loading, empty and error states; no list may grow without limit or silently drop
+  rows (paged tables or "Load more" feeds). Check phone (390px), tablet (834px) and desktop (1440px), light and dark —
+  no horizontal page scroll.
+- Keep docs in `docs/` current when behaviour changes; tick items off in `docs/UI_AND_FEATURE_GAPS.md`.

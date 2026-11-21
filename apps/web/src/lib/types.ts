@@ -1,13 +1,15 @@
 export type Scope = 'none' | 'own' | 'team' | 'all';
 export interface Me {
   user: { id: number; name: string; email: string };
-  preferences: { emailReminders: boolean };
+  preferences: { emailReminders: boolean; emailDigest: boolean };
   role: { id: number; name: string; isAdmin: boolean };
-  workspace: { id: number; name: string; baseCurrency: string; useLeads: boolean };
-  permissions: Record<'lead' | 'deal' | 'contact' | 'company' | 'product' | 'activity', Record<'view' | 'create' | 'edit' | 'delete' | 'export' | 'import', Scope>>;
+  workspace: { id: number; name: string; baseCurrency: string; useLeads: boolean; timezone: string; workingHours: { days: number[]; start: string; end: string } };
+  permissions: Record<'lead' | 'deal' | 'contact' | 'company' | 'product' | 'activity' | 'conversation', Record<'view' | 'create' | 'edit' | 'delete' | 'export' | 'import', Scope>>;
+  /** Field-level rules of the user's role: "amount" or "custom.<key>" → readonly | hidden. Empty for admins. */
+  fieldRules?: Partial<Record<'deal' | 'lead' | 'contact' | 'company', Record<string, 'readonly' | 'hidden'>>>;
 }
 export interface Stage { id: number; pipelineId: number; name: string; color: string; sort: number; kind: 'open' | 'won' | 'lost'; probability: number | null; rotDays: number | null }
-export interface Pipeline { id: number; entityType: 'lead' | 'deal'; name: string; sort: number; isDefault: boolean; stages: Stage[] }
+export interface Pipeline { id: number; entityType: 'lead' | 'deal'; name: string; sort: number; isDefault: boolean; stages: Stage[]; allowedRoleIds?: number[] | null }
 export interface DictItem { id: number; kind: string; label: string; sort: number; isActive: boolean }
 export interface FieldOption { id: string; label: string }
 export interface FieldDef {

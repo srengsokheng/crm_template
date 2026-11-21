@@ -16,7 +16,8 @@ export default defineConfig({
     baseURL: `http://localhost:${port}`,
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
-    launchOptions: { executablePath },
+    // A fake camera and microphone (and no permission prompt) for the video-call tests.
+    launchOptions: { executablePath, args: ['--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream'] },
   },
   projects: [
     { name: 'desktop', use: { ...devices['Desktop Chrome'], viewport: { width: 1440, height: 900 } }, testIgnore: /responsive/ },
@@ -27,6 +28,6 @@ export default defineConfig({
     url: `http://localhost:${port}/api/v1/health`,
     reuseExistingServer: false,
     timeout: 60_000,
-    env: { E2E_PORT: String(port), INLINE_WORKER: 'true' },
+    env: { E2E_PORT: String(port), INLINE_WORKER: 'true', META_GRAPH_URL: 'http://127.0.0.1:47123', CALL_ICE_SERVERS: '[]', TELEGRAM_API_URL: 'http://127.0.0.1:47125' }, // e2e/inbox-meta.spec.ts fakes Meta there
   },
 });

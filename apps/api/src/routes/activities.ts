@@ -5,9 +5,10 @@ import { audit } from '../lib/audit.ts';
 import type { Ctx } from '../lib/context.ts';
 import { badRequest, forbidden, notFound } from '../lib/errors.ts';
 import { ctxOf } from '../lib/http.ts';
-import { likeTerm, qs, runList } from '../lib/list.ts';
-import { assertOnRecord, requireAny, scopeOf, scopeWhere } from '../lib/permissions.ts';
+import { feedCursorColumn, feedQuery, feedResult, feedWhere, likeTerm, qs, runList } from '../lib/list.ts';
+import { assertOnRecord, pipelineAllowed, requireAny, scopeOf, scopeWhere } from '../lib/permissions.ts';
 import { assertMembers, camel, camelAll } from '../lib/records.ts';
+import { redactChanges } from '../lib/fieldAccess.ts';
 import { parse } from '../lib/validate.ts';
 
 type IdParams = { Params: { id: string } };
@@ -16,18 +17,20 @@ const TABLE: Record<RecordType, string> = { lead: 'leads', deal: 'deals', contac
 /** Load a linked record and check the caller may view it. */
 export async function loadRecordForView(db: Db, ctx: Ctx, type: RecordType, id: number) {
   const row = await q1<{ id: number; owner_id: number; visibility: string }>(
-    sql`SELECT id, owner_id, visibility FROM ${raw(TABLE[type])} WHERE id = ${id} AND workspace_id = ${ctx.workspaceId} AND deleted_at IS NULL`, db);
+    sql`SELECT id, owner_id, visibility${type === 'deal' || type === 'lead' ? sql`, pipeline_id` : sql``} FROM ${raw(TABLE[type])}
+      WHERE id = ${id} AND workspace_id = ${ctx.workspaceId} AND deleted_at IS NULL`, db);
   if (!row) throw notFound(type[0].toUpperCase() + type.slice(1));
   assertOnRecord(ctx, type, 'view', row);
   return row;
 }
 
-const ACTIVITY_SELECT = sql`a.id, a.kind, a.subject, a.description, a.due_at, a.duration_minutes, a.priority, a.assignee_id, a.status,
+/** Activity columns plus its links; titles of deals/leads in pipelines the user can't access are hidden. */
+const activitySelect = (ctx: Ctx) => sql`a.id, a.kind, a.subject, a.description, a.due_at, a.duration_minutes, a.priority, a.assignee_id, a.status,
   a.completed_at, a.reminder_at, a.direction, a.outcome, a.location, a.created_by, a.created_at, a.updated_at, u.name AS assignee_name,
   coalesce((SELECT json_agg(json_build_object('entityType', al.entity_type, 'entityId', al.entity_id,
     'title', CASE al.entity_type
-      WHEN 'deal' THEN (SELECT title FROM deals WHERE id = al.entity_id)
-      WHEN 'lead' THEN (SELECT title FROM leads WHERE id = al.entity_id)
+      WHEN 'deal' THEN (SELECT CASE WHEN pipeline_id = ANY(${ctx.blockedPipelineIds}) THEN 'Restricted deal' ELSE title END FROM deals WHERE id = al.entity_id)
+      WHEN 'lead' THEN (SELECT CASE WHEN pipeline_id = ANY(${ctx.blockedPipelineIds}) THEN 'Restricted lead' ELSE title END FROM leads WHERE id = al.entity_id)
       WHEN 'company' THEN (SELECT name FROM companies WHERE id = al.entity_id)
       ELSE (SELECT trim(coalesce(first_name,'') || ' ' || coalesce(last_name,'')) FROM contacts WHERE id = al.entity_id) END))
     FROM activity_links al WHERE al.activity_id = a.id), '[]') AS links`;
@@ -56,13 +59,13 @@ export async function createActivity(db: Db, ctx: Ctx, body: ReturnType<typeof a
 }
 
 export async function getActivity(db: Db, ctx: Ctx, id: number) {
-  const row = await q1(sql`SELECT ${ACTIVITY_SELECT} FROM activities a LEFT JOIN users u ON u.id = a.assignee_id
+  const row = await q1(sql`SELECT ${activitySelect(ctx)} FROM activities a LEFT JOIN users u ON u.id = a.assignee_id
     WHERE a.id = ${id} AND a.workspace_id = ${ctx.workspaceId} AND a.deleted_at IS NULL`, db);
   if (!row) throw notFound('Activity');
   return camel(row);
 }
 
-function canTouchActivity(ctx: Ctx, action: 'view' | 'edit' | 'delete', row: { assignee_id: number | null; created_by: number | null }) {
+export function canTouchActivity(ctx: Ctx, action: 'view' | 'edit' | 'delete', row: { assignee_id: number | null; created_by: number | null }) {
   if (ctx.isAdmin) return true;
   const s = scopeOf(ctx, 'activity', action);
   const people = [row.assignee_id, row.created_by].filter((x): x is number => x !== null);
@@ -71,6 +74,19 @@ function canTouchActivity(ctx: Ctx, action: 'view' | 'edit' | 'delete', row: { a
   if (s === 'own') return people.includes(ctx.userId);
   return false;
 }
+
+/** Hidden custom field values never appear in history; an update that only touched hidden fields is left out. */
+function redactEvents<T extends Record<string, unknown>>(ctx: Ctx, events: T[]): T[] {
+  return events.flatMap((e) => {
+    const before = e.changes;
+    const changes = redactChanges(ctx, String(e.entityType), before);
+    if (changes !== before && e.action === 'updated' && changes && !Object.keys(changes as object).length) return [];
+    return [{ ...e, changes }];
+  });
+}
+
+/** Most activities and most deals one calendar range returns (the totals tell the page when there are more). */
+export const CALENDAR_CAP = 500;
 
 export async function activityRoutes(app: FastifyInstance) {
   // ─────────────── Activities ───────────────
@@ -81,7 +97,7 @@ export async function activityRoutes(app: FastifyInstance) {
     const assignee = query.assigneeId === 'me' || query.assigneeId === undefined ? ctx.userId : qs.id(query.assigneeId);
     const bucket = qs.str(query.bucket); // overdue | today | upcoming | nodate | done
     const r = await runList({
-      select: ACTIVITY_SELECT,
+      select: activitySelect(ctx),
       from: sql`activities a LEFT JOIN users u ON u.id = a.assignee_id`,
       where: [
         sql`a.workspace_id = ${ctx.workspaceId}`, sql`a.deleted_at IS NULL`, scopeWhere(ctx, 'activity', 'view', 'a', 'assignee_id'),
@@ -98,6 +114,37 @@ export async function activityRoutes(app: FastifyInstance) {
       defaultSort: bucket === 'done' ? '-completedAt' : 'dueAt',
     }, query);
     return { ...r, data: camelAll(r.data as Record<string, unknown>[]) };
+  });
+
+  /**
+   * Calendar: activities due between two instants (open and done) and open deals expected to close between two dates,
+   * each limited to what the user may see. At most CALENDAR_CAP of each come back, with the totals, so the page can say
+   * when it shows fewer than there are. `from`/`to` are the browser's local day boundaries as ISO instants; the deal
+   * dates are the same days as YYYY-MM-DD. Ranges up to 42 days (a month grid).
+   */
+  app.get('/calendar', async (req) => {
+    const ctx = ctxOf(req);
+    const query = req.query as Record<string, unknown>;
+    const from = new Date(String(query.from ?? '')), to = new Date(String(query.to ?? ''));
+    const fromDate = qs.date(query.fromDate), toDate = qs.date(query.toDate);
+    if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime()) || !fromDate || !toDate || from >= to || fromDate > toDate) throw badRequest('Give from/to (instants) and fromDate/toDate (dates)');
+    if (to.getTime() - from.getTime() > 43 * 864e5) throw badRequest('At most 6 weeks at a time');
+    const who = query.assigneeId === 'all' ? null : query.assigneeId === undefined || query.assigneeId === 'me' ? ctx.userId : qs.id(query.assigneeId) ?? ctx.userId;
+    const show = new Set(String(query.show ?? 'activities,deals').split(','));
+    const canActs = show.has('activities') && scopeOf(ctx, 'activity', 'view') !== 'none';
+    const canDeals = show.has('deals') && scopeOf(ctx, 'deal', 'view') !== 'none';
+    const actWhere = sql`a.workspace_id = ${ctx.workspaceId} AND a.deleted_at IS NULL AND ${scopeWhere(ctx, 'activity', 'view', 'a', 'assignee_id')}
+      AND a.due_at >= ${from} AND a.due_at < ${to} ${who ? sql`AND a.assignee_id = ${who}` : sql``}`;
+    const dealWhere = sql`d.workspace_id = ${ctx.workspaceId} AND d.deleted_at IS NULL AND d.status = 'open' AND ${scopeWhere(ctx, 'deal', 'view', 'd')}
+      AND d.expected_close_date BETWEEN ${fromDate}::date AND ${toDate}::date ${who ? sql`AND d.owner_id = ${who}` : sql``}`;
+    const [acts, actTotal, deals, dealTotal] = await Promise.all([
+      canActs ? q(sql`SELECT ${activitySelect(ctx)} FROM activities a LEFT JOIN users u ON u.id = a.assignee_id WHERE ${actWhere} ORDER BY a.due_at, a.id LIMIT ${CALENDAR_CAP}`) : Promise.resolve([]),
+      canActs ? q1<{ n: number }>(sql`SELECT count(*)::int AS n FROM activities a WHERE ${actWhere}`) : Promise.resolve({ n: 0 }),
+      canDeals ? q(sql`SELECT d.id, d.title, d.amount, d.currency, d.expected_close_date::text AS expected_close_date, d.owner_id, d.version, s.name AS stage_name, s.color AS stage_color
+        FROM deals d JOIN stages s ON s.id = d.stage_id WHERE ${dealWhere} ORDER BY d.expected_close_date, d.id LIMIT ${CALENDAR_CAP}`) : Promise.resolve([]),
+      canDeals ? q1<{ n: number }>(sql`SELECT count(*)::int AS n FROM deals d WHERE ${dealWhere}`) : Promise.resolve({ n: 0 }),
+    ]);
+    return { activities: camelAll(acts), activitiesTotal: actTotal?.n ?? 0, deals: camelAll(deals), dealsTotal: dealTotal?.n ?? 0, cap: CALENDAR_CAP };
   });
 
   app.get('/activities/counts', async (req) => {
@@ -210,8 +257,22 @@ export async function activityRoutes(app: FastifyInstance) {
   });
 
   // ─────────────── Timeline ───────────────
-  app.get<{ Params: { type: string; id: string } }>('/timeline/:type/:id', async (req) => {
+  /**
+   * The record's history, newest first, paged with "Load more": notes, finished activities and changes merged into one
+   * stream. Query: kind=all|note|activity|event, limit (default 30, max 100), before (cursor from nextCursor). The cursor
+   * is (microseconds, source, id) so the three sources interleave exactly. "upcoming" (open activities) comes with the
+   * first page only.
+   */
+  app.get<{ Params: { type: string; id: string }; Querystring: { kind?: string; limit?: string; before?: string } }>('/timeline/:type/:id', async (req) => {
     const ctx = ctxOf(req);
+    const kind = (['note', 'activity', 'event'] as const).find((k) => k === req.query.kind) ?? 'all';
+    const limit = Math.min(Math.max(Number(req.query.limit) || 30, 1), 100);
+    let cursor: { us: number; src: number; id: number } | null = null;
+    if (req.query.before) {
+      const m = /^(-?\d{1,17})\|([123])\|(\d{1,15})$/.exec(Buffer.from(String(req.query.before), 'base64url').toString('utf8'));
+      if (!m) throw badRequest('Invalid cursor');
+      cursor = { us: Number(m[1]), src: Number(m[2]), id: Number(m[3]) };
+    }
     const type = req.params.type as RecordType;
     if (!TABLE[type]) throw badRequest('Unknown record type');
     const id = Number(req.params.id);
@@ -219,40 +280,65 @@ export async function activityRoutes(app: FastifyInstance) {
     // Related records whose history also shows here (customer 360°).
     const related: { type: string; id: number }[] = [{ type, id }];
     if (type === 'contact') {
-      for (const r of await q<{ id: number }>(sql`SELECT deal_id AS id FROM deal_contacts WHERE contact_id = ${id}`)) related.push({ type: 'deal', id: r.id });
-      for (const r of await q<{ id: number }>(sql`SELECT id FROM leads WHERE converted_contact_id = ${id}`)) related.push({ type: 'lead', id: r.id });
+      for (const r of await q<{ id: number }>(sql`SELECT dc.deal_id AS id FROM deal_contacts dc JOIN deals d ON d.id = dc.deal_id
+          WHERE dc.contact_id = ${id} AND ${pipelineAllowed(ctx, 'd')}`)) related.push({ type: 'deal', id: r.id });
+      for (const r of await q<{ id: number }>(sql`SELECT l.id FROM leads l WHERE l.converted_contact_id = ${id} AND ${pipelineAllowed(ctx, 'l')}`)) related.push({ type: 'lead', id: r.id });
     } else if (type === 'company') {
-      for (const r of await q<{ id: number }>(sql`SELECT id FROM deals WHERE company_id = ${id} AND deleted_at IS NULL`)) related.push({ type: 'deal', id: r.id });
-      for (const r of await q<{ id: number }>(sql`SELECT id FROM leads WHERE converted_company_id = ${id}`)) related.push({ type: 'lead', id: r.id });
+      for (const r of await q<{ id: number }>(sql`SELECT d.id FROM deals d WHERE d.company_id = ${id} AND d.deleted_at IS NULL AND ${pipelineAllowed(ctx, 'd')}`)) related.push({ type: 'deal', id: r.id });
+      for (const r of await q<{ id: number }>(sql`SELECT l.id FROM leads l WHERE l.converted_company_id = ${id} AND ${pipelineAllowed(ctx, 'l')}`)) related.push({ type: 'lead', id: r.id });
     } else if (type === 'deal') {
-      const lead = await q1<{ lead_id: number | null }>(sql`SELECT lead_id FROM deals WHERE id = ${id}`);
+      const lead = await q1<{ lead_id: number | null }>(sql`SELECT d.lead_id FROM deals d JOIN leads l ON l.id = d.lead_id WHERE d.id = ${id} AND ${pipelineAllowed(ctx, 'l')}`);
       if (lead?.lead_id) related.push({ type: 'lead', id: lead.lead_id });
     }
     const relTypes = related.map((r) => r.type);
     const relIds = related.map((r) => r.id);
     const relMatch = (alias: string) => sql`(${raw(alias)}.entity_type, ${raw(alias)}.entity_id) IN (SELECT * FROM unnest(${relTypes}::text[], ${relIds}::bigint[]))`;
 
+    // One query per source: rows after the cursor, newest first, limit + 1 each; merged below.
+    const us = (expr: string) => raw(`(extract(epoch from ${expr}) * 1000000)::bigint`);
+    const after = (expr: string, src: number, idCol: string) => cursor
+      ? sql`AND (${us(expr)}, ${src}::int, ${raw(idCol)}) < (${cursor.us}::bigint, ${cursor.src}::int, ${cursor.id}::bigint)` : sql``;
+    const none = Promise.resolve([] as Record<string, unknown>[]);
     const [notes, activities, events, upcoming] = await Promise.all([
-      q(sql`SELECT n.id, n.entity_type, n.entity_id, n.body, n.is_pinned, n.author_type, n.author_id, n.created_at, n.updated_at, u.name AS author_name
-            FROM notes n LEFT JOIN users u ON u.id = n.author_id WHERE ${relMatch('n')} AND n.deleted_at IS NULL ORDER BY n.created_at DESC LIMIT 200`),
-      q(sql`SELECT ${ACTIVITY_SELECT} FROM activities a LEFT JOIN users u ON u.id = a.assignee_id
+      kind === 'all' || kind === 'note' ? q(sql`SELECT n.id, ${us('n.created_at')} AS feed_us, n.entity_type, n.entity_id, n.body, n.is_pinned, n.author_type, n.author_id, n.created_at, n.updated_at, u.name AS author_name
+            FROM notes n LEFT JOIN users u ON u.id = n.author_id WHERE ${relMatch('n')} AND n.deleted_at IS NULL ${after('n.created_at', 1, 'n.id')}
+            ORDER BY n.created_at DESC, n.id DESC LIMIT ${limit + 1}`) : none,
+      kind === 'all' || kind === 'activity' ? q(sql`SELECT ${activitySelect(ctx)}, ${us('coalesce(a.completed_at, a.updated_at)')} AS feed_us FROM activities a LEFT JOIN users u ON u.id = a.assignee_id
             WHERE a.deleted_at IS NULL AND a.status <> 'open' AND EXISTS (SELECT 1 FROM activity_links al WHERE al.activity_id = a.id AND ${relMatch('al')})
-            ORDER BY coalesce(a.completed_at, a.updated_at) DESC LIMIT 200`),
-      q(sql`SELECT e.id, e.entity_type, e.entity_id, e.action, e.changes, e.actor_type, e.actor_id, e.created_at, u.name AS actor_name
+              ${after('coalesce(a.completed_at, a.updated_at)', 2, 'a.id')}
+            ORDER BY coalesce(a.completed_at, a.updated_at) DESC, a.id DESC LIMIT ${limit + 1}`) : none,
+      kind === 'all' || kind === 'event' ? q(sql`SELECT e.id, ${us('e.created_at')} AS feed_us, e.entity_type, e.entity_id, e.action, e.changes, e.actor_type, e.actor_id, e.created_at, u.name AS actor_name,
+              -- Events from related records name that record, but only when the user may see it.
+              CASE WHEN rd.id IS NOT NULL AND ${scopeWhere(ctx, 'deal', 'view', 'rd')} THEN rd.title
+                   WHEN rl.id IS NOT NULL AND ${scopeWhere(ctx, 'lead', 'view', 'rl')} THEN rl.title END AS entity_title
             FROM audit_events e LEFT JOIN users u ON u.id = e.actor_id
+              LEFT JOIN deals rd ON e.entity_type = 'deal' AND rd.id = e.entity_id AND rd.workspace_id = e.workspace_id
+              LEFT JOIN leads rl ON e.entity_type = 'lead' AND rl.id = e.entity_id AND rl.workspace_id = e.workspace_id
             WHERE e.workspace_id = ${ctx.workspaceId} AND ${relMatch('e')}
               AND (e.entity_type = ${type} AND e.entity_id = ${id} OR e.action IN ('created','won','lost','converted','disqualified'))
-            ORDER BY e.created_at DESC LIMIT 300`),
-      q(sql`SELECT ${ACTIVITY_SELECT} FROM activities a LEFT JOIN users u ON u.id = a.assignee_id
+              AND e.action NOT LIKE 'activity\\_%' ${after('e.created_at', 3, 'e.id')}
+            ORDER BY e.created_at DESC, e.id DESC LIMIT ${limit + 1}`) : none,
+      cursor ? none : q(sql`SELECT ${activitySelect(ctx)} FROM activities a LEFT JOIN users u ON u.id = a.assignee_id
             WHERE a.deleted_at IS NULL AND a.status = 'open' AND EXISTS (SELECT 1 FROM activity_links al WHERE al.activity_id = a.id AND al.entity_type = ${type} AND al.entity_id = ${id})
-            ORDER BY a.due_at NULLS LAST, a.id`),
+            ORDER BY a.due_at NULLS LAST, a.id LIMIT 100`),
     ]);
-    const items = [
-      ...camelAll(notes).map((n) => ({ type: 'note', at: (n as { createdAt: Date }).createdAt, data: n })),
-      ...camelAll(activities).map((a) => ({ type: 'activity', at: (a as { completedAt?: Date; updatedAt: Date }).completedAt ?? (a as { updatedAt: Date }).updatedAt, data: a })),
-      ...camelAll(events).filter((e) => !String((e as { action: string }).action).startsWith('activity_')).map((e) => ({ type: 'event', at: (e as { createdAt: Date }).createdAt, data: e })),
-    ].sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime());
-    return { upcoming: camelAll(upcoming), items };
+    type Row = Record<string, unknown> & { id: number; feed_us: number };
+    const tag = (rows: Record<string, unknown>[], src: number, t: string) => (rows as Row[]).map((r) => ({ src, t, r }));
+    const merged = [...tag(notes, 1, 'note'), ...tag(activities, 2, 'activity'), ...tag(events, 3, 'event')]
+      .sort((a, b) => Number(b.r.feed_us) - Number(a.r.feed_us) || b.src - a.src || b.r.id - a.r.id);
+    const page = merged.slice(0, limit);
+    const last = page[page.length - 1];
+    const nextCursor = merged.length > limit && last ? Buffer.from(`${last.r.feed_us}|${last.src}|${last.r.id}`).toString('base64url') : null;
+    const strip = ({ feed_us: _f, ...rest }: Row) => { void _f; return rest; };
+    const items = page.flatMap(({ t, r }) => {
+      const data = camelAll([strip(r)])[0] as Record<string, unknown>;
+      if (t === 'event') {
+        const shown = redactEvents(ctx, [data]); // may hide a change the role can't see (field permissions)
+        return shown.length ? [{ type: t, at: data.createdAt, data: shown[0] }] : [];
+      }
+      return [{ type: t, at: t === 'note' ? data.createdAt : data.completedAt ?? data.updatedAt, data }];
+    });
+    return { ...(cursor ? {} : { upcoming: camelAll(upcoming) }), items, nextCursor };
   });
 
   // ─────────────── History (audit) ───────────────
@@ -265,16 +351,20 @@ export async function activityRoutes(app: FastifyInstance) {
     const rows = await q(sql`SELECT e.id, e.action, e.changes, e.actor_type, e.created_at, u.name AS actor_name FROM audit_events e
       LEFT JOIN users u ON u.id = e.actor_id WHERE e.workspace_id = ${ctx.workspaceId} AND e.entity_type = ${type} AND e.entity_id = ${id}
       ORDER BY e.created_at DESC, e.id DESC LIMIT 500`);
-    return { data: camelAll(rows) };
+    return { data: redactEvents(ctx, camelAll(rows).map((r) => ({ ...r, entityType: type }))) };
   });
 
   // ─────────────── Notifications ───────────────
+  /** Newest first, paged with "Load more" (limit, before); `unread` counts all unread ones. */
   app.get('/notifications', async (req) => {
     const ctx = ctxOf(req);
-    const rows = await q(sql`SELECT id, kind, title, body, entity_type, entity_id, read_at, created_at FROM notifications
-      WHERE user_id = ${ctx.userId} AND workspace_id = ${ctx.workspaceId} ORDER BY created_at DESC LIMIT 50`);
+    const feed = feedQuery(req.query as Record<string, unknown>);
+    const rows = await q<{ id: number; feed_us: number }>(sql`SELECT id, ${feedCursorColumn('created_at')}, kind, title, body, entity_type, entity_id, read_at, created_at FROM notifications
+      WHERE user_id = ${ctx.userId} AND workspace_id = ${ctx.workspaceId} AND ${feedWhere(feed, 'created_at', 'id')}
+      ORDER BY created_at DESC, id DESC LIMIT ${feed.limit + 1}`);
     const unread = await q1<{ n: number }>(sql`SELECT count(*)::int AS n FROM notifications WHERE user_id = ${ctx.userId} AND workspace_id = ${ctx.workspaceId} AND read_at IS NULL`);
-    return { data: camelAll(rows), unread: unread?.n ?? 0 };
+    const page = feedResult(rows, feed);
+    return { data: camelAll(page.data as Record<string, unknown>[]), nextCursor: page.nextCursor, unread: unread?.n ?? 0 };
   });
   app.post('/notifications/read', async (req) => {
     const ctx = ctxOf(req);

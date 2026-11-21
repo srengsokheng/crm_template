@@ -2,7 +2,9 @@ import { useState } from 'react';
 import { Link } from 'react-router';
 import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { CheckCircle2, Circle, ListTodo, Pencil, Plus, Trash2 } from 'lucide-react';
+import { CheckCircle2, Circle, ListTodo, Pencil, Plus, Trash2, Video } from 'lucide-react';
+import { useNavigate } from 'react-router';
+import { startCall } from '../calls/CallPages.tsx';
 import { api, errorMessage, qsOf } from '../../lib/api.ts';
 import { cn } from '../../lib/cn.ts';
 import { dateTime, dueLabel, relative } from '../../lib/format.ts';
@@ -21,6 +23,7 @@ const PATH: Record<string, string> = { deal: 'deals', lead: 'leads', contact: 'c
 
 export function ActivitiesPage() {
   const can = useCan();
+  const nav = useNavigate();
   const create = useCreate();
   const qc = useQueryClient();
   const { data: meta } = useMeta();
@@ -90,6 +93,7 @@ export function ActivitiesPage() {
                       </div>
                       {a.description && <p className="mt-1 line-clamp-2 text-[13px] text-muted">{a.description}</p>}
                     </div>
+                    {!done && a.kind === 'meeting' && <IconButton size="sm" label={`Start a video call for ${a.subject}`} onClick={async () => { try { nav(`/calls/${(await startCall({ activityId: a.id })).id}`); } catch (e) { toast.error(errorMessage(e)); } }}><Video className="size-3.5" /></IconButton>}
                     {!done && <IconButton size="sm" label="Edit activity" onClick={() => create.open('activity', { activity: a })}><Pencil className="size-3.5" /></IconButton>}
                     <IconButton size="sm" label="Delete activity" disabled={busyId === a.id} onClick={() => remove(a)}><Trash2 className="size-3.5" /></IconButton>
                   </li>

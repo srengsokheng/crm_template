@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router';
+import { Menu } from '../../components/ui/overlays.tsx';
 import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Handshake, KanbanSquare, List, Plus } from 'lucide-react';
+import { Handshake, KanbanSquare, List, Plus, Upload } from 'lucide-react';
 import { api, errorMessage, qsOf } from '../../lib/api.ts';
 import { date, money, relative } from '../../lib/format.ts';
 import { useCan, useMe, usePipelines } from '../../lib/hooks.ts';
@@ -10,8 +11,9 @@ import { Badge, Button, EmptyState, ErrorState, PageHeader, Segmented, Select, S
 import { DataTable, Pagination, type Column } from '../../components/ui/DataTable.tsx';
 import { StageBadge } from '../../components/ui/StageBadge.tsx';
 import { useCreate } from '../../app/create.tsx';
-import { BulkBar, FilterSelect, SearchBox, Toolbar, useListParams } from '../records/list.tsx';
-import { Board, type BoardCard, type BoardStat } from './Board.tsx';
+import { SavedViews } from '../records/SavedViews.tsx';
+import { ExportLink, BulkBar, FilterSelect, SearchBox, Toolbar, useListParams } from '../records/list.tsx';
+import { Board, useBoardMore, type BoardCard, type BoardStat } from './Board.tsx';
 import { useStageMove } from './useStageMove.tsx';
 
 interface DealRow {
@@ -32,7 +34,9 @@ export function DealsPage() {
   const pipeline = pipelines.find((p) => p.id === pipelineId);
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const qc = useQueryClient();
-  const filters = { q: lp.get('q'), ownerId: lp.get('ownerId'), pipelineId };
+  const baseFilters = { q: lp.get('q'), ownerId: lp.get('ownerId'), pipelineId };
+  const boardMore = useBoardMore(baseFilters);
+  const filters = { ...baseFilters, more: boardMore.more };
   const boardKey = ['deals-board', filters];
   const board = useQuery({
     queryKey: boardKey, enabled: view === 'board' && !!pipelineId, placeholderData: keepPreviousData,
@@ -56,18 +60,24 @@ export function DealsPage() {
     { key: 'title', header: 'Deal', sortKey: 'title', cell: (r) => <div className="min-w-0"><div className="truncate font-medium">{r.title}</div><div className="truncate text-xs text-muted">{[r.companyName, r.contactName].filter(Boolean).join(' · ')}</div></div> },
     { key: 'stage', header: 'Stage', sortKey: 'stage', cell: (r) => <StageBadge name={r.stageName} color={r.stageColor} /> },
     { key: 'amount', header: 'Amount', sortKey: 'amount', align: 'right', cell: (r) => money(r.amount, r.currency) },
-    { key: 'next', header: 'Next step', hideOnMobile: true, cell: (r) => r.nextActivity ? <span className="text-[13px]">{r.nextActivity.subject} <span className="text-muted">· {relative(r.nextActivity.dueAt)}</span></span> : r.status === 'open' ? <Badge tone="amber">None</Badge> : <span className="text-muted">—</span> },
+    { key: 'next', header: 'Next step', hideOnMobile: true, className: 'max-w-[16rem] truncate', cell: (r) => r.nextActivity ? <span className="text-[13px]">{r.nextActivity.subject} <span className="text-muted">· {relative(r.nextActivity.dueAt)}</span></span> : r.status === 'open' ? <Badge tone="amber">None</Badge> : <span className="text-muted">—</span> },
     { key: 'close', header: 'Expected close', sortKey: 'expectedCloseDate', hideOnMobile: true, cell: (r) => <span className={r.status === 'open' && r.expectedCloseDate && r.expectedCloseDate < new Date().toISOString().slice(0, 10) ? 'text-rose-600' : ''}>{date(r.expectedCloseDate)}</span> },
-    { key: 'owner', header: 'Owner', sortKey: 'owner', hideOnMobile: true, cell: (r) => r.ownerName ?? '—' },
+    { key: 'owner', header: 'Owner', sortKey: 'owner', hideOnMobile: true, className: 'whitespace-nowrap', cell: (r) => r.ownerName ?? '—' },
   ];
   const statusOptions = [{ value: 'open', label: 'Open' }, { value: 'won', label: 'Won' }, { value: 'lost', label: 'Lost' }];
   return (
     <div>
       <PageHeader title="Deals" actions={<>
         <Segmented value={view} onChange={(v) => lp.set({ view: v === 'board' ? null : v })} options={[{ value: 'board', label: 'Board', icon: <KanbanSquare className="size-4" /> }, { value: 'list', label: 'List', icon: <List className="size-4" /> }]} />
+        {can('deal', 'import') && <Menu trigger={<Button icon={<Upload className="size-4" />}>Import</Button>}
+          items={[{ label: 'Deals', onSelect: () => nav('/import/deal') }, { label: 'Products on existing deals', onSelect: () => nav('/import/deal_line') }]} />}
         {can('deal', 'create') && <Button variant="primary" icon={<Plus className="size-4" />} onClick={() => create.open('deal', { pipelineId })}>New deal</Button>}
       </>} />
-      <Toolbar right={view === 'list' && list.data?.aggregates && <span className="text-[13px] text-muted">Total <span className="font-semibold text-[var(--text)] tabular">{money(list.data.aggregates.amountSum, currency)}</span></span>}>
+      <SavedViews entity="deal" />
+      <Toolbar right={<>
+        {view === 'list' && list.data?.aggregates && <span className="text-[13px] text-muted">Total <span className="font-semibold text-[var(--text)] tabular">{money(list.data.aggregates.amountSum, currency)}</span></span>}
+        {can('deal', 'export') && <ExportLink path="/deals" params={lp.params} />}
+      </>}>
         {pipelines.length > 1 && (
           <Select aria-label="Pipeline" className="w-auto min-w-40" value={pipelineId ?? ''} onChange={(e) => lp.set({ pipelineId: e.target.value })}>
             {pipelines.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
@@ -87,6 +97,7 @@ export function DealsPage() {
               )}
               <Board stages={pipeline.stages} cards={cards} stats={board.data?.stats ?? []} currency={currency}
                 canDrag={(c) => can('deal', 'edit', c.ownerId)}
+                onLoadMore={boardMore.loadMore} loadingStage={board.isFetching ? boardMore.pending : null}
                 onMove={(card, to) => mover.move(card.id, card.title, pipeline.stages.find((s) => s.id === card.stageId), to)}
                 onQuickAdd={can('deal', 'create') ? (s) => create.open('deal', { pipelineId, stageId: s.id, stay: true }) : undefined}
                 closedZones={{ won: pipeline.stages.find((s) => s.kind === 'won'), lost: pipeline.stages.find((s) => s.kind === 'lost'), wonLabel: 'Won', lostLabel: 'Lost' }} />

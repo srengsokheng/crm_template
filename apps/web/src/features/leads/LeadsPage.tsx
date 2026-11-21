@@ -1,17 +1,19 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router';
 import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query';
-import { KanbanSquare, List, Plus, Upload, Zap } from 'lucide-react';
+import { KanbanSquare, List, Plus, Upload, Zap, CopyCheck } from 'lucide-react';
 import { api, errorMessage, qsOf } from '../../lib/api.ts';
 import { money, personName, relative } from '../../lib/format.ts';
 import { useCan, useDict, useMe, usePipelines } from '../../lib/hooks.ts';
 import type { ListResponse, NextActivity } from '../../lib/types.ts';
 import { Button, EmptyState, ErrorState, PageHeader, Segmented, Skeleton } from '../../components/ui/primitives.tsx';
+import { HeaderActions } from '../../components/ui/overlays.tsx';
 import { DataTable, Pagination, type Column } from '../../components/ui/DataTable.tsx';
 import { StageBadge } from '../../components/ui/StageBadge.tsx';
 import { useCreate } from '../../app/create.tsx';
-import { BulkBar, FilterSelect, SearchBox, Toolbar, useListParams } from '../records/list.tsx';
-import { Board, type BoardCard, type BoardStat } from '../deals/Board.tsx';
+import { SavedViews } from '../records/SavedViews.tsx';
+import { ExportLink, BulkBar, FilterSelect, SearchBox, Toolbar, useListParams } from '../records/list.tsx';
+import { Board, useBoardMore, type BoardCard, type BoardStat } from '../deals/Board.tsx';
 import { useStageMove } from '../deals/useStageMove.tsx';
 
 interface LeadRow {
@@ -31,7 +33,9 @@ export function LeadsPage() {
   const lp = useListParams({ sort: '-createdAt' });
   const view = (lp.get('view') || 'board') as 'board' | 'list';
   const [selected, setSelected] = useState<Set<number>>(new Set());
-  const filters = { q: lp.get('q'), ownerId: lp.get('ownerId'), sourceId: lp.get('sourceId') };
+  const baseFilters = { q: lp.get('q'), ownerId: lp.get('ownerId'), sourceId: lp.get('sourceId') };
+  const boardMore = useBoardMore(baseFilters);
+  const filters = { ...baseFilters, more: boardMore.more };
   const boardKey = ['leads-board', filters];
   const board = useQuery({ queryKey: boardKey, enabled: view === 'board', placeholderData: keepPreviousData, queryFn: () => api.get<{ stats: BoardStat[]; leads: LeadRow[] }>(`/leads/board${qsOf(filters)}`) });
   const listParams = { status: 'open', ...lp.params };
@@ -59,10 +63,14 @@ export function LeadsPage() {
     <div>
       <PageHeader title="Leads" subtitle="New interest to qualify before it becomes a deal" actions={<>
         <Segmented value={view} onChange={(v) => lp.set({ view: v === 'board' ? null : v })} options={[{ value: 'board', label: 'Board', icon: <KanbanSquare className="size-4" /> }, { value: 'list', label: 'List', icon: <List className="size-4" /> }]} />
-        {can('lead', 'import') && <Button icon={<Upload className="size-4" />} onClick={() => nav('/import/lead')}>Import</Button>}
+        <HeaderActions secondary={[
+          { label: 'Find duplicates', variant: 'ghost', icon: <CopyCheck className="size-4" />, onSelect: () => nav('/duplicates/lead'), hidden: !can('lead', 'edit') },
+          { label: 'Import', icon: <Upload className="size-4" />, onSelect: () => nav('/import/lead'), hidden: !can('lead', 'import') },
+        ]} />
         {can('lead', 'create') && <Button variant="primary" icon={<Plus className="size-4" />} onClick={() => create.open('lead')}>New lead</Button>}
       </>} />
-      <Toolbar>
+      <SavedViews entity="lead" />
+      <Toolbar right={can('lead', 'export') && <ExportLink path="/leads" params={lp.params} />}>
         <SearchBox value={lp.get('q')} onChange={(v) => lp.set({ q: v })} placeholder="Search name, company, email, phone" />
         <FilterSelect label="Owner" value={lp.get('ownerId')} onChange={(v) => lp.set({ ownerId: v })} options={[{ value: 'me', label: 'Me' }]} />
         <FilterSelect label="Source" value={lp.get('sourceId')} onChange={(v) => lp.set({ sourceId: v })} options={sources.map((s) => ({ value: String(s.id), label: s.label }))} />
@@ -72,6 +80,7 @@ export function LeadsPage() {
           : board.error ? <ErrorState message={errorMessage(board.error)} onRetry={() => board.refetch()} />
           : <Board stages={pipeline.stages} cards={cards} stats={board.data?.stats ?? []} currency={me?.workspace.baseCurrency ?? 'USD'}
               canDrag={(c) => can('lead', 'edit', c.ownerId)}
+                onLoadMore={boardMore.loadMore} loadingStage={board.isFetching ? boardMore.pending : null}
               onMove={(card, to) => mover.move(card.id, card.title, pipeline.stages.find((s) => s.id === card.stageId), to)}
               onQuickAdd={can('lead', 'create') ? (s) => create.open('lead', { stageId: s.id, stay: true }) : undefined}
               closedZones={{ lost: pipeline.stages.find((s) => s.kind === 'lost'), lostLabel: 'Disqualify' }} />

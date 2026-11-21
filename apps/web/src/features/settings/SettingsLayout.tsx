@@ -5,9 +5,9 @@ import { useMe } from '../../lib/hooks.ts';
 import { EmptyState, PageHeader } from '../../components/ui/primitives.tsx';
 
 const LINKS = [
-  { to: 'workspace', label: 'Workspace' }, { to: 'pipelines', label: 'Pipelines & stages' }, { to: 'fields', label: 'Custom fields' },
-  { to: 'lists', label: 'Lists & options' }, { to: 'users', label: 'Users & teams' }, { to: 'roles', label: 'Roles & permissions' },
-  { to: 'automation', label: 'Automation' }, { to: 'recycle-bin', label: 'Recycle bin', everyone: true },
+  { to: 'account', label: 'Your account', everyone: true }, { to: 'workspace', label: 'Workspace' }, { to: 'pipelines', label: 'Pipelines & stages' }, { to: 'fields', label: 'Custom fields' },
+  { to: 'lists', label: 'Lists & options' }, { to: 'currencies', label: 'Currencies' }, { to: 'documents', label: 'Quotes & invoices' }, { to: 'targets', label: 'Sales targets' }, { to: 'booking', label: 'Booking pages', everyone: true }, { to: 'feedback', label: 'Customer feedback' }, { to: 'channels', label: 'Channels' }, { to: 'users', label: 'Users & teams' }, { to: 'roles', label: 'Roles & permissions' },
+  { to: 'automation', label: 'Automation' }, { to: 'audit-log', label: 'Audit log' }, { to: 'recycle-bin', label: 'Recycle bin', everyone: true },
 ];
 
 export function SettingsLayout() {
@@ -17,7 +17,7 @@ export function SettingsLayout() {
     <div>
       <PageHeader title="Settings" />
       <div className="grid gap-5 lg:grid-cols-[220px_minmax(0,1fr)]">
-        <nav aria-label="Settings" className="flex gap-1 overflow-x-auto lg:flex-col">
+        <nav aria-label="Settings" className="flex gap-1 overflow-x-auto md:flex-wrap md:overflow-visible lg:flex-col lg:flex-nowrap">
           {LINKS.filter((l) => admin || l.everyone).map((l) => (
             <NavLink key={l.to} to={l.to} className={({ isActive }) => cn('whitespace-nowrap rounded-md px-3 py-2 text-[13px] font-medium', isActive ? 'bg-brand-50 text-brand-700 dark:bg-brand-600/20 dark:text-brand-100' : 'text-muted hover:bg-[var(--surface-2)] hover:text-[var(--text)]')}>{l.label}</NavLink>
           ))}

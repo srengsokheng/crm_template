@@ -4,6 +4,7 @@ import {
   FIELD_ENTITY_TYPES, FIELD_TYPES, PERMISSION_ACTIONS, PERMISSION_ENTITIES, PRIORITIES, RECORD_TYPES, SCOPES, STAGE_COLORS, STAGE_KINDS,
 } from './enums.ts';
 import { DATE_FORMATS, DUPLICATE_MODES, IMPORT_ENTITIES, IMPORT_LIMITS, MATCH_KEYS } from './imports.ts';
+import { isValidTimeZone } from './businessHours.ts';
 
 const trimmed = (max = 200) => z.string().trim().max(max);
 const optText = (max = 200) => trimmed(max).nullish().transform((v) => (v ? v : null));
@@ -54,6 +55,17 @@ export const signupSchema = z.object({
   password: z.string().min(8, 'At least 8 characters').max(200),
 });
 export const loginSchema = z.object({ email: z.email('Invalid email address'), password: z.string().min(1, 'Required') });
+/** Your account: display name, and changing your password while signed in. */
+export const profileSchema = z.object({ name: trimmed(100).min(1, 'Required') });
+export const emailChangeSchema = z.object({
+  newEmail: z.email('Invalid email address').max(200),
+  currentPassword: z.string().min(1, 'Required'),
+});
+export const emailConfirmSchema = z.object({ token: z.string().min(20).max(200) });
+export const passwordChangeSchema = z.object({
+  currentPassword: z.string().min(1, 'Required'),
+  newPassword: z.string().min(8, 'At least 8 characters').max(200),
+});
 export const acceptInviteSchema = z.object({
   token: z.string().min(10),
   name: trimmed(100).min(1, 'Required'),
@@ -180,6 +192,22 @@ const activityBase = {
 };
 export const activityCreateSchema = z.object(activityBase);
 export const activityUpdateSchema = z.object(activityBase).partial();
+/** Video calls: start one (on a meeting activity, an Inbox conversation, or on its own). */
+export const callCreateSchema = z.object({ title: trimmed(200).optional(), activityId: optId, conversationId: optId });
+export const callGuestJoinSchema = z.object({ name: trimmed(80).min(1, 'Enter your name') });
+export const callPeerSchema = z.object({ peer: z.string().regex(/^[A-Za-z0-9_-]{8,40}$/), secret: z.string().regex(/^[A-Za-z0-9_-]{20,64}$/) });
+export const callSignalSchema = callPeerSchema.extend({
+  to: z.string().regex(/^[A-Za-z0-9_-]{8,40}$/),
+  kind: z.enum(['offer', 'answer', 'candidate']),
+  /** An SDP description or an ICE candidate; bounded so the relay can't be used to store large data. */
+  data: z.record(z.string(), z.unknown()).refine((d) => JSON.stringify(d).length <= 30_000, 'Too large'),
+});
+/** Sales targets: one month (YYYY-MM), amounts in the base currency; null removes a target. userId null = the whole team. */
+export const targetMonthSchema = z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/, 'Use a month like 2026-11');
+export const targetsUpdateSchema = z.object({
+  month: targetMonthSchema,
+  targets: z.array(z.object({ userId: z.union([idSchema, z.null()]), amount: z.union([moneySchema.refine((v) => Number(v) > 0, 'Must be more than 0'), z.null()]) })).max(500),
+});
 export const noteCreateSchema = z.object({
   entityType: z.enum(RECORD_TYPES), entityId: idSchema, body: trimmed(10000).min(1, 'Required'), isPinned: z.boolean().optional(),
 });
@@ -187,7 +215,12 @@ export const noteUpdateSchema = z.object({ body: trimmed(10000).min(1).optional(
 
 // ───────── Settings ─────────
 export const pipelineCreateSchema = z.object({ entityType: z.enum(['lead', 'deal']), name: trimmed(100).min(1, 'Required') });
-export const pipelineUpdateSchema = z.object({ name: trimmed(100).min(1).optional(), isDefault: z.boolean().optional() });
+export const pipelineUpdateSchema = z.object({
+  name: trimmed(100).min(1).optional(),
+  isDefault: z.boolean().optional(),
+  /** null = every role may use the pipeline; otherwise only these roles (admins always can). */
+  allowedRoleIds: z.array(idSchema).max(100).nullable().optional(),
+});
 export const stageSchema = z.object({
   name: trimmed(60).min(1, 'Required'),
   color: z.enum(STAGE_COLORS).default('slate'),
@@ -218,15 +251,23 @@ export const dictionaryItemSchema = z.object({ kind: z.enum(DICTIONARY_KINDS), l
 export const dictionaryUpdateSchema = z.object({ label: trimmed(100).min(1).optional(), isActive: z.boolean().optional() });
 
 const grantsSchema = z.partialRecord(z.enum(PERMISSION_ENTITIES), z.partialRecord(z.enum(PERMISSION_ACTIONS), z.enum(SCOPES)));
-export const roleCreateSchema = z.object({ name: trimmed(60).min(1, 'Required'), grants: grantsSchema.default({}) });
-export const roleUpdateSchema = z.object({ name: trimmed(60).min(1).optional(), grants: grantsSchema.optional() });
+export const roleCreateSchema = z.object({ name: trimmed(60).min(1, 'Required'), grants: grantsSchema.default({}), fieldRules: z.lazy(() => fieldRulesSchema).optional() });
+export const roleUpdateSchema = z.object({ name: trimmed(60).min(1).optional(), grants: grantsSchema.optional(), fieldRules: z.lazy(() => fieldRulesSchema).optional() });
 export const inviteSchema = z.object({ email: z.email('Invalid email address'), name: trimmed(100).min(1, 'Required'), roleId: idSchema });
 export const memberUpdateSchema = z.object({ roleId: idSchema.optional(), status: z.enum(['active', 'disabled']).optional() });
 export const teamSchema = z.object({ name: trimmed(60).min(1, 'Required'), memberIds: z.array(idSchema).max(500).default([]) });
+const hhmm = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, 'Use HH:MM');
+export const workingHoursSchema = z.object({
+  days: z.array(z.number().int().min(1).max(7)).max(7),
+  start: hhmm,
+  end: hhmm,
+}).refine((w) => w.end > w.start, { message: 'The working day must end after it starts', path: ['end'] });
 export const workspaceUpdateSchema = z.object({
   name: trimmed(100).min(1).optional(),
   baseCurrency: z.string().regex(/^[A-Z]{3}$/).optional(),
   useLeads: z.boolean().optional(),
+  timezone: z.string().max(60).refine(isValidTimeZone, 'Unknown time zone').optional(),
+  workingHours: workingHoursSchema.optional(),
 });
 
 export const conditionSchema = z.object({
@@ -244,6 +285,10 @@ export const automationRuleSchema = z.object({
   action: z.enum(AUTOMATION_ACTIONS),
   config: z.record(z.string(), z.unknown()).default({}),
   isEnabled: z.boolean().default(true),
+  /** field_changed: the field that triggers the rule (column name or custom.<key>). */
+  triggerField: z.string().regex(/^[a-z_]{1,40}$|^custom\.[a-z][a-z0-9_]{0,39}$/, 'Invalid field').nullish(),
+  /** Count the delay in working hours only (Settings → Workspace). */
+  businessHours: z.boolean().default(false),
 });
 export const automationRuleUpdateSchema = automationRuleSchema.partial();
 
@@ -261,10 +306,13 @@ export const importOptionsSchema = z.object({
   ownerId: optId,
   /** Contacts: create companies named in the Company column that don't exist yet. */
   createCompanies: z.boolean().default(true),
-  /** Leads: pipeline to import into (default pipeline when empty). */
+  /** Leads and deals: pipeline to import into (default pipeline when empty). */
   pipelineId: optId,
-  /** Leads: run "created" / "stage entered" automation rules for imported leads. */
+  /** Leads and deals: run "created" / "stage entered" automation rules for imported records. */
   runAutomation: z.boolean().default(false),
+  /** Admins: values in list columns (type, source, industry, size, deal type, product category) that don't exist yet
+   *  are added to the list instead of failing the row. Ignored for non-admins. */
+  addMissingOptions: z.boolean().default(false),
 });
 export type ImportOptions = z.infer<typeof importOptionsSchema>;
 export const importConfigSchema = z.object({
@@ -274,15 +322,281 @@ export const importConfigSchema = z.object({
 export type ImportConfig = z.infer<typeof importConfigSchema>;
 
 // ───────── Merge duplicates ─────────
-export const MERGE_ENTITIES = ['contact', 'company'] as const;
+export const MERGE_ENTITIES = ['contact', 'company', 'lead'] as const;
+export const MERGE_MAX = 10;
 export const mergeSchema = z.object({
   survivorId: idSchema,
-  mergedId: idSchema,
-  /** Per field (or `custom.<key>`): take the value from the kept record or the merged one. Unlisted fields keep the
-   *  kept record's value, or the merged record's value when the kept one is empty. */
-  choose: z.record(z.string().max(80), z.enum(['survivor', 'merged'])).default({}),
-});
+  /** One record to merge away … */
+  mergedId: idSchema.optional(),
+  /** … or several at once (up to MERGE_MAX records in total). */
+  mergedIds: z.array(idSchema).min(1).max(MERGE_MAX - 1).optional(),
+  /** Per field (or `custom.<key>`): the id of the record whose value wins, or 'survivor' / 'merged' (= the first merged
+   *  record). Unlisted fields keep the kept record's value, or the first non-empty merged value when the kept one is empty. */
+  choose: z.record(z.string().max(80), z.union([z.enum(['survivor', 'merged']), idSchema])).default({}),
+}).refine((b) => !!(b.mergedId ?? b.mergedIds?.length), { message: 'Choose the records to merge', path: ['mergedIds'] });
 export type MergeInput = z.infer<typeof mergeSchema>;
 
 // ───────── Personal preferences ─────────
-export const preferencesSchema = z.object({ emailReminders: z.boolean().optional() });
+export const preferencesSchema = z.object({ emailReminders: z.boolean().optional(), emailDigest: z.boolean().optional() });
+/** Settings → Workspace → Email delivery. An empty sender name means "use the default From". */
+export const emailSettingsSchema = z.object({ senderName: z.string().max(60).nullish() });
+
+// ───────── Password reset ─────────
+export const forgotPasswordSchema = z.object({ email: z.email('Invalid email address').max(200) });
+export const resetPasswordSchema = z.object({
+  token: z.string().min(10).max(200),
+  password: z.string().min(8, 'At least 8 characters').max(200),
+});
+
+// ───────── Saved list views ─────────
+export const SAVED_VIEW_ENTITIES = ['lead', 'deal', 'contact', 'company'] as const;
+/** The list's URL parameters (page is never stored). */
+const viewQuery = z.record(z.string().regex(/^[a-zA-Z]{1,30}$/), z.string().max(200))
+  .refine((o) => Object.keys(o).length <= 20, 'Too many filters')
+  .transform((o) => { const { page: _p, ...rest } = o; void _p; return rest; });
+export const savedViewSchema = z.object({
+  entityType: z.enum(SAVED_VIEW_ENTITIES),
+  name: z.string().trim().min(1, 'Required').max(60),
+  query: viewQuery,
+  shared: z.boolean().default(false),
+});
+export const savedViewUpdateSchema = z.object({
+  name: z.string().trim().min(1, 'Required').max(60).optional(),
+  query: viewQuery.optional(),
+  shared: z.boolean().optional(),
+});
+
+// ───────── Exchange rates ─────────
+export const exchangeRateSchema = z.object({
+  currency: z.string().trim().toUpperCase().regex(/^[A-Z]{3}$/, 'Use a 3-letter code like EUR'),
+  /** 1 unit of `currency` in the base currency, e.g. "1.0850". */
+  rate: z.union([z.string(), z.number()]).transform((v) => String(v).trim())
+    .refine((v) => /^\d{1,10}(\.\d{1,8})?$/.test(v) && Number(v) > 0, 'Enter a positive rate like 1.0850'),
+  validFrom: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Use YYYY-MM-DD'),
+});
+
+// ───────── Webhooks ─────────
+export const webhookSettingsSchema = z.object({ allowedHosts: z.array(z.string().trim().max(200)).max(50) });
+
+// ───────── Quotes & invoices ─────────
+export const DOCUMENT_KINDS = ['quote', 'invoice'] as const;
+export const DOCUMENT_STATUSES = { quote: ['draft', 'sent', 'accepted', 'declined'], invoice: ['draft', 'sent', 'paid', 'void'] } as const;
+export const documentCreateSchema = z.object({ kind: z.enum(DOCUMENT_KINDS), fromQuoteId: optId });
+export const documentUpdateSchema = z.object({
+  billToName: trimmed(200).optional(),
+  billToDetails: z.string().max(2000).optional(),
+  notes: z.string().max(5000).optional(),
+  dueDate: optDate,
+  items: z.array(lineItemSchema).max(200).optional(),
+});
+export const documentStatusSchema = z.object({ status: z.enum(['sent', 'accepted', 'declined', 'paid', 'void']) });
+export const paymentSchema = z.object({
+  amount: moneySchema.refine((v) => Number(v) > 0, 'Must be more than 0'),
+  paidOn: dateSchema,
+  method: trimmed(60).default(''),
+  note: z.string().trim().max(500).default(''),
+});
+/** Recurring invoices: made from an invoice; "send" emails each new invoice to emailTo. */
+export const recurringCreateSchema = z.object({
+  sourceId: idSchema,
+  everyMonths: z.union([z.literal(1), z.literal(2), z.literal(3), z.literal(6), z.literal(12)]),
+  startOn: dateSchema,
+  endsAfter: z.union([z.coerce.number().int().min(1).max(120), z.null()]).default(null),
+  mode: z.enum(['draft', 'send']),
+  emailTo: z.array(z.string().trim().email('Use a valid email address')).max(10).default([]),
+  message: z.string().max(5000).default(''),
+}).refine((v) => v.mode !== 'send' || v.emailTo.length > 0, { message: 'Add who receives the invoice', path: ['emailTo'] });
+export const recurringUpdateSchema = z.object({ status: z.enum(['active', 'paused', 'ended']) });
+export const documentEmailSchema = z.object({
+  to: z.array(z.email('Invalid email address').max(200)).min(1, 'Add at least one recipient').max(5, 'Up to 5 recipients'),
+  subject: trimmed(200).min(1, 'Required'),
+  message: z.string().max(5000).default(''),
+});
+/** Banks show these KHQR fields as typed: plain English letters, digits and punctuation. */
+const khqrText = (max: number) => z.string().trim().max(max, `At most ${max} characters`).regex(/^[\x20-\x7E]*$/, 'Use English letters, digits and punctuation only — banks show this as typed');
+export const khqrSettingsSchema = z.object({
+  enabled: z.boolean().default(false),
+  /** Bakong account ID, like name@aclb (shown in the bank app under the account / Bakong ID). */
+  accountId: z.string().trim().max(32, 'At most 32 characters').regex(/^([^\s@]+@[^\s@]+)?$/, 'Use the Bakong account ID, like name@aclb').default(''),
+  merchantName: khqrText(25).default(''),
+  city: khqrText(15).default('Phnom Penh'),
+  accountType: z.enum(['individual', 'merchant']).default('individual'),
+  merchantId: khqrText(32).default(''),
+  acquiringBank: khqrText(32).default(''),
+  /** Days a QR on an invoice stays valid (banks refuse expired ones; a new one is made each time it's shown). */
+  validDays: z.coerce.number().int().min(1).max(90).default(14),
+}).refine((k) => !k.enabled || (k.accountId && k.merchantName), { message: 'Enter the Bakong account ID and the name banks show', path: ['accountId'] });
+export type KhqrSettings = z.infer<typeof khqrSettingsSchema>;
+
+/**
+ * Sending a WhatsApp message through an approved template: the channel, the template, and what fills each blank
+ * ({{1}}, {{2}}…) — one of the fields the sender knows (an invoice's number, a booking's time…). No channel = off.
+ */
+export const WA_REMINDER_FIELDS = ['name', 'number', 'amount', 'dueDate', 'link', 'company'] as const;
+export const WA_BOOKING_FIELDS = ['name', 'title', 'when', 'link', 'company'] as const;
+export const WA_FIELD_LABELS: Record<string, string> = {
+  name: 'Customer name', number: 'Invoice number', amount: 'Amount due', dueDate: 'Due date', link: 'Link (pay / manage)',
+  company: 'Your company name', title: 'What was booked', when: 'Date and time',
+};
+const waTemplateSetting = <T extends readonly [string, ...string[]]>(fields: T) => z.object({
+  channelId: idSchema.nullable().default(null),
+  name: z.string().trim().max(512).default(''),
+  language: z.string().trim().max(20).default(''),
+  params: z.array(z.enum(fields)).max(10).default([]),
+}).refine((v) => !v.channelId || (v.name && v.language), { message: 'Pick an approved template', path: ['name'] });
+export const waReminderSchema = waTemplateSetting(WA_REMINDER_FIELDS);
+export const waBookingSchema = waTemplateSetting(WA_BOOKING_FIELDS);
+export type WaTemplateSetting = { channelId: number | null; name: string; language: string; params: string[] };
+
+/**
+ * Automatic payment reminders for sent invoices with a balance: N days before the due date, on it, and N days after
+ * (up to three). By email to whoever the invoice was emailed to, and (optionally) the Telegram bot chats of the
+ * deal's contacts. Sent after 9:00 in the workspace's time zone.
+ */
+export const reminderSettingsSchema = z.object({
+  enabled: z.boolean().default(false),
+  beforeDays: z.union([z.coerce.number().int().min(1).max(30), z.null()]).default(3),
+  onDue: z.boolean().default(true),
+  afterDays: z.array(z.coerce.number().int().min(1).max(90)).max(3, 'Up to three').default([7])
+    .transform((a) => [...new Set(a)].sort((x, y) => x - y)),
+  telegram: z.boolean().default(true),
+  /** Also by WhatsApp, through an approved template, to the deal's contacts (their chat, or their phone number). */
+  whatsapp: waReminderSchema.prefault({}),
+});
+export type ReminderSettings = z.infer<typeof reminderSettingsSchema>;
+export const documentRemindersSchema = z.object({ off: z.boolean() });
+
+export const documentSettingsSchema = z.object({
+  companyDetails: z.string().max(2000).default(''),
+  footer: z.string().max(1000).default(''),
+  quotePrefix: trimmed(12).default('Q-'),
+  invoicePrefix: trimmed(12).default('INV-'),
+  quoteValidDays: z.coerce.number().int().min(1).max(365).default(30),
+  paymentTermsDays: z.coerce.number().int().min(0).max(365).default(14),
+  /** KHQR (Bakong) payment QR on invoices in KHR or USD. */
+  khqr: khqrSettingsSchema.prefault({}),
+  /** What customers read (PDFs, the customer page, email button, website chat, video-call page): English, Khmer, or both. */
+  customerLanguage: z.enum(['en', 'km', 'both']).default('en'),
+  reminders: reminderSettingsSchema.prefault({}),
+  /** Customers must draw a signature to accept a quote online (otherwise it's optional). */
+  requireSignature: z.boolean().default(false),
+});
+
+// ───────── Field-level permissions ─────────
+export const FIELD_ENTITIES = ['deal', 'lead', 'contact', 'company'] as const;
+export type FieldEntity = (typeof FIELD_ENTITIES)[number];
+/**
+ * Standard fields a role can lock (make read-only). Standard fields can't be hidden: totals, boards, reports and search
+ * use them. Custom fields (key "custom.<key>") can be read-only or hidden.
+ */
+export const LOCKABLE_FIELDS: Record<FieldEntity, { key: string; label: string }[]> = {
+  deal: [
+    { key: 'title', label: 'Deal name' }, { key: 'amount', label: 'Amount (and products)' }, { key: 'currency', label: 'Currency' },
+    { key: 'probability', label: 'Probability' }, { key: 'expectedCloseDate', label: 'Expected close' }, { key: 'ownerId', label: 'Owner' },
+    { key: 'companyId', label: 'Company' }, { key: 'contactIds', label: 'Contacts' }, { key: 'dealTypeId', label: 'Deal type' },
+    { key: 'sourceId', label: 'Source' }, { key: 'description', label: 'Description' }, { key: 'visibility', label: 'Visibility' },
+  ],
+  lead: [
+    { key: 'title', label: 'Lead name' }, { key: 'amount', label: 'Amount (and products)' }, { key: 'currency', label: 'Currency' },
+    { key: 'ownerId', label: 'Owner' }, { key: 'sourceId', label: 'Source' }, { key: 'companyName', label: 'Company name' },
+    { key: 'description', label: 'Description' }, { key: 'visibility', label: 'Visibility' },
+  ],
+  contact: [
+    { key: 'firstName', label: 'First name' }, { key: 'lastName', label: 'Last name' }, { key: 'jobTitle', label: 'Job title' },
+    { key: 'birthday', label: 'Birthday' }, { key: 'ownerId', label: 'Owner' }, { key: 'typeId', label: 'Contact type' },
+    { key: 'sourceId', label: 'Source' }, { key: 'primaryCompanyId', label: 'Company' }, { key: 'address', label: 'Address' },
+    { key: 'description', label: 'Description' }, { key: 'visibility', label: 'Visibility' },
+  ],
+  company: [
+    { key: 'name', label: 'Company name' }, { key: 'ownerId', label: 'Owner' }, { key: 'typeId', label: 'Company type' },
+    { key: 'industryId', label: 'Industry' }, { key: 'sizeId', label: 'Size' }, { key: 'annualRevenue', label: 'Annual revenue' },
+    { key: 'sourceId', label: 'Source' }, { key: 'address', label: 'Address' }, { key: 'description', label: 'Description' },
+    { key: 'visibility', label: 'Visibility' },
+  ],
+};
+export const fieldRulesSchema = z.partialRecord(z.enum(FIELD_ENTITIES),
+  z.record(z.string().regex(/^(custom\.[a-z0-9_]{1,60}|[a-zA-Z]{1,40})$/), z.enum(['readonly', 'hidden'])));
+export type FieldRules = z.infer<typeof fieldRulesSchema>;
+/**
+ * Broadcasts: one message to many customers. Telegram bot: text to everyone who chatted with the bot; WhatsApp: an
+ * approved template (Meta allows nothing else outside the 24-hour window); email: subject and text to contacts.
+ * {{name}} and {{first_name}} are filled in per person. People who opted out are never included.
+ */
+export const BROADCAST_CHANNELS = ['telegram_bot', 'whatsapp', 'email'] as const;
+export const broadcastSchema = z.object({
+  name: trimmed(120).min(1, 'Required'),
+  channelKind: z.enum(BROADCAST_CHANNELS),
+  channelId: idSchema.nullable().default(null),
+  subject: z.string().trim().max(200).default(''),
+  body: z.string().trim().max(4000, 'Up to 4000 characters').default(''),
+  template: z.object({ name: z.string().min(1).max(512), language: z.string().min(1).max(20), params: z.array(z.string().max(1000)).max(20).default([]) }).nullable().default(null),
+  contactTypeId: idSchema.nullable().default(null),
+}).superRefine((v, c) => {
+  if (v.channelKind === 'email') {
+    if (!v.subject) c.addIssue({ code: 'custom', path: ['subject'], message: 'Required' });
+    if (!v.body) c.addIssue({ code: 'custom', path: ['body'], message: 'Write the message' });
+  } else if (!v.channelId) c.addIssue({ code: 'custom', path: ['channelId'], message: 'Pick a channel' });
+  if (v.channelKind === 'telegram_bot' && !v.body) c.addIssue({ code: 'custom', path: ['body'], message: 'Write the message' });
+  if (v.channelKind === 'whatsapp' && !v.template) c.addIssue({ code: 'custom', path: ['template'], message: 'Pick an approved template' });
+});
+export type BroadcastInput = z.infer<typeof broadcastSchema>;
+/** A team member records that a customer asked to stop (or restart) broadcast emails or chat messages. */
+export const contactEmailOptOutSchema = z.object({ optedOut: z.boolean() });
+export const contactChatOptOutSchema = z.object({ conversationId: idSchema, optedOut: z.boolean() });
+/** Send now (no sendAt) or at a time in the future. */
+export const broadcastSendSchema = z.object({ sendAt: z.iso.datetime({ offset: true }).nullable().default(null) });
+/** {{name}} / {{first_name}} for one person (missing name: "there" in English texts would be wrong in Khmer, so empty). */
+export function personalize(text: string, name: string): string {
+  const full = name.trim();
+  return text.replace(/\{\{\s*(name|first_name)\s*\}\}/g, (_m, k: string) => (k === 'name' ? full : full.split(/\s+/)[0] ?? ''));
+}
+
+/** Online booking pages (/book/<slug>): customers pick a free time with the host. */
+export const BOOKING_DURATIONS = [15, 20, 30, 45, 60, 90, 120] as const;
+export const bookingPageSchema = z.object({
+  title: trimmed(120).min(1, 'Required'),
+  slug: z.string().trim().toLowerCase().regex(/^[a-z0-9][a-z0-9-]{1,38}[a-z0-9]$/, 'Use 3–40 letters, numbers and dashes'),
+  description: z.string().trim().max(2000).default(''),
+  /** One person… */
+  hostId: idSchema.optional(),
+  /** …or several, sharing the bookings (round-robin). */
+  hostIds: z.array(idSchema).max(20, 'Up to 20 people').optional(),
+  durationMinutes: z.coerce.number().int().refine((v) => (BOOKING_DURATIONS as readonly number[]).includes(v), 'Pick a length'),
+  days: z.array(z.coerce.number().int().min(1).max(7)).min(1, 'Pick at least one day').max(7).transform((a) => [...new Set(a)].sort()),
+  start: hhmm.default('09:00'),
+  end: hhmm.default('17:00'),
+  minNoticeHours: z.coerce.number().int().min(0).max(168).default(4),
+  daysAhead: z.coerce.number().int().min(1).max(90).default(30),
+  video: z.boolean().default(true),
+  location: z.string().trim().max(300).default(''),
+  active: z.boolean().default(true),
+  /** Also confirm (and confirm moves) by WhatsApp through an approved template. */
+  whatsapp: waBookingSchema.nullable().default(null),
+}).refine((v) => v.end > v.start, { message: 'Must be after the start', path: ['end'] })
+  .refine((v) => v.hostId || v.hostIds?.length, { message: 'Pick who customers meet', path: ['hostIds'] })
+  .transform(({ hostId, hostIds, ...v }) => ({ ...v, hostIds: [...new Set([...(hostId ? [hostId] : []), ...(hostIds ?? [])])] }));
+export type BookingPageInput = z.infer<typeof bookingPageSchema>;
+/** A customer moves their booking to another free time (public). */
+export const bookingRescheduleSchema = z.object({ start: z.iso.datetime({ offset: true }) });
+/** The team cancels a booking; the reason is passed on to the customer. */
+export const bookingTeamCancelSchema = z.object({ reason: z.string().trim().max(500).default('') });
+/** A customer books a time (public). */
+export const bookingCreateSchema = z.object({
+  start: z.iso.datetime({ offset: true }),
+  name: trimmed(120).min(1, 'Required'),
+  email: z.email('Use a valid email address').max(200),
+  phone: z.string().trim().max(40).default(''),
+  note: z.string().trim().max(2000).default(''),
+});
+
+/** Customer feedback after a won deal: ask automatically N days later (0 = the same day). */
+export const feedbackSettingsSchema = z.object({
+  enabled: z.boolean().default(false),
+  delayDays: z.coerce.number().int().min(0).max(30).default(2),
+});
+export type FeedbackSettings = z.infer<typeof feedbackSettingsSchema>;
+/** The customer's answer (public). */
+export const feedbackAnswerSchema = z.object({
+  rating: z.coerce.number().int().min(1, 'Pick 1 to 5').max(5, 'Pick 1 to 5'),
+  comment: z.string().trim().max(2000).default(''),
+});

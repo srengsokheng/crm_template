@@ -21,6 +21,22 @@ export function useForm<T extends Record<string, unknown>>(initial: T) {
   return { values, set, setValues, errors, setErrors, fromError };
 }
 
+/**
+ * Edit drawers send only what changed (so history shows exactly that and untouched fields can't overwrite someone
+ * else's change). Values are compared as JSON; `custom` is compared per key and sent as a partial object.
+ */
+export function changes<T extends Record<string, unknown>>(before: T, after: T): Partial<T> {
+  const out: Record<string, unknown> = {};
+  for (const k of Object.keys(after)) {
+    if (k === 'custom') {
+      const a = (before.custom ?? {}) as Record<string, unknown>, b = (after.custom ?? {}) as Record<string, unknown>;
+      const c = Object.fromEntries(Object.keys(b).filter((x) => JSON.stringify(a[x] ?? null) !== JSON.stringify(b[x] ?? null)).map((x) => [x, b[x]]));
+      if (Object.keys(c).length) out.custom = c;
+    } else if (JSON.stringify(before[k] ?? null) !== JSON.stringify(after[k] ?? null)) out[k] = after[k];
+  }
+  return out as Partial<T>;
+}
+
 /** Strip empty strings so optional fields are sent as null. */
 export function clean<T extends Record<string, unknown>>(v: T): T {
   const out: Record<string, unknown> = {};
@@ -184,6 +200,30 @@ export function DuplicateHint({ emails = [], phones = [], name, companyName, exc
         ))}
       </ul>
       <p className="mt-1 text-xs text-amber-800/80 dark:text-amber-100/70">You can still save — this is just a heads-up.</p>
+    </div>
+  );
+}
+
+export interface Address { street?: string | null; city?: string | null; region?: string | null; postalCode?: string | null; country?: string | null }
+const ADDRESS_PARTS: [keyof Address, string, string][] = [
+  ['street', 'Street', 'street-address'], ['city', 'City', 'address-level2'], ['region', 'State / province', 'address-level1'],
+  ['postalCode', 'Postal code', 'postal-code'], ['country', 'Country', 'country-name'],
+];
+/** One line for display ("12 Main St, Phnom Penh, Cambodia"); '' when empty. */
+export const formatAddress = (a: Address | null | undefined) =>
+  a ? [a.street, [a.postalCode, a.city].filter(Boolean).join(' '), a.region, a.country].map((x) => (x ?? '').trim()).filter(Boolean).join(', ') : '';
+/** Address payload for the API: null when every part is empty. */
+export const addressPayload = (a: Address) => {
+  const clean = Object.fromEntries(ADDRESS_PARTS.map(([k]) => [k, (a[k] ?? '').trim() || null]));
+  return Object.values(clean).some(Boolean) ? clean : null;
+};
+export function AddressEditor({ value, onChange }: { value: Address; onChange: (v: Address) => void }) {
+  return (
+    <div className="grid gap-2 sm:grid-cols-2">
+      {ADDRESS_PARTS.map(([k, label, auto]) => (
+        <Input key={k} aria-label={label} placeholder={label} autoComplete={auto} maxLength={k === 'street' ? 200 : 100}
+          className={k === 'street' ? 'sm:col-span-2' : undefined} value={value[k] ?? ''} onChange={(e) => onChange({ ...value, [k]: e.target.value })} />
+      ))}
     </div>
   );
 }

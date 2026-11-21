@@ -11,11 +11,14 @@ import { assertRequired, loadDefs, mergeCustom } from '../lib/customFields.ts';
 import { badRequest } from '../lib/errors.ts';
 import { emit } from '../lib/events.ts';
 import { ctxOf } from '../lib/http.ts';
-import { likeTerm, qs, runList } from '../lib/list.ts';
+import { boardLimits, likeTerm, qs, runList, type ListSpec } from '../lib/list.ts';
 import { assertOnRecord, requireAny, scopeWhere } from '../lib/permissions.ts';
 import { assertMembers, assertRefs, camel, camelAll, getActive, insertRow, pickColumns, updateRow } from '../lib/records.ts';
 import { getStage, recordStageChange, resolvePipelineStage, stageOfKind, type MoveInput, type StageRow } from '../lib/stages.ts';
 import { parse } from '../lib/validate.ts';
+import { exportCsv } from '../lib/exportList.ts';
+import { assertCanChange, assertCreateFields, changedCustomKeys, fieldRule, fieldsFromChanges } from '../lib/fieldAccess.ts';
+import { dealInBase } from '../lib/currency.ts';
 
 type IdParams = { Params: { id: string } };
 type DealRow = Record<string, unknown> & {
@@ -39,7 +42,14 @@ async function setDealContacts(db: Db, dealId: number, contactIds: number[] | un
   }
 }
 
-export async function createDeal(db: Db, ctx: Ctx, body: z.output<typeof dealCreateSchema> & { leadId?: number | null }): Promise<DealRow> {
+/** `events: false` skips automation triggers (CSV import default); `extra` is stored with the history entry. */
+export interface DealWriteOpts { fieldCheck?: boolean; events?: boolean; extra?: Record<string, unknown> }
+
+export async function createDeal(db: Db, ctx: Ctx, body: z.output<typeof dealCreateSchema> & { leadId?: number | null }, opts: DealWriteOpts = {}): Promise<DealRow> {
+  if (opts.fieldCheck !== false) {
+    const { leadId: _lead, pipelineId: _p, stageId: _s, amountMode: _m, ...fields } = body;
+    assertCreateFields(ctx, 'deal', fields, { ownerId: ctx.userId, visibility: 'shared', currency: ctx.baseCurrency, amount: '0' });
+  }
   await assertRefs(ctx, [
     { table: 'companies', ids: [body.companyId], label: 'Company' },
     { table: 'contacts', ids: body.contactIds ?? [], label: 'Contact' },
@@ -62,12 +72,12 @@ export async function createDeal(db: Db, ctx: Ctx, body: z.output<typeof dealCre
     owner_id: body.ownerId ?? ctx.userId, custom, created_by: ctx.userId, updated_by: ctx.userId, stage_changed_by: ctx.userId,
   })) as DealRow;
   await setDealContacts(db, row.id, body.contactIds);
-  await recordStageChange(db, ctx, 'deal', row.id, null, stage, { title: row.title, amount: row.amount });
-  await emit(db, ctx.workspaceId, 'deal.created', 'deal', row.id, { stageId: stage.id }, ctx.depth ?? 0);
+  await recordStageChange(db, ctx, 'deal', row.id, null, stage, { title: row.title, amount: row.amount, ...opts.extra }, { emit: opts.events !== false });
+  if (opts.events !== false) await emit(db, ctx.workspaceId, 'deal.created', 'deal', row.id, { stageId: stage.id }, ctx.depth ?? 0);
   return row;
 }
 
-export async function moveDeal(db: Db, ctx: Ctx, id: number, input: MoveInput, opts: { checkPermission?: boolean } = {}): Promise<DealRow> {
+export async function moveDeal(db: Db, ctx: Ctx, id: number, input: MoveInput, opts: { checkPermission?: boolean; events?: boolean; extra?: Record<string, unknown> } = {}): Promise<DealRow> {
   const before = await getActive<DealRow>(db, 'deals', id, ctx, 'Deal');
   if (opts.checkPermission !== false) assertOnRecord(ctx, 'deal', 'edit', before);
   const to = await getStage(db, ctx, input.stageId);
@@ -76,6 +86,7 @@ export async function moveDeal(db: Db, ctx: Ctx, id: number, input: MoveInput, o
   const from = await getStage(db, ctx, before.stage_id);
   const defs = await loadDefs(ctx.workspaceId, 'deal', db);
   const custom = mergeCustom(defs, input.custom, before.custom);
+  assertCanChange(ctx, 'deal', changedCustomKeys(before.custom, custom));
   await assertRequired(defs, custom, to.id);
   if (to.kind === 'lost' && input.lostReasonId) await assertRefs(ctx, [{ table: 'dictionary_items', ids: [input.lostReasonId], label: 'Lost reason', kind: 'lost_reason' }], db);
   if (to.id === before.stage_id) {
@@ -96,11 +107,11 @@ export async function moveDeal(db: Db, ctx: Ctx, id: number, input: MoveInput, o
   }
   const customChanges = diff(before.custom ?? {}, custom);
   if (Object.keys(customChanges).length) extra.custom = [before.custom, custom];
-  await recordStageChange(db, ctx, 'deal', id, from, to, extra);
+  await recordStageChange(db, ctx, 'deal', id, from, to, { ...extra, ...opts.extra }, { emit: opts.events !== false });
   return row;
 }
 
-async function recalcDealAmount(db: Db, ctx: Ctx, dealId: number): Promise<void> {
+export async function recalcDealAmount(db: Db, ctx: Ctx, dealId: number): Promise<void> {
   const items = await q<{ unit_price: string; quantity: string; discount_type: 'percent' | 'amount' | null; discount_value: string; tax_rate: string | null; tax_included: boolean }>(
     sql`SELECT unit_price, quantity, discount_type, discount_value, tax_rate, tax_included FROM line_items WHERE parent_type = 'deal' AND parent_id = ${dealId}`, db);
   const totals = calcTotals(items.map((i) => ({ unitPrice: i.unit_price, quantity: i.quantity, discountType: i.discount_type, discountValue: i.discount_value, taxRate: i.tax_rate, taxIncluded: i.tax_included })));
@@ -123,6 +134,50 @@ export async function replaceLineItems(db: Db, ctx: Ctx, parentType: 'deal' | 'l
 export async function loadLineItems(parentType: string, parentId: number, db: Db = pool) {
   return camelAll(await q(sql`SELECT id, product_id, name, unit_price, quantity, unit, discount_type, discount_value, tax_rate, tax_included, line_total, sort
     FROM line_items WHERE parent_type = ${parentType} AND parent_id = ${parentId} ORDER BY sort, id`, db));
+}
+
+export async function updateDeal(db: Db, ctx: Ctx, id: number, body: z.output<typeof dealUpdateSchema>, opts: DealWriteOpts = {}): Promise<DealRow> {
+  const before = await getActive<DealRow>(db, 'deals', id, ctx, 'Deal');
+  assertOnRecord(ctx, 'deal', 'edit', before);
+  await assertRefs(ctx, [
+    { table: 'companies', ids: [body.companyId], label: 'Company' },
+    { table: 'contacts', ids: body.contactIds ?? [], label: 'Contact' },
+    { table: 'dictionary_items', ids: [body.dealTypeId, body.sourceId], label: 'Option' },
+  ], db);
+  await assertMembers(ctx, [body.ownerId], db);
+  const values = pickColumns(body, DEAL_COLS);
+  if (body.amount !== undefined && body.amountMode === undefined) values.amount_mode = 'manual';
+  if (body.custom !== undefined) {
+    const defs = await loadDefs(ctx.workspaceId, 'deal', db);
+    const custom = mergeCustom(defs, body.custom, before.custom);
+    await assertRequired(defs, custom, before.stage_id);
+    values.custom = custom;
+  }
+  const locked = fieldsFromChanges(diff(before, values), DEAL_COLS);
+  if (values.custom) locked.push(...changedCustomKeys(before.custom, values.custom as Record<string, unknown>));
+  if (body.contactIds !== undefined && fieldRule(ctx, 'deal', 'contactIds')) {
+    const cur = await q<{ contact_id: number }>(sql`SELECT contact_id FROM deal_contacts WHERE deal_id = ${id}`, db);
+    if (JSON.stringify(cur.map((c) => Number(c.contact_id)).sort()) !== JSON.stringify([...new Set(body.contactIds)].sort())) locked.push('contactIds');
+  }
+  assertCanChange(ctx, 'deal', locked);
+  // Pipeline change: requires a stage in the new pipeline.
+  if (body.pipelineId && body.pipelineId !== before.pipeline_id) {
+    const s = await resolvePipelineStage(db, ctx, 'deal', body.pipelineId, body.stageId);
+    const from = await getStage(db, ctx, before.stage_id);
+    values.pipeline_id = s.pipeline_id; values.stage_id = s.id; values.status = s.kind; values.previous_stage_id = before.stage_id;
+    values.stage_changed_at = new Date(); values.stage_changed_by = ctx.userId;
+    const row = await updateRow(db, 'deals', id, ctx.workspaceId, { ...values, updated_by: ctx.userId }, { version: body.version });
+    await recordStageChange(db, ctx, 'deal', id, from, s, { pipeline: [before.pipeline_id, s.pipeline_id], ...opts.extra }, { emit: opts.events !== false });
+    return row as DealRow;
+  }
+  const changes = diff(before, values);
+  let row = await updateRow(db, 'deals', id, ctx.workspaceId, { ...values, updated_by: ctx.userId }, { version: body.version });
+  await setDealContacts(db, id, body.contactIds);
+  if (body.contactIds) changes.contacts = [null, body.contactIds];
+  if (values.amount_mode === 'auto' && before.amount_mode !== 'auto') { await recalcDealAmount(db, ctx, id); row = (await q1(sql`SELECT * FROM deals WHERE id = ${id}`, db))!; }
+  if (Object.keys(changes).length) await audit(db, ctx, 'deal', id, 'updated', { ...changes, ...opts.extra });
+  if (body.stageId && body.stageId !== before.stage_id) row = await moveDeal(db, ctx, id, { stageId: body.stageId }, { events: opts.events, extra: opts.extra });
+  return row as DealRow;
 }
 
 function dealFilters(ctx: Ctx, query: Record<string, unknown>) {
@@ -158,16 +213,23 @@ const DEAL_SELECT = sql`d.id, d.title, d.amount, d.currency, d.status, d.stage_i
 const DEAL_FROM = sql`deals d JOIN stages s ON s.id = d.stage_id LEFT JOIN companies co ON co.id = d.company_id LEFT JOIN users u ON u.id = d.owner_id`;
 
 export async function dealRoutes(app: FastifyInstance) {
-  app.get('/deals', async (req) => {
+  app.get('/deals', async (req, reply) => {
     const ctx = ctxOf(req);
     requireAny(ctx, 'deal', 'view');
     const query = parse(listQuerySchema, req.query);
-    const r = await runList({
+    const spec: ListSpec = {
       select: DEAL_SELECT, from: DEAL_FROM, where: dealFilters(ctx, query), search: dealSearch,
       sorts: { title: 'lower(d.title)', amount: 'd.amount', stage: 's.sort', owner: 'u.name', company: 'lower(co.name)', expectedCloseDate: 'd.expected_close_date', createdAt: 'd.created_at', updatedAt: 'd.updated_at' },
       defaultSort: '-createdAt',
-      aggregates: sql`coalesce(sum(d.amount), 0)::text AS amount_sum`,
-    }, query);
+      aggregates: sql`coalesce(sum(${dealInBase(ctx)}), 0)::text AS amount_sum`,
+    };
+    if (query.format === 'csv') {
+      return exportCsv(reply, ctx, 'deal', spec, query, 'd', [['ID', 'id'], ['Title', 'title'], ['Stage', 'stage_name'], ['Status', 'status'],
+        ['Amount', 'amount'], ['Currency', 'currency'], ['Probability %', 'probability'], ['Expected close', 'expected_close_date'],
+        ['Company', 'company_name'], ['Contact', 'contact_name'], ['Owner', 'owner_name'], ['Closed', 'closed_at'],
+        ['Created', 'created_at'], ['Updated', 'updated_at']], 'deals');
+    }
+    const r = await runList(spec, query);
     return { ...r, data: camelAll(r.data as Record<string, unknown>[]) };
   });
 
@@ -177,13 +239,14 @@ export async function dealRoutes(app: FastifyInstance) {
     requireAny(ctx, 'deal', 'view');
     const query = req.query as Record<string, string>;
     const pipelineId = qs.id(query.pipelineId) ?? (await resolvePipelineStage(pool, ctx, 'deal')).pipeline_id;
-    const limit = Math.min(qs.id(query.limit) ?? 50, 200);
+    const { limit, stageIds, limits } = boardLimits(query);
     const where = [...dealFilters(ctx, { ...query, pipelineId: String(pipelineId) }), query.q ? dealSearch(query.q) : null].filter(Boolean);
-    const stats = await q<{ stage_id: number; count: number; sum: string }>(sql`SELECT d.stage_id, count(*)::int AS count, coalesce(sum(d.amount),0)::text AS sum
+    const stats = await q<{ stage_id: number; count: number; sum: string }>(sql`SELECT d.stage_id, count(*)::int AS count, coalesce(sum(${dealInBase(ctx)}),0)::text AS sum
       FROM ${DEAL_FROM} WHERE ${and(where)} GROUP BY d.stage_id`);
     const rows = await q(sql`SELECT * FROM (
         SELECT ${DEAL_SELECT}, row_number() OVER (PARTITION BY d.stage_id ORDER BY d.stage_changed_at DESC, d.id DESC) AS rn
-        FROM ${DEAL_FROM} WHERE ${and(where)}) x WHERE rn <= ${limit}`);
+        FROM ${DEAL_FROM} WHERE ${and(where)}) x
+      WHERE rn <= coalesce((SELECT m.lim FROM unnest(${stageIds}::bigint[], ${limits}::int[]) AS m(sid, lim) WHERE m.sid = x.stage_id), ${limit})`);
     return { pipelineId, stats: camelAll(stats), deals: camelAll(rows) };
   });
 
@@ -221,44 +284,8 @@ export async function dealRoutes(app: FastifyInstance) {
 
   app.patch<IdParams>('/deals/:id', async (req) => {
     const ctx = ctxOf(req);
-    const id = Number(req.params.id);
     const body = parse(dealUpdateSchema, req.body);
-    return tx(async (db) => {
-      const before = await getActive<DealRow>(db, 'deals', id, ctx, 'Deal');
-      assertOnRecord(ctx, 'deal', 'edit', before);
-      await assertRefs(ctx, [
-        { table: 'companies', ids: [body.companyId], label: 'Company' },
-        { table: 'contacts', ids: body.contactIds ?? [], label: 'Contact' },
-        { table: 'dictionary_items', ids: [body.dealTypeId, body.sourceId], label: 'Option' },
-      ], db);
-      await assertMembers(ctx, [body.ownerId], db);
-      const values = pickColumns(body, DEAL_COLS);
-      if (body.amount !== undefined && body.amountMode === undefined) values.amount_mode = 'manual';
-      if (body.custom !== undefined) {
-        const defs = await loadDefs(ctx.workspaceId, 'deal', db);
-        const custom = mergeCustom(defs, body.custom, before.custom);
-        await assertRequired(defs, custom, before.stage_id);
-        values.custom = custom;
-      }
-      // Pipeline change: requires a stage in the new pipeline.
-      if (body.pipelineId && body.pipelineId !== before.pipeline_id) {
-        const s = await resolvePipelineStage(db, ctx, 'deal', body.pipelineId, body.stageId);
-        const from = await getStage(db, ctx, before.stage_id);
-        values.pipeline_id = s.pipeline_id; values.stage_id = s.id; values.status = s.kind; values.previous_stage_id = before.stage_id;
-        values.stage_changed_at = new Date(); values.stage_changed_by = ctx.userId;
-        const row = await updateRow(db, 'deals', id, ctx.workspaceId, { ...values, updated_by: ctx.userId }, { version: body.version });
-        await recordStageChange(db, ctx, 'deal', id, from, s, { pipeline: [before.pipeline_id, s.pipeline_id] });
-        return camel(row);
-      }
-      const changes = diff(before, values);
-      let row = await updateRow(db, 'deals', id, ctx.workspaceId, { ...values, updated_by: ctx.userId }, { version: body.version });
-      await setDealContacts(db, id, body.contactIds);
-      if (body.contactIds) changes.contacts = [null, body.contactIds];
-      if (values.amount_mode === 'auto' && before.amount_mode !== 'auto') { await recalcDealAmount(db, ctx, id); row = (await q1(sql`SELECT * FROM deals WHERE id = ${id}`, db))!; }
-      if (Object.keys(changes).length) await audit(db, ctx, 'deal', id, 'updated', changes);
-      if (body.stageId && body.stageId !== before.stage_id) row = await moveDeal(db, ctx, id, { stageId: body.stageId });
-      return camel(row);
-    });
+    return camel(await tx((db) => updateDeal(db, ctx, Number(req.params.id), body)));
   });
 
   app.post<IdParams>('/deals/:id/move', async (req) => {
@@ -308,6 +335,7 @@ export async function dealRoutes(app: FastifyInstance) {
     return tx(async (db) => {
       const deal = await getActive<DealRow>(db, 'deals', id, ctx, 'Deal');
       assertOnRecord(ctx, 'deal', 'edit', deal);
+      assertCanChange(ctx, 'deal', ['amount']);
       const before = await loadLineItems('deal', id, db);
       await replaceLineItems(db, ctx, 'deal', id, body.items);
       const after = await loadLineItems('deal', id, db);

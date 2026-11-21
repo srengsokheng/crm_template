@@ -17,9 +17,13 @@
     "@fastify/helmet": "13.2.0",
     "@fastify/rate-limit": "11.2.1",
     "@node-rs/argon2": "2.2.2",
+    "big-integer": "1.6.52",
     "fastify": "5.12.7",
+    "harfbuzzjs": "1.6.4",
     "nodemailer": "10.5.0",
     "pg": "8.23.1",
+    "qrcode-generator": "2.0.4",
+    "telegram": "2.26.22",
     "zod": "4.6.7"
   },
   "devDependencies": {

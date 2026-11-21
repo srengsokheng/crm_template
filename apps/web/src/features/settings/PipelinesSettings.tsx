@@ -1,12 +1,12 @@
 import { useState } from 'react';
-import { useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { ArrowDown, ArrowUp, Plus, Star, Trash2 } from 'lucide-react';
+import { ArrowDown, ArrowUp, Lock, Plus, Star, Trash2, Users } from 'lucide-react';
 import { api, errorMessage } from '../../lib/api.ts';
 import { cn } from '../../lib/cn.ts';
 import { usePipelines } from '../../lib/hooks.ts';
 import type { Pipeline, Stage } from '../../lib/types.ts';
-import { Badge, Button, Card, Field, IconButton, Input, Segmented, Select } from '../../components/ui/primitives.tsx';
+import { Badge, Button, Card, Checkbox, Field, IconButton, Input, Segmented, Select } from '../../components/ui/primitives.tsx';
 import { ConfirmDialog, Dialog } from '../../components/ui/overlays.tsx';
 import { STAGE_SOLID } from '../../components/ui/stageColors.ts';
 import { AdminOnly } from './SettingsLayout.tsx';
@@ -40,6 +40,44 @@ export function PipelinesSettings() {
   );
 }
 
+interface RoleRow { id: number; name: string; isAdmin: boolean }
+
+/** Who may use this pipeline: everyone, or only selected roles (admins always can). */
+function PipelineAccess({ p, onSave }: { p: Pipeline; onSave: (ids: number[] | null) => Promise<boolean> }) {
+  const roles = useQuery({ queryKey: ['roles'], queryFn: () => api.get<{ data: RoleRow[] }>('/roles') });
+  const [open, setOpen] = useState(false);
+  const [mode, setMode] = useState<'all' | 'some'>(p.allowedRoleIds ? 'some' : 'all');
+  const [picked, setPicked] = useState<number[]>(p.allowedRoleIds ?? []);
+  const nonAdmin = (roles.data?.data ?? []).filter((r) => !r.isAdmin);
+  const names = (p.allowedRoleIds ?? []).map((id) => nonAdmin.find((r) => r.id === id)?.name).filter(Boolean);
+  const start = () => { setMode(p.allowedRoleIds ? 'some' : 'all'); setPicked(p.allowedRoleIds ?? []); setOpen(true); };
+  return (
+    <div className="flex flex-wrap items-center gap-2 border-b border-base bg-[var(--surface-2)]/40 px-4 py-2 text-[13px]">
+      {p.allowedRoleIds ? <Lock className="size-3.5 text-amber-600" /> : <Users className="size-3.5 text-muted" />}
+      <span className="text-muted">Who can use it:</span>
+      <span className="font-medium">{p.allowedRoleIds ? `Only ${names.length ? names.join(', ') : 'admins'}` : 'Everyone'}</span>
+      <Button size="sm" variant="ghost" onClick={start}>Change</Button>
+      <Dialog open={open} onOpenChange={setOpen} title={`Who can use “${p.name}”?`} size="sm"
+        description="People without access don’t see this pipeline or its records anywhere — lists, boards, search, reports or exports. Admins always have access."
+        footer={<><Button onClick={() => setOpen(false)}>Cancel</Button>
+          <Button variant="primary"
+            onClick={async () => { if (await onSave(mode === 'all' ? null : picked)) setOpen(false); }}>Save</Button></>}>
+        <fieldset className="space-y-2">
+          <legend className="sr-only">Access</legend>
+          <label className="flex items-center gap-2 text-sm"><input type="radio" name={`acc-${p.id}`} checked={mode === 'all'} onChange={() => setMode('all')} className="size-4 accent-[var(--color-brand-600)]" />Everyone</label>
+          <label className="flex items-center gap-2 text-sm"><input type="radio" name={`acc-${p.id}`} checked={mode === 'some'} onChange={() => setMode('some')} className="size-4 accent-[var(--color-brand-600)]" />Only these roles</label>
+          {mode === 'some' && (
+            <div className="ml-6 flex flex-col items-start gap-1.5" role="group" aria-label="Roles with access">
+              {nonAdmin.map((r) => <Checkbox key={r.id} label={r.name} checked={picked.includes(r.id)} onChange={(v) => setPicked(v ? [...picked, r.id] : picked.filter((x) => x !== r.id))} />)}
+              {picked.length === 0 && <p className="text-xs text-amber-700 dark:text-amber-300">No role selected: only admins will see this pipeline.</p>}
+            </div>
+          )}
+        </fieldset>
+      </Dialog>
+    </div>
+  );
+}
+
 function PipelineCard({ p, canDelete, onChange }: { p: Pipeline; canDelete: boolean; onChange: () => void }) {
   const [name, setName] = useState(p.name);
   const [adding, setAdding] = useState(false);
@@ -60,6 +98,7 @@ function PipelineCard({ p, canDelete, onChange }: { p: Pipeline; canDelete: bool
         {p.isDefault ? <Badge tone="brand">Default</Badge> : p.entityType === 'deal' && <Button size="sm" variant="ghost" icon={<Star className="size-3.5" />} onClick={() => call(() => api.patch(`/pipelines/${p.id}`, { isDefault: true }), 'Default pipeline changed')}>Make default</Button>}
       </div>
     } actions={canDelete && !p.isDefault && <IconButton label="Delete pipeline" onClick={() => setConfirmPipe(true)}><Trash2 className="size-4" /></IconButton>}>
+      <PipelineAccess p={p} onSave={(allowedRoleIds) => call(() => api.patch(`/pipelines/${p.id}`, { allowedRoleIds }), 'Access updated')} />
       <ul className="divide-y divide-[var(--border)]">
         {ordered.map((s, i) => (
           <li key={s.id} className="flex flex-wrap items-center gap-2 px-4 py-2">

@@ -18,7 +18,7 @@ Act as a senior full-stack engineer, product designer and QA engineer. Work care
 
 === 1. THE REPOSITORY ===
 - GitHub: https://github.com/srengsokheng/crm_template   (owner: srengsokheng)
-- Main branch: main  (everything so far is merged there)
+- Main branch: main  (much of the work is still on open stacked pull requests; see section 5)
 - If the repository is not already checked out in this session, attach/clone it:
     git clone https://github.com/srengsokheng/crm_template.git && cd crm_template
   If access is denied, stop and tell me — I need to add your GitHub account as a collaborator.
@@ -31,6 +31,7 @@ Act as a senior full-stack engineer, product designer and QA engineer. Work care
 3. docs/CRM_UX_REDESIGN.md       – design principles and tokens; follow them for every screen
 4. docs/DATABASE_SCHEMA.md       – data model and service rules
 5. docs/CRM_ARCHITECTURE.md      – architecture; see the "As built" table at the top
+6. docs/UI-RULES.md + docs/UI_AND_FEATURE_GAPS.md – UI rules and the current backlog
 Background research (read when relevant): docs/BITRIX24_ANALYSIS.md, docs/CRM_WORKFLOWS.md, docs/CRM_FEATURES.md,
 docs/IMPLEMENTATION_PLAN.md. The product was designed by studying Bitrix24 and simplifying its UX.
 
@@ -69,13 +70,12 @@ To look at the app: `npm run db:migrate && npm run db:seed && npm run dev`, open
 sign in as demo@example.com / demo12345 (teammates dara@, mia@, omar@example.com use the same password).
 
 === 5. YOUR TASK (continue from here) ===
-Build the next items from docs/HANDOFF.md section 3, one branch + pull request each, in this order:
-  1. CSV import for contacts, companies and leads: upload, column mapping, preview, duplicate handling
-     (skip / update / create), result report with row errors.
-  2. Merge duplicate contacts and companies: choose the surviving record and field values, re-point deals,
-     activities, notes and contact methods, keep history, audit the merge.
-  3. Pluggable email delivery for invitations and activity reminders (console transport in development, SMTP in
-     production configured by environment variables; never commit credentials).
+Step 0: most work is still on a stack of open pull requests (#5 feat/password-reset ... #66 feat/whatsapp-notices,
+plus #40 and fix/reminder-test-clock). Read docs/UI_AND_FEATURE_GAPS.md section 0. Until I say the stack is merged
+into main, start every new branch from the top of the stack, not from main.
+Then build the items in docs/UI_AND_FEATURE_GAPS.md, top to bottom, one branch + pull request each. Use the project
+skills in .claude/skills (frontend-design, accessibility-testing, api-design, testing, code-review, ...) and
+docs/UI-RULES.md for every screen. Tick items off in docs/UI_AND_FEATURE_GAPS.md in the same pull request.
 After each item, stop, summarise, and wait for my go-ahead before starting the next one.
 
 === 6. RULES ===

@@ -1,10 +1,9 @@
 import { Suspense, useEffect, useState, type ReactNode } from 'react';
 import { Link, NavLink, Navigate, Outlet, useLocation, useNavigate } from 'react-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import {
-  BarChart3, Bell, BellOff, BellRing, Building2, CheckSquare, Handshake, Home, LogOut, Menu as MenuIcon, Moon, Package, Plus, Search, Settings, Sun, Users, Zap, Monitor, X,
-} from 'lucide-react';
+import { BarChart3, Bell, BellOff, BellRing, Building2, CheckSquare, Handshake, Home, LogOut, Menu as MenuIcon, Moon, Package, Plus, Search, Settings, Sun, Users, Zap, Monitor, X, Mail, FileText, MessageCircle, UserCog, Video, Megaphone, CalendarDays } from 'lucide-react';
 import { toast } from 'sonner';
+import { startCall } from '../features/calls/CallPages.tsx';
 import { api, ApiError, errorMessage } from '../lib/api.ts';
 import { cn } from '../lib/cn.ts';
 import { relative } from '../lib/format.ts';
@@ -14,21 +13,29 @@ import { Menu, Popover } from '../components/ui/overlays.tsx';
 import { CommandPalette } from './CommandPalette.tsx';
 import { CreateProvider, useCreate } from './create.tsx';
 import { applyTheme, getTheme, type Theme } from './theme.ts';
+import { useInboxEvents, usePollInterval } from '../features/inbox/live.ts';
+import { FeedList, useFeed } from '../components/ui/FeedList.tsx';
 
 interface NavItem { to: string; label: string; icon: ReactNode; badge?: number; show?: boolean }
 
 function useNav(): NavItem[] {
   const { data: me } = useMe();
   const can = useCan();
+  const inboxPoll = usePollInterval(30_000);
   const counts = useQuery({ queryKey: ['activity-counts'], queryFn: () => api.get<{ overdue: number; today: number }>('/activities/counts'), refetchInterval: 60_000 });
+  const inbox = useQuery({ queryKey: ['inbox-summary'], queryFn: () => api.get<{ unread: number; canView: boolean }>('/inbox/summary'), refetchInterval: inboxPoll, enabled: can('conversation', 'view') });
   return [
     { to: '/', label: 'Home', icon: <Home className="size-[18px]" /> },
+    { to: '/inbox', label: 'Inbox', icon: <MessageCircle className="size-[18px]" />, badge: inbox.data?.unread, show: can('conversation', 'view') },
+    { to: '/broadcasts', label: 'Broadcasts', icon: <Megaphone className="size-[18px]" />, show: !!me?.role.isAdmin },
     { to: '/activities', label: 'Activities', icon: <CheckSquare className="size-[18px]" />, badge: counts.data?.overdue },
+    { to: '/calendar', label: 'Calendar', icon: <CalendarDays className="size-[18px]" /> },
     { to: '/leads', label: 'Leads', icon: <Zap className="size-[18px]" />, show: !!me?.workspace.useLeads && can('lead', 'view') },
     { to: '/deals', label: 'Deals', icon: <Handshake className="size-[18px]" />, show: can('deal', 'view') },
     { to: '/contacts', label: 'Contacts', icon: <Users className="size-[18px]" />, show: can('contact', 'view') },
     { to: '/companies', label: 'Companies', icon: <Building2 className="size-[18px]" />, show: can('company', 'view') },
     { to: '/products', label: 'Products', icon: <Package className="size-[18px]" />, show: can('product', 'view') },
+    { to: '/documents', label: 'Invoices', icon: <FileText className="size-[18px]" />, show: can('deal', 'view') },
     { to: '/reports', label: 'Reports', icon: <BarChart3 className="size-[18px]" /> },
   ].filter((i) => i.show !== false);
 }
@@ -58,8 +65,8 @@ function Sidebar({ items, onSearch }: { items: NavItem[]; onSearch: () => void }
         <span className="truncate text-[15px] font-semibold max-lg:hidden">{me?.workspace.name ?? 'Acme CRM'}</span>
       </div>
       <div className="px-3 pb-2 max-lg:px-2">
-        <button type="button" onClick={onSearch} className="flex h-9 w-full items-center gap-2 rounded-md border border-base px-2.5 text-[13px] text-muted hover:bg-[var(--surface-2)] max-lg:justify-center max-lg:px-0" aria-label="Open search">
-          <Search className="size-4" /><span className="flex-1 text-left max-lg:hidden">Search…</span>
+        <button type="button" onClick={onSearch} className="flex h-9 w-full items-center gap-2 rounded-md border border-base px-2.5 text-[13px] text-muted hover:bg-[var(--surface-2)] max-lg:justify-center max-lg:px-0" aria-keyshortcuts="Control+K Meta+K">
+          <Search className="size-4" /><span className="flex-1 text-left max-lg:sr-only">Search…</span>
           <kbd className="rounded border border-base px-1 text-[10px] max-lg:hidden">⌘K</kbd>
         </button>
       </div>
@@ -90,7 +97,9 @@ function MobileNav({ items }: { items: NavItem[] }) {
             {!!i.badge && <span className="absolute right-[30%] top-1.5 size-2 rounded-full bg-rose-500" />}
           </NavLink>
         ))}
-        <button type="button" onClick={() => setMore(true)} className="flex flex-col items-center gap-0.5 py-2 text-[11px] font-medium text-muted"><MenuIcon className="size-[18px]" />More</button>
+        <button type="button" onClick={() => setMore(true)} className="relative flex flex-col items-center gap-0.5 py-2 text-[11px] font-medium text-muted"><MenuIcon className="size-[18px]" />More
+          {rest.some((i) => 'badge' in i && i.badge) && <span className="absolute right-[30%] top-1.5 size-2 rounded-full bg-rose-500" aria-label="New messages" />}
+        </button>
       </nav>
       {more && (
         <div className="fixed inset-0 z-50 md:hidden" role="dialog" aria-label="More navigation">
@@ -99,7 +108,9 @@ function MobileNav({ items }: { items: NavItem[] }) {
             <div className="mb-2 flex items-center justify-between"><span className="text-sm font-semibold">More</span><IconButton label="Close" onClick={() => setMore(false)}><X className="size-4" /></IconButton></div>
             <div className="grid grid-cols-3 gap-2">
               {rest.map((i) => (
-                <Link key={i.to} to={i.to} className="flex flex-col items-center gap-1 rounded-lg border border-base p-3 text-xs font-medium">{i.icon}{i.label}</Link>
+                <Link key={i.to} to={i.to} className="relative flex flex-col items-center gap-1 rounded-lg border border-base p-3 text-xs font-medium">{i.icon}{i.label}
+                  {'badge' in i && !!i.badge && <span className="absolute right-2 top-2 rounded-full bg-rose-500 px-1.5 text-[10px] font-semibold text-white">{i.badge}</span>}
+                </Link>
               ))}
             </div>
           </div>
@@ -112,13 +123,13 @@ function MobileNav({ items }: { items: NavItem[] }) {
 function Notifications() {
   const qc = useQueryClient();
   const nav = useNavigate();
-  const { data } = useQuery({
-    queryKey: ['notifications'], refetchInterval: 30_000,
-    queryFn: () => api.get<{ unread: number; data: { id: number; title: string; body: string | null; entityType: string | null; entityId: number | null; readAt: string | null; createdAt: string }[] }>('/notifications'),
-  });
+  const feed = useFeed<{ id: number; title: string; body: string | null; entityType: string | null; entityId: number | null; readAt: string | null; createdAt: string }>(
+    ['notifications'], '/notifications', {}, { refetchInterval: 30_000, limit: 20 });
+  const data = { unread: (feed.data?.pages[0] as { unread?: number } | undefined)?.unread ?? 0 };
   const markRead = async () => { await api.post('/notifications/read', {}); qc.invalidateQueries({ queryKey: ['notifications'] }); };
   const go = (n: { entityType: string | null; entityId: number | null }) => {
     if (n.entityType === 'activity') nav('/activities');
+    else if (n.entityType === 'conversation' && n.entityId) nav(`/inbox/${n.entityId}`);
     else if (n.entityType && n.entityId) nav(`/${n.entityType === 'company' ? 'companies' : n.entityType + 's'}/${n.entityId}`);
   };
   return (
@@ -132,8 +143,9 @@ function Notifications() {
         <span className="text-sm font-semibold">Notifications</span>
         {!!data?.unread && <button type="button" className="text-xs font-medium text-brand-600" onClick={markRead}>Mark all read</button>}
       </div>
-      <ul className="max-h-96 overflow-y-auto">
-        {(data?.data ?? []).map((n) => (
+      <div className="max-h-96 overflow-y-auto">
+      <FeedList feed={feed} listClassName="" label="Notifications" skeletonRows={2} empty={<p className="px-3 py-8 text-center text-sm text-muted">You’re all caught up.</p>}>
+        {(items) => items.map((n) => (
           <li key={n.id}>
             <button type="button" onClick={() => go(n)} className={cn('w-full border-b border-base px-3 py-2.5 text-left hover:bg-[var(--surface-2)]', !n.readAt && 'bg-brand-50/50 dark:bg-brand-600/10')}>
               <div className="text-sm font-medium">{n.title}</div>
@@ -142,8 +154,8 @@ function Notifications() {
             </button>
           </li>
         ))}
-        {!data?.data.length && <li className="px-3 py-8 text-center text-sm text-muted">You’re all caught up.</li>}
-      </ul>
+      </FeedList>
+      </div>
     </Popover>
   );
 }
@@ -158,6 +170,14 @@ function TopBar({ onSearch }: { onSearch: () => void }) {
   const logout = async () => { await api.post('/auth/logout', {}); qc.clear(); nav('/login', { replace: true }); };
   const cycleTheme = (t: Theme) => { setTheme(t); applyTheme(t); };
   const reminders = me?.preferences.emailReminders ?? true;
+  const digest = me?.preferences.emailDigest ?? true;
+  const toggleDigest = async () => {
+    try {
+      await api.patch('/auth/preferences', { emailDigest: !digest });
+      await qc.invalidateQueries({ queryKey: ['me'] });
+      toast.success(digest ? 'Daily summary turned off' : 'Daily summary turned on');
+    } catch (e) { toast.error(errorMessage(e)); }
+  };
   const toggleReminders = async () => {
     try {
       await api.patch('/auth/preferences', { emailReminders: !reminders });
@@ -170,7 +190,7 @@ function TopBar({ onSearch }: { onSearch: () => void }) {
       <div className="flex items-center gap-2 md:hidden">
         <img src="/favicon.svg" alt="" className="size-7" />
       </div>
-      <button type="button" onClick={onSearch} className="flex h-9 flex-1 items-center gap-2 rounded-md border border-base surface px-3 text-[13px] text-muted md:hidden" aria-label="Open search">
+      <button type="button" onClick={onSearch} className="flex h-9 flex-1 items-center gap-2 rounded-md border border-base surface px-3 text-[13px] text-muted md:hidden" aria-label="Search…">
         <Search className="size-4" />Search
       </button>
       <div className="flex-1 max-md:hidden" />
@@ -181,17 +201,20 @@ function TopBar({ onSearch }: { onSearch: () => void }) {
           { label: 'Contact', icon: <Users className="size-4" />, onSelect: () => create.open('contact'), hidden: !can('contact', 'create') },
           { label: 'Company', icon: <Building2 className="size-4" />, onSelect: () => create.open('company'), hidden: !can('company', 'create') },
           { label: 'Activity', icon: <CheckSquare className="size-4" />, onSelect: () => create.open('activity'), hidden: !can('activity', 'create') },
+          { label: 'Video call', icon: <Video className="size-4" />, onSelect: async () => { try { nav(`/calls/${(await startCall({})).id}`); } catch (e) { toast.error(errorMessage(e)); } } },
         ]} />
       <Notifications />
       <Menu trigger={<button type="button" className="rounded-full" aria-label="Account menu"><Avatar name={me?.user.name} /></button>}
         items={[
           { label: <div><div className="font-medium">{me?.user.name}</div><div className="text-xs text-muted">{me?.role.name}</div></div>, onSelect: () => {}, disabled: true },
+          { label: 'Your account', icon: <UserCog className="size-4" />, onSelect: () => nav('/settings/account') },
           'separator',
           { label: 'Light theme', icon: <Sun className="size-4" />, onSelect: () => cycleTheme('light'), hidden: theme === 'light' },
           { label: 'Dark theme', icon: <Moon className="size-4" />, onSelect: () => cycleTheme('dark'), hidden: theme === 'dark' },
           { label: 'System theme', icon: <Monitor className="size-4" />, onSelect: () => cycleTheme('system'), hidden: theme === 'system' },
           'separator',
           { label: reminders ? 'Turn off reminder emails' : 'Turn on reminder emails', icon: reminders ? <BellOff className="size-4" /> : <BellRing className="size-4" />, onSelect: toggleReminders },
+          { label: digest ? 'Turn off daily summary email' : 'Turn on daily summary email', icon: <Mail className="size-4" />, onSelect: toggleDigest },
           'separator',
           { label: 'Sign out', icon: <LogOut className="size-4" />, onSelect: logout },
         ]} />
@@ -221,6 +244,8 @@ export function AppLayout() {
 }
 
 function Shell({ onSearch }: { onSearch: () => void }) {
+  const can = useCan();
+  useInboxEvents(can('conversation', 'view'));
   const items = useNav();
   return (
     <div className="flex min-h-dvh">

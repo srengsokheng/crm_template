@@ -2,6 +2,8 @@ import type { FastifyInstance } from 'fastify';
 import { q, q1, sql } from '../db/index.ts';
 import { ctxOf } from '../lib/http.ts';
 import { camelAll } from '../lib/records.ts';
+import { hiddenCustomKeys } from '../lib/fieldAccess.ts';
+import type { FieldEntity } from '@crm/shared';
 
 export async function metaRoutes(app: FastifyInstance) {
   app.get('/health', async () => {
@@ -17,9 +19,11 @@ export async function metaRoutes(app: FastifyInstance) {
       q(sql`SELECT u.id, u.name, u.email, m.status, m.role_id, r.name AS role_name FROM memberships m
             JOIN users u ON u.id = m.user_id JOIN roles r ON r.id = m.role_id
             WHERE m.workspace_id = ${ws} ORDER BY u.name`),
-      q(sql`SELECT id, entity_type, name, sort, is_default FROM pipelines WHERE workspace_id = ${ws} ORDER BY entity_type, sort, id`),
+      q(sql`SELECT id, entity_type, name, sort, is_default, allowed_role_ids FROM pipelines WHERE workspace_id = ${ws}
+            AND NOT (id = ANY(${ctx.blockedPipelineIds})) ORDER BY entity_type, sort, id`),
       q(sql`SELECT s.id, s.pipeline_id, s.name, s.color, s.sort, s.kind, s.probability, s.rot_days FROM stages s
-            JOIN pipelines p ON p.id = s.pipeline_id WHERE p.workspace_id = ${ws} ORDER BY s.pipeline_id, s.sort, s.id`),
+            JOIN pipelines p ON p.id = s.pipeline_id WHERE p.workspace_id = ${ws} AND NOT (p.id = ANY(${ctx.blockedPipelineIds}))
+            ORDER BY s.pipeline_id, s.sort, s.id`),
       q(sql`SELECT id, kind, label, sort, is_active FROM dictionary_items WHERE workspace_id = ${ws} ORDER BY kind, sort, id`),
       q(sql`SELECT id, entity_type, key, label, type, options, required, required_stage_ids, help_text, sort, is_active
             FROM field_definitions WHERE workspace_id = ${ws} ORDER BY entity_type, sort, id`),
@@ -32,7 +36,8 @@ export async function metaRoutes(app: FastifyInstance) {
       users: camelAll(users),
       pipelines: camelAll<{ id: number }>(pipelines).map((p) => ({ ...p, stages: stageList.filter((s) => s.pipelineId === p.id) })),
       dictionaries: camelAll(dictionaries),
-      fields: camelAll(fields),
+      fields: camelAll<{ entityType: string; key: string }>(fields)
+        .filter((f) => !hiddenCustomKeys(ctx, f.entityType as FieldEntity).includes(f.key)),
       teams: camelAll(teams),
       productCategories: camelAll(categories),
     };

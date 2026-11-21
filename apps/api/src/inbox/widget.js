@@ -1,0 +1,202 @@
+/*
+ * Acme CRM website chat. Add to any page:
+ *   <script src="https://YOUR-CRM/widget.js" data-key="CHANNEL_KEY" async></script>
+ * Messages go to the CRM Inbox; replies appear here as they're sent (a live connection while the chat is open, with
+ * polling as a fallback), and the visitor sees when the team is typing.
+ * Everything lives in a shadow root, so the page's CSS can't break it and it can't break the page.
+ */
+(function () {
+  'use strict';
+  var script = document.currentScript;
+  if (!script || window.__crmChat) return;
+  window.__crmChat = true;
+  var key = script.getAttribute('data-key');
+  if (!key) return;
+  var api = new URL(script.src).origin + '/api/v1/public/webchat/' + encodeURIComponent(key);
+  var store = 'crmchat:' + key;
+  var token = null;
+  try { token = localStorage.getItem(store); } catch { /* storage blocked: the chat lasts until reload */ }
+
+  function request(method, path, body) {
+    return fetch(api + path, {
+      method: method,
+      headers: body ? { 'content-type': 'application/json', 'x-requested-with': 'crm' } : {},
+      body: body ? JSON.stringify(body) : undefined,
+    }).then(function (r) { if (!r.ok) throw new Error(String(r.status)); return r.json(); });
+  }
+
+  request('GET', '').then(start, function () { /* channel disabled or unknown: show nothing */ });
+
+  function start(settings) {
+    // Texts in the workspace's customer language (Settings → Quotes & invoices), English when missing.
+    var EN = { chatOpen: 'Open chat', chatClose: 'Close chat', chatName: 'Your name (optional)', chatEmail: 'Email (optional)', chatMessage: 'Write a message…',
+      chatSend: 'Send', chatAttach: 'Attach a photo or PDF', chatFile: 'Photo or PDF to send', chatTyping: '{name} is typing…', chatErrTooMany: 'Too many messages — please wait a minute.',
+      chatErrSend: 'Your message could not be sent. Please try again.', chatErrType: 'Only photos (PNG, JPEG, GIF, WebP) and PDF files can be sent.',
+      chatErrFiles: 'Too many files — please wait and try again later.', chatErrSize: 'Files can be up to 5 MB.', chatErrFile: 'The file could not be sent. Please try again.' };
+    var T = function (k) { return (settings.texts && settings.texts[k]) || EN[k]; };
+    var ESC = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' };
+    var esc = function (s) { return String(s).replace(/[&<>"]/g, function (ch) { return ESC[ch]; }); };
+    var host = document.createElement('div');
+    if (settings.lang) host.setAttribute('lang', settings.lang);
+    host.setAttribute('data-crm-chat', '');
+    var root = host.attachShadow({ mode: 'open' });
+    var color = /^#[0-9a-f]{6}$/i.test(settings.color) ? settings.color : '#4f46e5';
+    root.innerHTML = '<style>' +
+      ':host{all:initial}*{box-sizing:border-box;font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}' +
+      '.btn{position:fixed;right:20px;bottom:20px;width:56px;height:56px;border-radius:50%;border:0;background:' + color + ';color:#fff;cursor:pointer;box-shadow:0 4px 16px rgba(0,0,0,.25);display:grid;place-items:center;z-index:2147483646}' +
+      '.btn:focus-visible,.send:focus-visible{outline:3px solid #fff;outline-offset:2px;box-shadow:0 0 0 5px ' + color + '}' +
+      '.panel{position:fixed;right:20px;bottom:88px;width:360px;max-width:calc(100vw - 32px);height:520px;max-height:calc(100vh - 120px);background:var(--bg);color:var(--fg);border-radius:14px;box-shadow:0 8px 40px rgba(0,0,0,.28);display:none;flex-direction:column;overflow:hidden;z-index:2147483647;--bg:#fff;--fg:#111827;--muted:#6b7280;--bubble:#f3f4f6;--line:#e5e7eb}' +
+      '@media (prefers-color-scheme:dark){.panel{--bg:#1f2937;--fg:#f9fafb;--muted:#9ca3af;--bubble:#374151;--line:#4b5563}}' +
+      '@media (max-width:480px){.panel{right:16px;left:16px;width:auto;max-width:none;bottom:84px;height:calc(100vh - 110px)}}' +
+      '.open{display:flex}.head{background:' + color + ';color:#fff;padding:14px 16px;font-weight:600;font-size:15px;display:flex;justify-content:space-between;align-items:center}' +
+      '.x{background:none;border:0;color:#fff;font-size:22px;line-height:1;cursor:pointer;padding:0 4px}' +
+      '.list{flex:1;overflow-y:auto;padding:14px;display:flex;flex-direction:column;gap:8px}' +
+      '.m{max-width:80%;padding:8px 12px;border-radius:14px;font-size:14px;line-height:1.4;white-space:pre-wrap;word-wrap:break-word}' +
+      '.in{align-self:flex-end;background:' + color + ';color:#fff;border-bottom-right-radius:4px}.out{align-self:flex-start;background:var(--bubble);border-bottom-left-radius:4px}' +
+      '.who{font-size:11px;color:var(--muted);margin:2px 4px -4px}.form{border-top:1px solid var(--line);padding:10px;display:flex;flex-direction:column;gap:6px}' +
+      '.row{display:flex;gap:6px}input,textarea{width:100%;font-size:14px;padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--fg);resize:none}' +
+      '.send{border:0;border-radius:8px;background:' + color + ';color:#fff;padding:0 14px;font-weight:600;cursor:pointer}.send:disabled{opacity:.5;cursor:default}' +
+      '.err{color:#dc2626;font-size:12px;min-height:0}.typing{font-size:12px;color:var(--muted);padding:0 16px 6px;min-height:18px}' +
+      '.att{border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--muted);padding:0 9px;cursor:pointer}.att:disabled{opacity:.5;cursor:default}' +
+      '.f{display:block;max-width:80%;font-size:14px;color:var(--fg);text-decoration:none;word-break:break-all;border:1px solid var(--line);border-radius:12px;padding:8px 12px;background:var(--bg)}.f:hover{background:var(--bubble)}.f.in{align-self:flex-end}.f.out{align-self:flex-start}.f:has(img){padding:0;border:0;background:none}' +
+      '.f img{display:block;max-width:100%;max-height:200px;border-radius:12px;border:1px solid var(--line)}' +
+      '</style>' +
+      '<div class="panel" role="dialog" aria-label="Chat"><div class="head"><span class="title"></span><button class="x" type="button" aria-label="' + esc(T('chatClose')) + '">×</button></div>' +
+      '<div class="list" aria-live="polite"></div><div class="typing" aria-live="polite"></div>' +
+      '<form class="form"><div class="row id"><input name="name" placeholder="' + esc(T('chatName')) + '" autocomplete="name" maxlength="100"><input name="email" type="email" placeholder="' + esc(T('chatEmail')) + '" autocomplete="email" maxlength="200"></div>' +
+      '<div class="row"><button class="att" type="button" aria-label="' + esc(T('chatAttach')) + '" title="' + esc(T('chatAttach')) + '"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg></button><input type="file" class="file" hidden accept="image/png,image/jpeg,image/gif,image/webp,application/pdf" aria-label="' + esc(T('chatFile')) + '"><textarea name="body" rows="2" placeholder="' + esc(T('chatMessage')) + '" aria-label="' + esc(T('chatMessage')) + '" maxlength="4000" required></textarea><button class="send" type="submit">' + esc(T('chatSend')) + '</button></div><div class="err" role="alert"></div></form></div>' +
+      '<button class="btn" type="button" aria-label="' + esc(T('chatOpen')) + '" aria-expanded="false"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></button>';
+    document.body.appendChild(host);
+
+    var $ = function (s) { return root.querySelector(s); };
+    var panel = $('.panel'), list = $('.list'), form = $('.form'), btn = $('.btn'), err = $('.err'), send = $('.send');
+    var nameIn = $('input[name=name]'), emailIn = $('input[name=email]'), bodyIn = $('textarea');
+    $('.title').textContent = settings.name;
+    if (token) $('.id').style.display = 'none';
+    var timer = null, live = null, typingTimer = null, lastTyping = 0;
+    var typingEl = $('.typing');
+    function showTyping(name) {
+      typingEl.textContent = T('chatTyping').replace('{name}', name || '…');
+      clearTimeout(typingTimer);
+      typingTimer = setTimeout(function () { typingEl.textContent = ''; }, 6000);
+    }
+    // Live connection for the open chat; while it's up, polling slows to a safety net (30 s instead of 4 s).
+    function poll(ms) { if (timer) clearInterval(timer); timer = setInterval(refresh, ms); }
+    function connect() {
+      if (live || !token || typeof window.EventSource === 'undefined') return;
+      live = new window.EventSource(api + '/events?token=' + encodeURIComponent(token));
+      live.onopen = function () { poll(30000); };
+      live.onerror = function () { poll(4000); if (live && live.readyState === 2) { live = null; } };
+      live.addEventListener('messages', function () { typingEl.textContent = ''; refresh(); });
+      live.addEventListener('typing', function (e) { try { showTyping(JSON.parse(e.data).name); } catch { /* ignore */ } });
+    }
+    function disconnect() { if (live) { live.close(); live = null; } }
+
+    function render(messages) {
+      list.textContent = '';
+      if (settings.greeting) bubble('out', settings.greeting, '');
+      messages.forEach(function (m) { bubble(m.direction, m.body, m.direction === 'out' ? m.agent : '', m.files || []); });
+      list.scrollTop = list.scrollHeight;
+    }
+    var IMAGES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp'];
+    function bubble(dir, text, who, files) {
+      if (who) { var w = document.createElement('div'); w.className = 'who'; w.textContent = who; list.appendChild(w); }
+      (files || []).forEach(function (f) {
+        var url = api + '/files/' + f.id + '?token=' + encodeURIComponent(token);
+        var a = document.createElement('a');
+        a.className = 'f ' + dir;
+        a.target = '_blank';
+        a.rel = 'noopener';
+        if (IMAGES.indexOf(f.contentType) >= 0) {
+          a.href = url + '&inline=1';
+          var img = document.createElement('img');
+          img.src = url + '&inline=1';
+          img.alt = f.fileName;
+          a.appendChild(img);
+        } else {
+          a.href = url;
+          a.textContent = '📎 ' + f.fileName;
+        }
+        list.appendChild(a);
+      });
+      // "[Photo]" / "[File: …]" only describe the file for the team's list; with the file shown, they're left out.
+      if (files && files.length) text = text.replace(/^\[[^\]]*\]\s?/, '');
+      if (!text) return;
+      var d = document.createElement('div');
+      d.className = 'm ' + dir; // "in" = from the visitor (to the CRM), "out" = the team's reply
+      d.textContent = text;
+      list.appendChild(d);
+    }
+    function refresh() {
+      if (!token) return render([]);
+      request('GET', '/messages?token=' + encodeURIComponent(token)).then(function (r) { render(r.messages); }, function () {});
+    }
+    function toggle(open) {
+      panel.classList.toggle('open', open);
+      btn.setAttribute('aria-expanded', String(open));
+      btn.setAttribute('aria-label', open ? T('chatClose') : T('chatOpen'));
+      if (timer) { clearInterval(timer); timer = null; }
+      disconnect();
+      if (open) { refresh(); poll(4000); connect(); bodyIn.focus(); }
+    }
+    btn.addEventListener('click', function () { toggle(!panel.classList.contains('open')); });
+    $('.x').addEventListener('click', function () { toggle(false); btn.focus(); });
+    // Let the team see the visitor typing (at most every 4 seconds, only once the conversation exists).
+    bodyIn.addEventListener('input', function () {
+      var now = Date.now();
+      if (!token || !bodyIn.value.trim() || now - lastTyping < 4000) return;
+      lastTyping = now;
+      request('POST', '/typing', { token: token }).catch(function () {});
+    });
+    bodyIn.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); form.requestSubmit(); }
+    });
+    form.addEventListener('submit', function (e) {
+      e.preventDefault();
+      var text = bodyIn.value.trim();
+      if (!text) return;
+      send.disabled = true;
+      err.textContent = '';
+      var payload = { body: text };
+      if (token) payload.token = token;
+      if (nameIn.value.trim()) payload.name = nameIn.value.trim();
+      if (emailIn.value.trim()) payload.email = emailIn.value.trim();
+      request('POST', '/messages', payload).then(function (r) {
+        token = r.token;
+        try { localStorage.setItem(store, token); } catch { /* not persisted */ }
+        $('.id').style.display = 'none';
+        bodyIn.value = '';
+        lastTyping = 0;
+        render(r.messages);
+        connect();
+      }, function (x) {
+        err.textContent = x.message === '429' ? T('chatErrTooMany') : T('chatErrSend');
+      }).then(function () { send.disabled = false; });
+    });
+
+    // Photos and PDFs (the server checks the content too; up to 5 MB).
+    var att = $('.att'), fileIn = $('.file');
+    att.addEventListener('click', function () { fileIn.click(); });
+    fileIn.addEventListener('change', function () {
+      var f = fileIn.files && fileIn.files[0];
+      fileIn.value = '';
+      if (!f) return;
+      err.textContent = '';
+      if (f.size > 5 * 1024 * 1024) { err.textContent = T('chatErrSize'); return; }
+      att.disabled = true;
+      var url = api + '/files?fileName=' + encodeURIComponent(f.name) + (token ? '&token=' + encodeURIComponent(token) : '');
+      fetch(url, { method: 'POST', body: f, headers: { 'content-type': 'application/octet-stream', 'x-file-type': f.type || 'application/octet-stream' } })
+        .then(function (r) { if (!r.ok) throw new Error(String(r.status)); return r.json(); })
+        .then(function (r) {
+          token = r.token;
+          try { localStorage.setItem(store, token); } catch { /* not persisted */ }
+          $('.id').style.display = 'none';
+          render(r.messages);
+          connect();
+        }, function (x) {
+          err.textContent = x.message === '415' ? T('chatErrType') : x.message === '429' ? T('chatErrFiles') : x.message === '413' ? T('chatErrSize') : T('chatErrFile');
+        })
+        .then(function () { att.disabled = false; });
+    });
+  }
+})();

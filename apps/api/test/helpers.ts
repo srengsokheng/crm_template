@@ -1,9 +1,18 @@
  
 import type { FastifyInstance } from 'fastify';
 import { buildApp } from '../src/app.ts';
+import { processJobs, processOutbox } from '../src/automation/engine.ts';
 
 let appPromise: Promise<FastifyInstance> | null = null;
 export const getApp = () => (appPromise ??= buildApp({ logger: false }));
+
+/**
+ * Runs the outbox and every due job until nothing is left. Test files share one database, so jobs left by earlier
+ * files can be ahead of ours in the queue: running it once (20–50 jobs) may not reach them.
+ */
+export async function drainJobs(now?: Date): Promise<void> {
+  for (let i = 0; i < 50; i++) if (!((await processOutbox()) + (await processJobs(100, now)))) return;
+}
 
 let seq = 0;
 export const uniq = (p = 'u') => `${p}${Date.now().toString(36)}${(seq++).toString(36)}`;
@@ -16,6 +25,10 @@ export interface Client {
   put: <T = any>(url: string, body?: unknown) => Res<T>;
   del: <T = any>(url: string, body?: unknown) => Res<T>;
   raw: (method: string, url: string, opts?: { headers?: Record<string, string>; body?: unknown }) => Res<any>;
+  /** POST raw bytes (file uploads). */
+  upload: (url: string, data: Buffer, headers?: Record<string, string>) => Res<any>;
+  /** GET returning the raw response (bytes + headers). */
+  download: (url: string) => Promise<{ status: number; headers: Record<string, unknown>; body: Buffer }>;
 }
 
 export function client(app: FastifyInstance): Client {
@@ -43,6 +56,16 @@ export function client(app: FastifyInstance): Client {
     put: (u, b) => send('PUT', u, b ?? {}),
     del: (u, b) => send('DELETE', u, b),
     raw: (m, u, o = {}) => send(m, u, o.body, o.headers ?? {}),
+    upload: async (u, data, headers = {}) => {
+      const res = await app.inject({ method: 'POST', url: `/api/v1${u}`, payload: data,
+        headers: { ...(cookie ? { cookie } : {}), 'x-requested-with': 'crm', 'content-type': 'application/octet-stream', ...headers } });
+      let body: unknown = res.body; try { body = JSON.parse(res.body); } catch { /* not JSON */ }
+      return { status: res.statusCode, body: body as any };
+    },
+    download: async (u) => {
+      const res = await app.inject({ method: 'GET', url: `/api/v1${u}`, headers: cookie ? { cookie } : {} });
+      return { status: res.statusCode, headers: res.headers, body: res.rawPayload };
+    },
   };
 }
 

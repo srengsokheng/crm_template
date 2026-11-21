@@ -7,10 +7,14 @@ import { api, errorMessage, qsOf } from '../../lib/api.ts';
 import { cn } from '../../lib/cn.ts';
 import { dueLabel, money, relative } from '../../lib/format.ts';
 import { useCan, useLocalStorage, useMe, usePipelines } from '../../lib/hooks.ts';
-import { Button, Card, ErrorState, Segmented, Select, Skeleton } from '../../components/ui/primitives.tsx';
+import { Button, Card, ErrorState, Input, Segmented, Select, Skeleton } from '../../components/ui/primitives.tsx';
+import { PERIODS, PERIOD_LABEL, periodRange, type PeriodKind } from '@crm/shared';
 import { useCreate } from '../../app/create.tsx';
+import { MissingRates } from '../settings/MissingRates.tsx';
 import { useIsDark } from '../../app/theme.ts';
 import { ACTIVITY_ICON } from '../records/Timeline.tsx';
+import { TargetsCard } from '../targets/Targets.tsx';
+import { FeedbackCard } from '../feedback/Feedback.tsx';
 
 interface Dashboard {
   period: { from: string; to: string };
@@ -19,6 +23,7 @@ interface Dashboard {
   trend: { month: string; won: string; lost: string }[];
   myDay: { id: number; kind: keyof typeof ACTIVITY_ICON; subject: string; dueAt: string | null; link: { entityType: string; entityId: number } | null }[];
   recent: { id: number; action: string; changes: Record<string, unknown>; createdAt: string; actorName: string | null; title: string; entityId: number }[];
+  baseCurrency?: string; missingRates?: string[];
 }
 
 // Validated categorical slots 1–2 (see dataviz palette): light / dark variants.
@@ -34,6 +39,13 @@ function Kpi({ label, value, sub, tone }: { label: string; value: string; sub?: 
   );
 }
 
+/** Today in the browser's time zone, as YYYY-MM-DD. */
+const localToday = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
+const rangeText = (from: string, to: string) => {
+  const f = (x: string) => new Date(`${x}T00:00:00`).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  return from && to ? `${f(from)} – ${f(to)}` : '';
+};
+
 export function HomePage() {
   const { data: me } = useMe();
   const can = useCan();
@@ -43,7 +55,16 @@ export function HomePage() {
   const [scope, setScope] = useLocalStorage<'me' | 'team' | 'all'>('dash-scope', 'all');
   const [pipelineId, setPipelineId] = useLocalStorage<number | null>('dash-pipeline', null);
   const pid = pipelines.some((p) => p.id === pipelineId) ? pipelineId : null;
-  const q = useQuery({ queryKey: ['dashboard', scope, pid], queryFn: () => api.get<Dashboard>(`/dashboard${qsOf({ scope, pipelineId: pid })}`) });
+  const [periodKind, setPeriodKind] = useLocalStorage<PeriodKind>('dash-period', 'month');
+  const [custom, setCustom] = useLocalStorage<{ from: string; to: string }>('dash-period-custom', periodRange('month', localToday())!);
+  const kind = PERIODS.includes(periodKind) ? periodKind : 'month';
+  const range = kind === 'custom' ? custom : periodRange(kind, localToday())!;
+  const badRange = !range.from || !range.to || range.from > range.to;
+  const periodText = kind === 'custom' ? 'in this period' : PERIOD_LABEL[kind].toLowerCase();
+  const q = useQuery({
+    queryKey: ['dashboard', scope, pid, range.from, range.to], enabled: !badRange,
+    queryFn: () => api.get<Dashboard>(`/dashboard${qsOf({ scope, pipelineId: pid, from: range.from, to: range.to })}`),
+  });
   const cur = me?.workspace.baseCurrency ?? 'USD';
   const hour = new Date().getHours();
   const greet = hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening';
@@ -59,17 +80,28 @@ export function HomePage() {
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="text-xl font-semibold tracking-tight">{greet}, {me?.user.name.split(' ')[0]}</h1>
-          <p className="text-sm text-muted">Here’s where things stand{q.data ? ` · ${new Date(q.data.period.from).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}` : ''}.</p>
+          <p className="text-sm text-muted">Here’s where things stand · {rangeText(range.from, range.to)}.</p>
         </div>
-        <Segmented value={scope} onChange={setScope} options={[{ value: 'me', label: 'Me' }, { value: 'team', label: 'My team' }, { value: 'all', label: 'Everyone' }]} />
+        <div className="flex flex-wrap items-center gap-2">
+          <Select aria-label="Period" className="w-auto" value={kind} onChange={(e) => setPeriodKind(e.target.value as PeriodKind)}>
+            {PERIODS.map((p) => <option key={p} value={p}>{PERIOD_LABEL[p]}</option>)}
+          </Select>
+          {kind === 'custom' && <>
+            <Input type="date" aria-label="From" className="w-auto" value={custom.from} max={custom.to || undefined} onChange={(e) => setCustom({ ...custom, from: e.target.value })} />
+            <Input type="date" aria-label="To" className="w-auto" value={custom.to} min={custom.from || undefined} onChange={(e) => setCustom({ ...custom, to: e.target.value })} />
+          </>}
+          <Segmented value={scope} onChange={setScope} options={[{ value: 'me', label: 'Me' }, { value: 'team', label: 'My team' }, { value: 'all', label: 'Everyone' }]} />
+        </div>
       </div>
+      {badRange && <p role="alert" className="text-sm text-rose-600">Pick a start date on or before the end date.</p>}
 
+      <MissingRates currencies={q.data?.missingRates} base={q.data?.baseCurrency} />
       {q.error ? <Card><ErrorState message={errorMessage(q.error)} onRetry={() => q.refetch()} /></Card> : (
         <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
           {!k ? Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-24" />) : <>
             <Kpi label="Open pipeline" value={money(k.openAmount, cur, { compact: true })} sub={`${k.openCount} deals · ${money(k.weightedAmount, cur, { compact: true })} weighted`} />
-            <Kpi label="Won this month" value={money(k.wonAmount, cur, { compact: true })} sub={`${k.wonCount} deal${k.wonCount === 1 ? '' : 's'}`} />
-            <Kpi label="Win rate" value={k.winRate === null ? '—' : `${k.winRate}%`} sub={`${k.wonCount} won · ${k.lostCount} lost this month`} />
+            <Kpi label={`Won ${periodText}`} value={money(k.wonAmount, cur, { compact: true })} sub={`${k.wonCount} deal${k.wonCount === 1 ? '' : 's'}`} />
+            <Kpi label="Win rate" value={k.winRate === null ? '—' : `${k.winRate}%`} sub={`${k.wonCount} won · ${k.lostCount} lost ${periodText}`} />
             <Kpi label="Overdue" value={String(k.overdueActivities)} sub={`activities · ${k.overdueDeals} deals past close date`} tone={k.overdueActivities ? 'warn' : undefined} />
           </>}
         </div>
@@ -121,6 +153,8 @@ export function HomePage() {
           </Card>
         </div>
         <div className="space-y-4">
+          <TargetsCard />
+          <FeedbackCard />
           <Card title={<span className="flex items-center gap-1.5"><CalendarClock className="size-4 text-brand-600" />My day</span>} padded={false}
             actions={can('activity', 'create') && <Button size="sm" variant="ghost" icon={<Plus className="size-3.5" />} onClick={() => create.open('activity')}>Add</Button>}>
             {!q.data ? <div className="p-4"><Skeleton className="h-24" /></div> : q.data.myDay.length ? (
@@ -162,7 +196,7 @@ export function HomePage() {
             <Card>
               <div className="flex items-center justify-between text-sm">
                 <div><div className="text-muted">Open leads</div><div className="text-xl font-semibold tabular">{k.openLeads}</div></div>
-                <div className="text-right"><div className="text-muted">New this month</div><div className="text-xl font-semibold tabular">{k.newLeads}</div></div>
+                <div className="text-right"><div className="text-muted">New {periodText}</div><div className="text-xl font-semibold tabular">{k.newLeads}</div></div>
               </div>
               {k.openLeads > 0 && <Link to="/leads" className="mt-2 inline-flex items-center gap-1 text-[13px] font-medium text-brand-600 hover:underline"><AlertTriangle className="size-3.5" />Review leads</Link>}
             </Card>

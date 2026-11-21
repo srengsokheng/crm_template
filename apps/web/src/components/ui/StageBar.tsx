@@ -18,7 +18,7 @@ export function StageBar({ stages, currentId, status, onSelect, disabled }: {
           <button key={s.id} type="button" role="listitem" disabled={disabled || !onSelect || isCurrent}
             onClick={() => onSelect?.(s)} aria-current={isCurrent ? 'step' : undefined}
             title={isCurrent ? `Current stage: ${s.name}` : `Move to ${s.name}`}
-            className={cn('group relative flex h-8 min-w-24 flex-1 items-center justify-center rounded-md px-3 text-xs font-medium transition-colors',
+            className={cn('group relative flex h-8 min-w-0 flex-1 items-center justify-center rounded-md px-1.5 text-xs font-medium transition-colors sm:min-w-24 sm:px-3',
               status === 'lost' ? 'bg-rose-100 text-rose-700 dark:bg-rose-500/15 dark:text-rose-200'
                 : reached ? 'bg-brand-600 text-white' : 'bg-[var(--surface-2)] text-muted hover:bg-brand-100 hover:text-brand-700 dark:hover:bg-brand-600/30',
               isCurrent && 'ring-2 ring-brand-300 ring-offset-1 ring-offset-[var(--surface)]', 'disabled:cursor-default')}>
@@ -27,8 +27,8 @@ export function StageBar({ stages, currentId, status, onSelect, disabled }: {
         );
       })}
       {status !== 'open' && current && (
-        <div className={cn('flex h-8 min-w-24 items-center justify-center gap-1 rounded-md px-3 text-xs font-semibold',
-          status === 'won' ? 'bg-emerald-600 text-white' : 'bg-rose-600 text-white')}>
+        <div className={cn('flex h-8 min-w-0 shrink-0 items-center justify-center gap-1 rounded-md px-2 text-xs font-semibold sm:min-w-24 sm:px-3',
+          status === 'won' ? 'bg-emerald-700 text-white' : 'bg-rose-700 text-white')}>
           {status === 'won' ? <Check className="size-3.5" /> : <X className="size-3.5" />}{current.name}
         </div>
       )}

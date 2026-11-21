@@ -1,7 +1,7 @@
 export const RECORD_TYPES = ['lead', 'deal', 'contact', 'company'] as const;
 export type RecordType = (typeof RECORD_TYPES)[number];
 
-export const PERMISSION_ENTITIES = ['lead', 'deal', 'contact', 'company', 'product', 'activity'] as const;
+export const PERMISSION_ENTITIES = ['lead', 'deal', 'contact', 'company', 'product', 'activity', 'conversation'] as const;
 export type PermissionEntity = (typeof PERMISSION_ENTITIES)[number];
 
 export const PERMISSION_ACTIONS = ['view', 'create', 'edit', 'delete', 'export', 'import'] as const;
@@ -50,8 +50,8 @@ export type FieldType = (typeof FIELD_TYPES)[number];
 export const FIELD_ENTITY_TYPES = ['lead', 'deal', 'contact', 'company', 'product'] as const;
 export type FieldEntityType = (typeof FIELD_ENTITY_TYPES)[number];
 
-export const AUTOMATION_TRIGGERS = ['stage_entered', 'created'] as const;
-export const AUTOMATION_ACTIONS = ['create_activity', 'notify', 'add_note', 'update_field', 'assign_owner', 'move_stage'] as const;
+export const AUTOMATION_TRIGGERS = ['stage_entered', 'created', 'field_changed'] as const;
+export const AUTOMATION_ACTIONS = ['create_activity', 'notify', 'add_note', 'update_field', 'assign_owner', 'move_stage', 'webhook'] as const;
 export type AutomationAction = (typeof AUTOMATION_ACTIONS)[number];
 
 export const CURRENCIES = ['USD', 'EUR', 'GBP', 'KHR', 'THB', 'SGD', 'JPY', 'CNY', 'AUD', 'CAD'] as const;

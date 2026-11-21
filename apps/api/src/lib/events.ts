@@ -1,6 +1,6 @@
 import { q, sql, type Db } from '../db/index.ts';
 
-export type DomainEvent = 'deal.created' | 'deal.stage_entered' | 'lead.created' | 'lead.stage_entered';
+export type DomainEvent = 'deal.created' | 'deal.stage_entered' | 'deal.field_changed' | 'lead.created' | 'lead.stage_entered' | 'lead.field_changed';
 
 export async function emit(
   db: Db, workspaceId: number, type: DomainEvent, entityType: 'deal' | 'lead', entityId: number,

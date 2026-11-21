@@ -1,29 +1,60 @@
 import { useNavigate } from 'react-router';
 import { api } from '../../lib/api.ts';
-import { useAction, useFields, useMe, usePipelines } from '../../lib/hooks.ts';
+import { useAction, useFields, useMe, usePipelines, useFieldLock } from '../../lib/hooks.ts';
 import { Button, Field, Input, Select, Textarea } from '../../components/ui/primitives.tsx';
 import { Drawer } from '../../components/ui/overlays.tsx';
 import { EntityPicker, MultiEntityPicker, type PickerItem } from '../../components/ui/EntityPicker.tsx';
-import { clean, CustomFieldInput, DictSelect, useRequiredAt, UserSelect, useForm } from '../records/form.tsx';
+import { personName } from '../../lib/format.ts';
+import { changes, clean, CustomFieldInput, DictSelect, useRequiredAt, UserSelect, useForm } from '../records/form.tsx';
 
-export function DealForm({ open, onClose, defaults }: { open: boolean; onClose: () => void; defaults?: Record<string, unknown> }) {
+/** The deal as the record page has it; passing one turns the drawer into "Edit deal" (stage stays on the stage bar). */
+export interface DealRecord {
+  id: number; version: number; title: string; amount: string; currency: string; amountMode: string; pipelineId: number; stageId: number;
+  expectedCloseDate: string | null; ownerId: number; dealTypeId: number | null; sourceId: number | null; description: string | null;
+  custom: Record<string, unknown>; company: { id: number; name: string } | null; contacts: { id: number; firstName: string | null; lastName: string | null }[];
+}
+
+export function DealForm({ open, onClose, defaults, record }: { open: boolean; onClose: () => void; defaults?: Record<string, unknown>; record?: DealRecord }) {
   const { data: me } = useMe();
   const nav = useNavigate();
   const pipelines = usePipelines('deal');
   const req = useRequiredAt();
   const defs = useFields('deal');
+  const locked = useFieldLock();
   const initialPipeline = pipelines.find((p) => p.id === defaults?.pipelineId) ?? pipelines.find((p) => p.isDefault) ?? pipelines[0];
-  const f = useForm({
+  const initial = record ? {
+    title: record.title, amount: record.amount ?? '', currency: record.currency, pipelineId: record.pipelineId as number | null, stageId: record.stageId as number | null,
+    expectedCloseDate: record.expectedCloseDate ?? '', ownerId: record.ownerId as number | null, dealTypeId: record.dealTypeId, sourceId: record.sourceId,
+    company: record.company ? { id: record.company.id, label: record.company.name } as PickerItem | null : null,
+    contacts: record.contacts.map((c) => ({ id: c.id, label: personName(c.firstName, c.lastName) })) as PickerItem[],
+    description: record.description ?? '', custom: { ...record.custom } as Record<string, unknown>,
+  } : {
     title: '', amount: '', currency: me?.workspace.baseCurrency ?? 'USD', pipelineId: (initialPipeline?.id ?? null) as number | null,
     stageId: (defaults?.stageId as number | undefined) ?? initialPipeline?.stages.find((s) => s.kind === 'open')?.id ?? null as number | null,
     expectedCloseDate: '', ownerId: me?.user.id ?? null as number | null, dealTypeId: null as number | null, sourceId: null as number | null,
     company: (defaults?.company as PickerItem | undefined) ?? null as PickerItem | null,
     contacts: (defaults?.contacts as PickerItem[] | undefined) ?? [] as PickerItem[], description: '', custom: {} as Record<string, unknown>,
-  });
+  };
+  const f = useForm(initial);
   const v = f.values;
   const pipeline = pipelines.find((p) => p.id === v.pipelineId);
   const stages = pipeline?.stages.filter((s) => s.kind === 'open') ?? [];
-  const save = useAction(() => api.post<{ id: number }>('/deals', clean({
+  /** Edit: the changed fields only, in the API's shape, with the version the page loaded (409 if someone saved since). */
+  const editBody = () => {
+    const out: Record<string, unknown> = clean(changes(initial, v) as Record<string, unknown>);
+    if ('company' in out) { out.companyId = v.company?.id ?? null; delete out.company; }
+    if ('contacts' in out) { out.contactIds = v.contacts.map((c) => c.id); delete out.contacts; }
+    return out;
+  };
+  const update = useAction(() => {
+    const body = editBody();
+    return Object.keys(body).length ? api.patch<{ id: number }>(`/deals/${record!.id}`, { ...body, version: record!.version }) : Promise.resolve({ id: record!.id });
+  }, {
+    success: 'Deal saved', invalidate: [['deal', record?.id], ['deals'], ['deals-board'], ['timeline', 'deal', record?.id], ['contact'], ['company']],
+    onSuccess: () => onClose(),
+    onError: (e) => { f.fromError(e); return false; },
+  });
+  const create = useAction(() => api.post<{ id: number }>('/deals', clean({
     title: v.title, amount: v.amount, currency: v.currency, pipelineId: v.pipelineId, stageId: v.stageId, expectedCloseDate: v.expectedCloseDate,
     ownerId: v.ownerId, dealTypeId: v.dealTypeId, sourceId: v.sourceId, companyId: v.company?.id ?? null, contactIds: v.contacts.map((c) => c.id),
     description: v.description, custom: v.custom,
@@ -32,32 +63,33 @@ export function DealForm({ open, onClose, defaults }: { open: boolean; onClose: 
     onSuccess: (r) => { onClose(); if (!defaults?.stay) nav(`/deals/${r.id}`); },
     onError: (e) => { f.fromError(e); return false; },
   });
+  const save = record ? update : create;
   return (
-    <Drawer open={open} onOpenChange={(o) => !o && onClose()} title="New deal"
-      footer={<><Button onClick={onClose}>Cancel</Button><Button variant="primary" loading={save.isPending} onClick={() => save.mutate(undefined)}>Create deal</Button></>}>
+    <Drawer open={open} onOpenChange={(o) => !o && onClose()} title={record ? 'Edit deal' : 'New deal'}
+      footer={<><Button onClick={onClose}>Cancel</Button><Button variant="primary" loading={save.isPending} onClick={() => save.mutate(undefined)}>{record ? 'Save changes' : 'Create deal'}</Button></>}>
       <form className="space-y-4" onSubmit={(e) => { e.preventDefault(); save.mutate(undefined); }}>
         <Field label="Deal name" required htmlFor="d-title" error={f.errors.title}><Input id="d-title" autoFocus placeholder="e.g. Acme — 3 robotic arms" value={v.title} invalid={!!f.errors.title} onChange={(e) => f.set('title', e.target.value)} /></Field>
         <div className="grid gap-3 sm:grid-cols-[1fr_110px]">
-          <Field label="Amount" htmlFor="d-amt" error={f.errors.amount} hint="Leave empty to calculate from products"><Input id="d-amt" inputMode="decimal" placeholder="0.00" value={v.amount} invalid={!!f.errors.amount} onChange={(e) => f.set('amount', e.target.value)} /></Field>
-          <Field label="Currency" htmlFor="d-cur"><Select id="d-cur" value={v.currency} onChange={(e) => f.set('currency', e.target.value)}>{['USD', 'EUR', 'GBP', 'KHR', 'THB', 'SGD', 'JPY', 'CNY', 'AUD', 'CAD'].map((c) => <option key={c}>{c}</option>)}</Select></Field>
+          {!locked('deal', 'amount') && <Field label="Amount" htmlFor="d-amt" error={f.errors.amount} hint={record ? (record.amountMode === 'auto' ? 'Calculated from products; typing an amount switches to manual' : undefined) : 'Leave empty to calculate from products'}><Input id="d-amt" inputMode="decimal" placeholder="0.00" value={v.amount} invalid={!!f.errors.amount} onChange={(e) => f.set('amount', e.target.value)} /></Field>}
+          {!locked('deal', 'currency') && <Field label="Currency" htmlFor="d-cur"><Select id="d-cur" value={v.currency} onChange={(e) => f.set('currency', e.target.value)}>{['USD', 'EUR', 'GBP', 'KHR', 'THB', 'SGD', 'JPY', 'CNY', 'AUD', 'CAD'].map((c) => <option key={c}>{c}</option>)}</Select></Field>}
         </div>
         <div className="grid gap-3 sm:grid-cols-2">
-          {pipelines.length > 1 && (
+          {!record && pipelines.length > 1 && (
             <Field label="Pipeline" htmlFor="d-pipe"><Select id="d-pipe" value={v.pipelineId ?? ''} onChange={(e) => { const p = pipelines.find((x) => x.id === Number(e.target.value)); f.setValues((s) => ({ ...s, pipelineId: p?.id ?? null, stageId: p?.stages.find((x) => x.kind === 'open')?.id ?? null })); }}>
               {pipelines.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</Select></Field>
           )}
-          <Field label="Stage" htmlFor="d-stage" error={f.errors.stageId}><Select id="d-stage" value={v.stageId ?? ''} onChange={(e) => f.set('stageId', Number(e.target.value))}>{stages.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}</Select></Field>
-          <Field label="Expected close" htmlFor="d-close" error={f.errors.expectedCloseDate}><Input id="d-close" type="date" value={v.expectedCloseDate} onChange={(e) => f.set('expectedCloseDate', e.target.value)} /></Field>
-          <Field label="Owner" htmlFor="d-owner"><UserSelect id="d-owner" value={v.ownerId} onChange={(x) => f.set('ownerId', x)} /></Field>
+          {!record && <Field label="Stage" htmlFor="d-stage" error={f.errors.stageId}><Select id="d-stage" value={v.stageId ?? ''} onChange={(e) => f.set('stageId', Number(e.target.value))}>{stages.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}</Select></Field>}
+          {!locked('deal', 'expectedCloseDate') && <Field label="Expected close" htmlFor="d-close" error={f.errors.expectedCloseDate}><Input id="d-close" type="date" value={v.expectedCloseDate} onChange={(e) => f.set('expectedCloseDate', e.target.value)} /></Field>}
+          {!locked('deal', 'ownerId') && <Field label="Owner" htmlFor="d-owner"><UserSelect id="d-owner" value={v.ownerId} onChange={(x) => f.set('ownerId', x)} /></Field>}
         </div>
-        <Field label="Company" htmlFor="d-co"><EntityPicker id="d-co" entity="companies" value={v.company} onChange={(x) => f.set('company', x)} placeholder="Search companies" /></Field>
-        <Field label="Contacts"><MultiEntityPicker entity="contacts" value={v.contacts} onChange={(x) => f.set('contacts', x)} placeholder="Add contact" /></Field>
+        {!locked('deal', 'companyId') && <Field label="Company" htmlFor="d-co"><EntityPicker id="d-co" entity="companies" value={v.company} onChange={(x) => f.set('company', x)} placeholder="Search companies" /></Field>}
+        {!locked('deal', 'contactIds') && <Field label="Contacts"><MultiEntityPicker entity="contacts" value={v.contacts} onChange={(x) => f.set('contacts', x)} placeholder="Add contact" /></Field>}
         <div className="grid gap-3 sm:grid-cols-2">
-          <Field label="Deal type" htmlFor="d-type"><DictSelect id="d-type" kind="deal_type" value={v.dealTypeId} onChange={(x) => f.set('dealTypeId', x)} /></Field>
-          <Field label="Source" htmlFor="d-src"><DictSelect id="d-src" kind="lead_source" value={v.sourceId} onChange={(x) => f.set('sourceId', x)} /></Field>
+          {!locked('deal', 'dealTypeId') && <Field label="Deal type" htmlFor="d-type"><DictSelect id="d-type" kind="deal_type" value={v.dealTypeId} onChange={(x) => f.set('dealTypeId', x)} /></Field>}
+          {!locked('deal', 'sourceId') && <Field label="Source" htmlFor="d-src"><DictSelect id="d-src" kind="lead_source" value={v.sourceId} onChange={(x) => f.set('sourceId', x)} /></Field>}
         </div>
-        <Field label="Description" htmlFor="d-desc"><Textarea id="d-desc" value={v.description} onChange={(e) => f.set('description', e.target.value)} /></Field>
-        {defs.map((d) => (
+        {!locked('deal', 'description') && <Field label="Description" htmlFor="d-desc"><Textarea id="d-desc" value={v.description} onChange={(e) => f.set('description', e.target.value)} /></Field>}
+        {defs.filter((d) => !locked('deal', `custom.${d.key}`)).map((d) => (
           <Field key={d.id} label={d.label} required={req.isRequired(d, v.stageId)} htmlFor={`df-${d.key}`} error={f.errors[`custom.${d.key}`]} hint={d.helpText ?? undefined}>
             <CustomFieldInput id={`df-${d.key}`} def={d} value={v.custom[d.key]} invalid={!!f.errors[`custom.${d.key}`]} onChange={(x) => f.set('custom', { ...v.custom, [d.key]: x })} />
           </Field>

@@ -2,6 +2,7 @@ import { q, q1, sql, type Db } from '../db/index.ts';
 import { audit } from './audit.ts';
 import type { Ctx } from './context.ts';
 import { badRequest, notFound } from './errors.ts';
+import { assertPipelineAllowed } from './permissions.ts';
 import { emit } from './events.ts';
 
 export interface MoveInput { stageId: number; custom?: Record<string, unknown>; lostReasonId?: number | null; lostNote?: string | null }
@@ -20,12 +21,16 @@ export async function resolvePipelineStage(db: Db, ctx: Ctx, entity: 'lead' | 'd
     const s = await getStage(db, ctx, stageId);
     if (s.entity_type !== entity) throw badRequest('Stage belongs to another kind of pipeline', { stageId: 'Invalid stage' });
     if (pipelineId && s.pipeline_id !== pipelineId) throw badRequest('Stage does not belong to this pipeline', { stageId: 'Invalid stage' });
+    assertPipelineAllowed(ctx, s.pipeline_id);
     return s;
   }
+  const blocked = ctx.blockedPipelineIds ?? [];
   const p = pipelineId
     ? await q1<{ id: number }>(sql`SELECT id FROM pipelines WHERE id = ${pipelineId} AND workspace_id = ${ctx.workspaceId} AND entity_type = ${entity}`, db)
-    : await q1<{ id: number }>(sql`SELECT id FROM pipelines WHERE workspace_id = ${ctx.workspaceId} AND entity_type = ${entity} ORDER BY is_default DESC, sort, id LIMIT 1`, db);
-  if (!p) throw badRequest('Pipeline not found', { pipelineId: 'Invalid pipeline' });
+    : await q1<{ id: number }>(sql`SELECT id FROM pipelines WHERE workspace_id = ${ctx.workspaceId} AND entity_type = ${entity}
+        AND NOT (id = ANY(${blocked})) ORDER BY is_default DESC, sort, id LIMIT 1`, db);
+  if (!p) throw badRequest(pipelineId ? 'Pipeline not found' : 'You have no pipeline you can use', { pipelineId: 'Invalid pipeline' });
+  assertPipelineAllowed(ctx, p.id);
   const s = await q1<StageRow>(sql`SELECT s.id, s.pipeline_id, s.name, s.kind, s.probability, s.sort, ${entity}::text AS entity_type FROM stages s
     WHERE s.pipeline_id = ${p.id} AND s.kind = 'open' ORDER BY s.sort, s.id LIMIT 1`, db);
   if (!s) throw badRequest('This pipeline has no open stages');

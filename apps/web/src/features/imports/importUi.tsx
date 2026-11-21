@@ -1,5 +1,5 @@
 import { Check } from 'lucide-react';
-import { IMPORT_TARGETS, toCsv, type ImportEntity, type ImportOptions } from '@crm/shared';
+import { IMPORT_ENTITIES, IMPORT_TARGETS, toCsv, type ImportEntity, type ImportOptions } from '@crm/shared';
 import { cn } from '../../lib/cn.ts';
 import type { FieldDef } from '../../lib/types.ts';
 import { Badge } from '../../components/ui/primitives.tsx';
@@ -8,8 +8,11 @@ export const ENTITY: Record<ImportEntity, { one: string; many: string; list: str
   contact: { one: 'contact', many: 'contacts', list: '/contacts', Many: 'Contacts' },
   company: { one: 'company', many: 'companies', list: '/companies', Many: 'Companies' },
   lead: { one: 'lead', many: 'leads', list: '/leads?view=list', Many: 'Leads' },
+  deal: { one: 'deal', many: 'deals', list: '/deals?view=list', Many: 'Deals' },
+  product: { one: 'product', many: 'products', list: '/products', Many: 'Products' },
+  deal_line: { one: 'product line', many: 'products on deals', list: '/deals?view=list', Many: 'Products on deals' },
 };
-export const isImportEntity = (v: string | undefined): v is ImportEntity => v === 'contact' || v === 'company' || v === 'lead';
+export const isImportEntity = (v: string | undefined): v is ImportEntity => !!v && (IMPORT_ENTITIES as readonly string[]).includes(v);
 
 export type ImportStatus = 'draft' | 'queued' | 'running' | 'done' | 'failed' | 'canceled';
 export interface ImportView {
@@ -22,7 +25,7 @@ export interface ImportView {
 }
 export interface PreviewRow { i: number; row: number; action: 'create' | 'update' | 'skip' | 'error'; title: string; recordId?: number; message?: string }
 export interface PreviewResult {
-  summary: { create: number; update: number; skip: number; error: number; newCompanies: number };
+  summary: { create: number; update: number; skip: number; error: number; newCompanies: number; newOptions: number };
   rows: PreviewRow[]; problems: PreviewRow[];
 }
 
@@ -66,7 +69,7 @@ export function Steps({ current }: { current: number }) {
         <li key={s} className="flex items-center gap-2" aria-current={i === current ? 'step' : undefined}>
           {i > 0 && <span className="h-px w-4 bg-[var(--border)] sm:w-6" aria-hidden />}
           <span className={cn('flex size-5 items-center justify-center rounded-full text-[11px] font-semibold',
-            i < current ? 'bg-emerald-600 text-white' : i === current ? 'bg-brand-600 text-white' : 'bg-[var(--surface-2)] text-muted')}>
+            i < current ? 'bg-emerald-700 text-white' : i === current ? 'bg-brand-600 text-white' : 'bg-[var(--surface-2)] text-muted')}>
             {i < current ? <Check className="size-3" /> : i + 1}
           </span>
           <span className={cn(i === current ? 'font-medium' : 'text-muted', i !== current && 'max-sm:sr-only')}>{s}</span>

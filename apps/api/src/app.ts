@@ -7,14 +7,16 @@ import rateLimit from '@fastify/rate-limit';
 import { config } from './config.ts';
 import { loadContext, SESSION_COOKIE } from './lib/auth.ts';
 import { AppError } from './lib/errors.ts';
+import { stripHidden } from './lib/fieldAccess.ts';
 import { registerRoutes } from './routes/index.ts';
 
-const PUBLIC_API = new Set(['/api/v1/auth/login', '/api/v1/auth/signup', '/api/v1/auth/accept-invite', '/api/v1/health']);
+const PUBLIC_API = new Set(['/api/v1/auth/login', '/api/v1/auth/signup', '/api/v1/auth/accept-invite', '/api/v1/health',
+  '/api/v1/auth/forgot-password', '/api/v1/auth/reset-password', '/api/v1/auth/confirm-email']);
 
 export async function buildApp(opts: { logger?: boolean } = {}): Promise<FastifyInstance> {
   const app = Fastify({
     logger: opts.logger ?? (config.isTest ? false : config.isProd ? true : { transport: { target: 'pino-pretty' } }),
-    trustProxy: true,
+    trustProxy: config.trustProxy,
     bodyLimit: 1024 * 1024,
   });
 
@@ -32,15 +34,28 @@ export async function buildApp(opts: { logger?: boolean } = {}): Promise<Fastify
   app.addHook('onRequest', async (req) => {
     const path = req.url.split('?')[0];
     if (!path.startsWith('/api/')) return;
+    // Website chat widget and platform webhooks: no session, no cookies (each checks its own key or secret).
+    if (path.startsWith('/api/v1/public/') || path.startsWith('/api/v1/hooks/')) return;
     // CSRF defence: mutating API calls must carry our custom header (not sendable cross-site without CORS).
     if (!['GET', 'HEAD', 'OPTIONS'].includes(req.method) && req.headers['x-requested-with'] !== 'crm') {
       throw new AppError(403, 'CSRF', 'Missing X-Requested-With header');
     }
     const token = req.cookies[SESSION_COOKIE];
     if (token) req.ctx = (await loadContext(token)) ?? undefined;
-    if (!req.ctx && !PUBLIC_API.has(path) && !path.startsWith('/api/v1/auth/invite/')) {
+    if (!req.ctx && !PUBLIC_API.has(path) && !path.startsWith('/api/v1/auth/invite/') && !path.startsWith('/api/v1/auth/reset/')) {
       throw new AppError(401, 'UNAUTHENTICATED', 'Please sign in');
     }
+  });
+
+  // Field-level permissions: hidden custom field values never leave the API on deal/lead/contact/company routes.
+  app.addHook('preSerialization', async (req, _reply, payload) => {
+    const ctx = req.ctx;
+    if (!ctx || ctx.isAdmin || !ctx.fieldRules || !payload || typeof payload !== 'object') return payload;
+    const m = /^\/api\/v1\/(deals|leads|contacts|companies)(\/|$)/.exec(req.routeOptions.url ?? '');
+    if (!m) return payload;
+    const entity = ({ deals: 'deal', leads: 'lead', contacts: 'contact', companies: 'company' } as const)[m[1] as 'deals'];
+    const p = stripHidden(ctx, entity, payload as Record<string, unknown>);
+    return Array.isArray(p.data) ? { ...p, data: p.data.map((r: unknown) => stripHidden(ctx, entity, r)) } : p;
   });
 
   app.setErrorHandler((err, req, reply) => {
@@ -61,10 +76,18 @@ export async function buildApp(opts: { logger?: boolean } = {}): Promise<Fastify
 
   await app.register(registerRoutes, { prefix: '/api/v1' });
 
+  // The website chat widget, embedded on customers' sites with <script src=".../widget.js" data-key="…">.
+  const widget = await readFile(new URL('./inbox/widget.js', import.meta.url));
+  app.get('/widget.js', async (_req, reply) => reply
+    .header('content-type', 'text/javascript; charset=utf-8')
+    .header('cache-control', 'public, max-age=3600')
+    .header('cross-origin-resource-policy', 'cross-origin')
+    .send(widget));
+
   // Serve the built SPA (production). Unknown non-API paths fall back to index.html.
   const types: Record<string, string> = {
     '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml',
-    '.png': 'image/png', '.ico': 'image/x-icon', '.woff2': 'font/woff2', '.json': 'application/json',
+    '.png': 'image/png', '.ico': 'image/x-icon', '.woff2': 'font/woff2', '.json': 'application/json', '.webmanifest': 'application/manifest+json',
   };
   app.setNotFoundHandler(async (req, reply) => {
     const path = req.url.split('?')[0];

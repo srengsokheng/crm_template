@@ -1,6 +1,7 @@
 import { useState } from 'react';
+import { useNavigate } from 'react-router';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
-import { Package, Plus } from 'lucide-react';
+import { Package, Plus, Upload } from 'lucide-react';
 import { api, errorMessage, qsOf } from '../../lib/api.ts';
 import { money } from '../../lib/format.ts';
 import { useAction, useCan, useMe, useMeta } from '../../lib/hooks.ts';
@@ -15,6 +16,7 @@ interface Product { id: number; name: string; sku: string | null; categoryId: nu
 
 export function ProductsPage() {
   const can = useCan();
+  const nav = useNavigate();
   const { data: meta } = useMeta();
   const lp = useListParams({ sort: 'name' });
   const [editing, setEditing] = useState<Product | 'new' | null>(null);
@@ -29,7 +31,10 @@ export function ProductsPage() {
   ];
   return (
     <div>
-      <PageHeader title="Products" subtitle="Your catalog of products and services" actions={can('product', 'create') && <Button variant="primary" icon={<Plus className="size-4" />} onClick={() => setEditing('new')}>New product</Button>} />
+      <PageHeader title="Products" subtitle="Your catalog of products and services" actions={<>
+        {can('product', 'import') && <Button icon={<Upload className="size-4" />} onClick={() => nav('/import/product')}>Import</Button>}
+        {can('product', 'create') && <Button variant="primary" icon={<Plus className="size-4" />} onClick={() => setEditing('new')}>New product</Button>}
+      </>} />
       <Toolbar>
         <SearchBox value={lp.get('q')} onChange={(v) => lp.set({ q: v })} placeholder="Search name or SKU" />
         <FilterSelect label="Category" value={lp.get('categoryId')} onChange={(v) => lp.set({ categoryId: v })} options={(meta?.productCategories ?? []).map((c) => ({ value: String(c.id), label: c.name }))} />

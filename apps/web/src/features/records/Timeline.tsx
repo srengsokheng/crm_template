@@ -1,47 +1,67 @@
 import { useState } from 'react';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { Link } from 'react-router';
+import { useInfiniteQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { ArrowRightLeft, Bot, CalendarClock, CheckCircle2, Circle, Mail, MessageSquare, Phone, Pin, PinOff, Trash2, Users, Flag, CheckSquare, History } from 'lucide-react';
-import { api, errorMessage } from '../../lib/api.ts';
+import { api, errorMessage, qsOf } from '../../lib/api.ts';
+import { stepLabel } from '../documents/Reminders.tsx';
 import { cn } from '../../lib/cn.ts';
 import { dateTime, dueLabel, fromLocalInput, money, relative, toLocalInput } from '../../lib/format.ts';
 import { useMe, useMeta } from '../../lib/hooks.ts';
 import type { Activity, RecordType } from '../../lib/types.ts';
-import { Avatar, Button, Card, IconButton, Input, Segmented, Select, Skeleton, Textarea } from '../../components/ui/primitives.tsx';
+import { Avatar, Button, Card, ErrorState, IconButton, Input, Segmented, Select, Skeleton, Textarea } from '../../components/ui/primitives.tsx';
 import { UserSelect } from './form.tsx';
 
 export const ACTIVITY_ICON = { task: CheckSquare, call: Phone, meeting: Users, email: Mail, deadline: Flag } as const;
 const KINDS = ['task', 'call', 'meeting', 'email', 'deadline'] as const;
 
 interface TimelineItem { type: 'note' | 'activity' | 'event'; at: string; data: Record<string, any> }
-interface TimelineData { upcoming: Activity[]; items: TimelineItem[] }
+interface TimelineData { upcoming?: Activity[]; items: TimelineItem[]; nextCursor: string | null }
 
 const tomorrow9 = () => { const d = new Date(); d.setDate(d.getDate() + 1); d.setHours(9, 0, 0, 0); return d.toISOString(); };
 
 export function Timeline({ type, id }: { type: RecordType; id: number }) {
   const qc = useQueryClient();
   const key = ['timeline', type, id];
-  const { data, isLoading } = useQuery({ queryKey: key, queryFn: () => api.get<TimelineData>(`/timeline/${type}/${id}`) });
   const [filter, setFilter] = useState<'all' | 'note' | 'activity' | 'event'>('all');
+  // History is paged ("Load more"); the filter is applied by the server so every page is full.
+  const feed = useInfiniteQuery({
+    queryKey: [...key, filter], initialPageParam: '',
+    queryFn: ({ pageParam }) => api.get<TimelineData>(`/timeline/${type}/${id}${qsOf({ kind: filter, ...(pageParam ? { before: pageParam } : {}) })}`),
+    getNextPageParam: (last) => last.nextCursor ?? undefined,
+  });
+  const isLoading = feed.isLoading;
+  const upcoming = feed.data?.pages[0]?.upcoming ?? [];
   const refresh = () => { qc.invalidateQueries({ queryKey: key }); qc.invalidateQueries({ queryKey: ['activity-counts'] }); qc.invalidateQueries({ queryKey: [type + 's'] }); };
-  const items = (data?.items ?? []).filter((i) => filter === 'all' || i.type === filter);
+  const items = feed.data?.pages.flatMap((p) => p.items) ?? [];
   return (
     <div className="space-y-4">
       <Composer type={type} id={id} onDone={refresh} />
       <Card title={<span className="flex items-center gap-1.5"><CalendarClock className="size-4 text-brand-600" />Up next</span>} padded={false}>
         {isLoading ? <div className="p-4"><Skeleton className="h-10" /></div>
-          : data?.upcoming.length ? <ul className="divide-y divide-[var(--border)]">{data.upcoming.map((a) => <UpcomingRow key={a.id} a={a} onChange={refresh} />)}</ul>
+          : feed.isError && !feed.data ? <ErrorState message={errorMessage(feed.error)} onRetry={() => feed.refetch()} />
+          : upcoming.length ? <ul className="divide-y divide-[var(--border)]">{upcoming.map((a) => <UpcomingRow key={a.id} a={a} onChange={refresh} />)}</ul>
           : <p className="px-4 py-5 text-sm text-muted">No open activities. Plan the next step so nothing slips.</p>}
       </Card>
       <Card title="History" padded={false} actions={
         <Segmented size="sm" value={filter} onChange={setFilter} options={[{ value: 'all', label: 'All' }, { value: 'note', label: 'Notes' }, { value: 'activity', label: 'Activities' }, { value: 'event', label: 'Changes' }]} />
       }>
-        {isLoading ? <div className="space-y-3 p-4"><Skeleton className="h-12" /><Skeleton className="h-12" /></div> : (
-          <ol className="relative space-y-0 px-4 py-2">
-            {items.map((it) => <FeedItem key={`${it.type}-${it.data.id}`} it={it} recordType={type} recordId={id} onChange={refresh} />)}
-            {!items.length && <li className="py-6 text-center text-sm text-muted">Nothing here yet.</li>}
-          </ol>
-        )}
+        {isLoading ? <div className="space-y-3 p-4"><Skeleton className="h-12" /><Skeleton className="h-12" /></div>
+          : feed.isError && !feed.data ? <ErrorState message={errorMessage(feed.error)} onRetry={() => feed.refetch()} />
+          : (
+            <>
+              <ol className="relative space-y-0 px-4 py-2">
+                {items.map((it) => <FeedItem key={`${it.type}-${it.data.id}`} it={it} recordType={type} recordId={id} onChange={refresh} />)}
+                {!items.length && <li className="py-6 text-center text-sm text-muted">{filter === 'all' ? 'Nothing here yet.' : filter === 'note' ? 'No notes yet.' : filter === 'activity' ? 'No finished activities yet.' : 'No changes recorded yet.'}</li>}
+              </ol>
+              {feed.hasNextPage && (
+                <div className="flex justify-center border-t border-base p-2">
+                  <Button size="sm" variant="ghost" disabled={feed.isFetchingNextPage} onClick={() => feed.fetchNextPage()}>{feed.isFetchingNextPage ? 'Loading…' : 'Load more'}</Button>
+                </div>
+              )}
+              {feed.isFetchNextPageError && <p className="px-4 pb-2 text-center text-xs text-rose-600" role="alert">Couldn’t load more. {errorMessage(feed.error)}</p>}
+            </>
+          )}
       </Card>
     </div>
   );
@@ -169,6 +189,7 @@ export function UpcomingRow({ a, onChange, showLinks }: { a: Activity; onChange:
   );
 }
 
+const CHAT_CHANNEL: Record<string, string> = { telegram_bot: 'Telegram', whatsapp: 'WhatsApp' };
 const FIELD_LABELS: Record<string, string> = {
   first_name: 'First name', last_name: 'Last name', job_title: 'Job title', owner_id: 'Owner', amount: 'Amount', title: 'Title', name: 'Name',
   expected_close_date: 'Expected close', probability: 'Probability', company_id: 'Company', company_name: 'Company name', source_id: 'Source',
@@ -177,7 +198,7 @@ const FIELD_LABELS: Record<string, string> = {
   deal_type_id: 'Deal type', address: 'Address', annual_revenue: 'Annual revenue', birthday: 'Birthday', currency: 'Currency', source_details: 'Source details',
 };
 
-function describeEvent(d: Record<string, any>, userName: (id: number) => string): { icon: typeof History; text: string; tone?: string } {
+export function describeEvent(d: Record<string, any>, userName: (id: number) => string): { icon: typeof History; text: string; tone?: string } {
   const ch = d.changes ?? {};
   const stage = Array.isArray(ch.stage) ? ch.stage : null;
   const imp = ch._import as { id: number; file: string; undo?: boolean } | undefined;
@@ -192,10 +213,46 @@ function describeEvent(d: Record<string, any>, userName: (id: number) => string)
     case 'reopened': return { icon: ArrowRightLeft, text: `Reopened in ${stage?.[1]}` };
     case 'deleted': return { icon: Trash2, text: imp?.undo ? `Moved to recycle bin (import of ${imp.file} undone)` : 'Moved to recycle bin' };
     case 'restored': return { icon: History, text: 'Restored from recycle bin' };
+    case 'document_created': return { icon: History, text: `Created a draft ${ch.document?.kind ?? 'document'}` };
+    case 'document_deleted': return { icon: Trash2, text: `Deleted a draft ${ch.document?.kind ?? 'document'}` };
+    case 'quote_sent': case 'quote_accepted': case 'quote_declined': case 'invoice_sent': case 'invoice_paid': case 'invoice_void': {
+      const [kind, st] = String(d.action).split('_');
+      const label = { sent: 'sent', accepted: 'accepted', declined: 'declined', paid: 'paid', void: 'voided' }[st] ?? st;
+      // Answered by the customer on their link: say so, with who accepted and their note or reason.
+      const online = ch.via === 'online' ? (st === 'accepted' ? ` online by ${ch.by}${ch.note ? ` — “${ch.note}”` : ''}` : ` online${ch.reason ? ` — “${ch.reason}”` : ''}`) : '';
+      return { icon: History, text: `${kind === 'quote' ? 'Quote' : 'Invoice'} ${ch.document?.number ?? ''} ${label}${online}`, tone: st === 'paid' || st === 'accepted' ? 'text-emerald-600' : undefined };
+    }
+    case 'quote_viewed': case 'invoice_viewed':
+      return { icon: History, text: `The customer opened ${d.action === 'quote_viewed' ? 'quote' : 'invoice'} ${ch.document?.number ?? ''} from the link` };
+    case 'webhook_sent': { let host = ''; try { host = new URL(String(ch.url)).host; } catch { /* keep empty */ } return { icon: History, text: `Automation called a webhook${host ? ` on ${host}` : ''} (HTTP ${ch.status ?? '?'})` }; }
+    case 'file_added': return { icon: History, text: `Added file ${ch.file?.name ?? ''}` };
+    case 'file_removed': return { icon: Trash2, text: `Deleted file ${ch.file?.name ?? ''}` };
+    case 'merged_into': return { icon: History, text: `Merged into ${ch.into?.name ?? 'another record'} (#${ch.into?.id})` };
+    case 'merge_undone': return ch.restored
+      ? { icon: History, text: `Merge undone — ${(ch.restored as { name: string | null }[]).map((r) => r.name ?? 'a record').join(', ')} separate again` }
+      : { icon: History, text: `Restored: the merge into ${ch.from?.name ?? 'another record'} was undone` };
     case 'merged': {
       const chosen = Object.keys(ch).filter((k) => !['merged', 'movedMethods'].includes(k) && !k.startsWith('_')).map((k) => FIELD_LABELS[k] ?? k.replace(/^custom\./, ''));
       return { icon: History, text: `Merged with ${ch.merged?.name ?? 'a duplicate'} (#${ch.merged?.id})${chosen.length ? ` — took ${[...new Set(chosen)].join(', ')}` : ''}` };
     }
+    case 'invoice_reminder': {
+      const to = [...((ch.to as string[] | undefined) ?? []), ...(ch.chats ? [`${ch.chats} Telegram chat${ch.chats === 1 ? '' : 's'}`] : [])].join(', ');
+      const step = String(ch.step);
+      return { icon: History, text: `Payment reminder for ${ch.document?.number ?? 'an invoice'}${step.startsWith('manual:') ? '' : ` (${stepLabel(step).toLowerCase()})`}${to ? ` to ${to}` : ''}` };
+    }
+    case 'booked': return { icon: CheckCircle2, text: `Booked “${ch.page ?? 'a meeting'}” online for ${ch.start ? dateTime(String(ch.start)) : 'a time'}` };
+    case 'booking_moved': return { icon: History, text: `Moved ${ch.by === 'team' ? 'the' : 'their'} online booking “${ch.title ?? ''}” from ${ch.from ? dateTime(String(ch.from)) : '?'} to ${ch.to ? dateTime(String(ch.to)) : '?'}` };
+    case 'booking_canceled': if (ch.by === 'team') return { icon: Trash2, text: `Canceled the online booking “${ch.title ?? ''}” for ${ch.start ? dateTime(String(ch.start)) : 'a time'}${ch.reason ? `: “${ch.reason}”` : ''}` };
+      return { icon: Trash2, text: `Canceled their online booking “${ch.title ?? ''}” for ${ch.start ? dateTime(String(ch.start)) : 'a time'}` };
+    case 'feedback_requested': return { icon: History, text: `Asked ${ch.to ?? 'the customer'} for feedback` };
+    case 'feedback_received': return { icon: CheckCircle2, text: `Customer rated ${ch.rating}/5${ch.comment ? `: “${ch.comment}”` : ''}`, tone: Number(ch.rating) <= 2 ? 'text-rose-600' : undefined };
+    case 'feedback_changed': return { icon: History, text: `Customer changed their rating to ${ch.rating}/5${ch.comment ? `: “${ch.comment}”` : ''}` };
+    case 'invoice_reminders_off': return { icon: History, text: `Turned off payment reminders for ${ch.document?.number ?? 'an invoice'}` };
+    case 'invoice_reminders_on': return { icon: History, text: `Turned payment reminders back on for ${ch.document?.number ?? 'an invoice'}` };
+    case 'email_unsubscribed': return { icon: Flag, text: ch.via === 'link' ? 'Unsubscribed from broadcast emails (their unsubscribe link)' : 'Opted out of broadcast emails' };
+    case 'email_resubscribed': return { icon: History, text: ch.via === 'link' ? 'Subscribed to broadcast emails again (their link)' : 'Opted back in to broadcast emails' };
+    case 'chat_opted_out': return { icon: Flag, text: `${ch.via === 'customer' ? 'Replied STOP: no more broadcasts' : 'Opted out of broadcasts'} on ${CHAT_CHANNEL[String(ch.channel)] ?? 'chat'}${ch.channelName ? ` (${ch.channelName})` : ''}` };
+    case 'chat_opted_in': return { icon: History, text: `${ch.via === 'customer' ? 'Replied START: broadcasts again' : 'Opted back in to broadcasts'} on ${CHAT_CHANNEL[String(ch.channel)] ?? 'chat'}${ch.channelName ? ` (${ch.channelName})` : ''}` };
     case 'owner_changed': return { icon: Users, text: `Owner changed to ${userName(Number(ch.owner?.[1]))}` };
     case 'updated': {
       const parts = Object.entries(ch).filter(([k]) => !k.startsWith('_')).map(([k, v]) => {
@@ -217,7 +274,9 @@ function FeedItem({ it, recordType, recordId, onChange }: { it: TimelineItem; re
   const userName = (id: number) => meta?.users.find((u) => u.id === id)?.name ?? 'Unknown';
   const d = it.data;
   const foreign = d.entityType && (d.entityType !== recordType || Number(d.entityId) !== recordId);
-  const via = foreign ? <span className="text-muted"> · on related {d.entityType}</span> : null;
+  const via = !foreign ? null : d.entityTitle
+    ? <span className="text-muted"> · on {d.entityType} <Link className="text-brand-600 hover:underline dark:text-brand-200" to={`/${d.entityType}s/${d.entityId}`}>{d.entityTitle}</Link></span>
+    : <span className="text-muted"> · on a related {d.entityType}</span>;
   if (it.type === 'note') {
     const toggle = async () => { try { await api.patch(`/notes/${d.id}`, { isPinned: !d.isPinned }); onChange(); } catch (e) { toast.error(errorMessage(e)); } };
     const del = async () => { try { await api.del(`/notes/${d.id}`); onChange(); toast.success('Note deleted'); } catch (e) { toast.error(errorMessage(e)); } };

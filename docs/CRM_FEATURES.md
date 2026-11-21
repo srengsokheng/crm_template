@@ -139,7 +139,7 @@ propose for **our** CRM.
 | Record visibility flag ("available to everyone") | 📄 | MVP (`visibility: shared/private`) |
 | Pipeline-level permissions | 👁 | v1.1 |
 | Move-to-stage permission, hide amounts | 👁 | Later |
-| Field-level visibility | 👁 | Later |
+| Field-level visibility | 👁 | Built: read-only fields per role; custom fields can also be hidden |
 | Assignment rules / round-robin | ⏭ | v1.1 (automation action "assign round-robin") |
 
 ## 10. Reports & analytics

@@ -1,25 +1,28 @@
 import { useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Combine, MoreHorizontal, Plus, Trash2 } from 'lucide-react';
+import { Combine, MoreHorizontal, Pencil, Plus, Trash2 } from 'lucide-react';
+import { CompanyForm } from './CompanyForm.tsx';
 import { api } from '../../lib/api.ts';
 import { money, personName } from '../../lib/format.ts';
-import { useCan, useDictLabel, useUserName } from '../../lib/hooks.ts';
+import { useCan, useDictLabel, useUserName, useFieldLock } from '../../lib/hooks.ts';
 import type { Method } from '../../lib/types.ts';
 import { Avatar, Button, Card, IconButton, Input, Select, Textarea } from '../../components/ui/primitives.tsx';
 import { Menu } from '../../components/ui/overlays.tsx';
 import { useCreate } from '../../app/create.tsx';
-import { DictSelect, MethodsEditor, methodsPayload, UserSelect } from '../records/form.tsx';
+import { AddressEditor, addressPayload, DictSelect, formatAddress, MethodsEditor, methodsPayload, UserSelect, type Address } from '../records/form.tsx';
 import { CustomFieldsRows, EditRow, RecordError, RecordShell, RecordSkeleton, useDeleteWithUndo } from '../records/record.tsx';
 import { MethodsView } from '../records/MethodsView.tsx';
 import { RelatedDeals, type RelatedDeal } from '../records/RelatedDeals.tsx';
 import { Timeline } from '../records/Timeline.tsx';
+import { Attachments } from '../records/Attachments.tsx';
 import { MergeDialog } from '../records/MergeDialog.tsx';
+import { MergeUndoBanner } from '../records/MergeUndoBanner.tsx';
 
 interface Company {
   id: number; version: number; name: string; typeId: number | null; industryId: number | null; sizeId: number | null; sourceId: number | null;
-  annualRevenue: string | null; currency: string; ownerId: number; visibility: string; description: string | null; custom: Record<string, unknown>;
-  methods: Method[]; contacts: { id: number; firstName: string | null; lastName: string | null; jobTitle: string | null }[]; deals: RelatedDeal[];
+  annualRevenue: string | null; currency: string; ownerId: number; visibility: string; description: string | null; address: Address | null; custom: Record<string, unknown>;
+  methods: Method[]; contacts: { id: number; firstName: string | null; lastName: string | null; jobTitle: string | null }[]; deals: RelatedDeal[]; dealsTotal: number;
 }
 
 export function CompanyDetail() {
@@ -27,12 +30,14 @@ export function CompanyDetail() {
   const nav = useNavigate();
   const qc = useQueryClient();
   const can = useCan();
+  const locked = useFieldLock();
   const create = useCreate();
   const label = useDictLabel();
   const userName = useUserName();
   const q = useQuery({ queryKey: ['company', id], queryFn: () => api.get<Company>(`/companies/${id}`) });
   const del = useDeleteWithUndo('companies', 'Company', () => nav('/companies'));
   const [merging, setMerging] = useState(false);
+  const [editing, setEditing] = useState(false);
   if (q.isLoading) return <RecordSkeleton />;
   if (q.error || !q.data) return <RecordError error={q.error} back="/companies" />;
   const c = q.data;
@@ -48,6 +53,7 @@ export function CompanyDetail() {
     <RecordShell back={{ to: '/companies', label: 'Companies' }} title={c.name}
       subtitle={<>{c.industryId && <span>{label(c.industryId)}</span>}{c.typeId && <span>{label(c.typeId)}</span>}<span>Owner: {userName(c.ownerId)}</span></>}
       actions={<>
+        {edit && <Button icon={<Pencil className="size-4" />} onClick={() => setEditing(true)}>Edit</Button>}
         {can('deal', 'create') && <Button icon={<Plus className="size-4" />} onClick={() => create.open('deal', { company: asPicker })}>New deal</Button>}
         <Menu trigger={<IconButton label="More actions"><MoreHorizontal className="size-4" /></IconButton>}
           items={[
@@ -58,17 +64,19 @@ export function CompanyDetail() {
           current={{ id, name: c.name, emails: c.methods.filter((m) => m.kind === 'email').map((m) => m.value), phones: c.methods.filter((m) => m.kind === 'phone').map((m) => m.value), websites: c.methods.filter((m) => m.kind === 'website').map((m) => m.value) }} />
       </>}
       left={<>
+        <MergeUndoBanner entity="company" id={id} canEdit={edit} />
         <Card title="Details">
           <div className="divide-y divide-[var(--border)]">
-            <EditRow label="Name" required value={c.name} canEdit={edit} display={c.name} renderEditor={(v, s) => <Input autoFocus value={v} onChange={(e) => s(e.target.value)} />} onSave={(v) => patch({ name: v, version: c.version })} />
+            <EditRow label="Name" required value={c.name} canEdit={edit} locked={locked('company', 'name')} display={c.name} renderEditor={(v, s) => <Input autoFocus value={v} onChange={(e) => s(e.target.value)} />} onSave={(v) => patch({ name: v, version: c.version })} />
             <EditRow label="Contact details" value={c.methods} canEdit={edit} display={<MethodsView methods={c.methods} />} renderEditor={(v, s) => <MethodsEditor value={v} onChange={s} kinds={['website', 'phone', 'email']} />} onSave={(v) => patch({ methods: methodsPayload(v) })} />
-            <EditRow label="Type" value={c.typeId} canEdit={edit} display={label(c.typeId)} renderEditor={(v, s) => <DictSelect kind="company_type" value={v} onChange={s} />} onSave={(v) => patch({ typeId: v })} />
-            <EditRow label="Industry" value={c.industryId} canEdit={edit} display={label(c.industryId)} renderEditor={(v, s) => <DictSelect kind="industry" value={v} onChange={s} />} onSave={(v) => patch({ industryId: v })} />
-            <EditRow label="Size" value={c.sizeId} canEdit={edit} display={label(c.sizeId)} renderEditor={(v, s) => <DictSelect kind="company_size" value={v} onChange={s} />} onSave={(v) => patch({ sizeId: v })} />
-            <EditRow label="Annual revenue" value={c.annualRevenue ?? ''} canEdit={edit} display={money(c.annualRevenue, c.currency)} renderEditor={(v, s) => <Input inputMode="decimal" value={v} onChange={(e) => s(e.target.value)} />} onSave={(v) => patch({ annualRevenue: v || null })} />
-            <EditRow label="Owner" value={c.ownerId} canEdit={edit} display={userName(c.ownerId)} renderEditor={(v, s) => <UserSelect value={v} onChange={(x) => s(x ?? v)} />} onSave={(v) => patch({ ownerId: v })} />
-            <EditRow label="Visibility" value={c.visibility} canEdit={edit} display={c.visibility === 'private' ? 'Private (owner & admins)' : 'Shared'} renderEditor={(v, s) => <Select value={v} onChange={(e) => s(e.target.value)}><option value="shared">Shared</option><option value="private">Private</option></Select>} onSave={(v) => patch({ visibility: v })} />
-            <EditRow label="About" value={c.description ?? ''} canEdit={edit} display={c.description ? <span className="whitespace-pre-wrap">{c.description}</span> : <span className="text-muted">—</span>} renderEditor={(v, s) => <Textarea autoFocus value={v} onChange={(e) => s(e.target.value)} />} onSave={(v) => patch({ description: v || null })} />
+            <EditRow label="Type" value={c.typeId} canEdit={edit} locked={locked('company', 'typeId')} display={label(c.typeId)} renderEditor={(v, s) => <DictSelect kind="company_type" value={v} onChange={s} />} onSave={(v) => patch({ typeId: v })} />
+            <EditRow label="Industry" value={c.industryId} canEdit={edit} locked={locked('company', 'industryId')} display={label(c.industryId)} renderEditor={(v, s) => <DictSelect kind="industry" value={v} onChange={s} />} onSave={(v) => patch({ industryId: v })} />
+            <EditRow label="Size" value={c.sizeId} canEdit={edit} locked={locked('company', 'sizeId')} display={label(c.sizeId)} renderEditor={(v, s) => <DictSelect kind="company_size" value={v} onChange={s} />} onSave={(v) => patch({ sizeId: v })} />
+            <EditRow label="Annual revenue" value={c.annualRevenue ?? ''} canEdit={edit} locked={locked('company', 'annualRevenue')} display={money(c.annualRevenue, c.currency)} renderEditor={(v, s) => <Input inputMode="decimal" value={v} onChange={(e) => s(e.target.value)} />} onSave={(v) => patch({ annualRevenue: v || null })} />
+            <EditRow label="Address" value={(c.address ?? {}) as Address} canEdit={edit} locked={locked('company', 'address')} display={formatAddress(c.address) || <span className="text-muted">—</span>} renderEditor={(v, s) => <AddressEditor value={v} onChange={s} />} onSave={(v) => patch({ address: addressPayload(v) })} />
+            <EditRow label="Owner" value={c.ownerId} canEdit={edit} locked={locked('company', 'ownerId')} display={userName(c.ownerId)} renderEditor={(v, s) => <UserSelect value={v} onChange={(x) => s(x ?? v)} />} onSave={(v) => patch({ ownerId: v })} />
+            <EditRow label="Visibility" value={c.visibility} canEdit={edit} locked={locked('company', 'visibility')} display={c.visibility === 'private' ? 'Private (owner & admins)' : 'Shared'} renderEditor={(v, s) => <Select value={v} onChange={(e) => s(e.target.value)}><option value="shared">Shared</option><option value="private">Private</option></Select>} onSave={(v) => patch({ visibility: v })} />
+            <EditRow label="About" value={c.description ?? ''} canEdit={edit} locked={locked('company', 'description')} display={c.description ? <span className="whitespace-pre-wrap">{c.description}</span> : <span className="text-muted">—</span>} renderEditor={(v, s) => <Textarea autoFocus value={v} onChange={(e) => s(e.target.value)} />} onSave={(v) => patch({ description: v || null })} />
             <CustomFieldsRows entity="company" custom={c.custom} canEdit={edit} onSave={(p) => patch({ custom: p })} />
           </div>
         </Card>
@@ -83,8 +91,9 @@ export function CompanyDetail() {
             </ul>
           ) : <p className="px-4 py-4 text-sm text-muted">No people linked yet.</p>}
         </Card>
-        <RelatedDeals deals={c.deals} onAdd={can('deal', 'create') ? () => create.open('deal', { company: asPicker, stay: true }) : undefined} />
+        <RelatedDeals deals={c.deals} total={c.dealsTotal} filter={{ companyId: id }} onAdd={can('deal', 'create') ? () => create.open('deal', { company: asPicker, stay: true }) : undefined} />
+        <Attachments entityType="company" entityId={id} canEdit={edit} />
       </>}
-      right={<Timeline type="company" id={id} />} />
+      right={<>{editing && <CompanyForm open record={c} onClose={() => setEditing(false)} />}<Timeline type="company" id={id} /></>} />
   );
 }
