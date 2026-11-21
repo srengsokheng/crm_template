@@ -41,7 +41,7 @@ into `main`.
 | ~~P1~~ | ~~**Dashboard period picker**~~ — done: this/last month, quarter, year, or a custom range (remembered per browser); the pipeline picker was already there |
 | ~~P2~~ | ~~**Lead scoring**~~ — done: 0–100 (fit 50 + engagement in the last 30 days 50), Hot ≥ 70 / Warm ≥ 40 / Cold; badge on the lead list and board, sort by score, filter by tier, breakdown on the lead page, Score column in CSV export. Weights in `packages/shared/src/leadScore.ts` |
 | P2 | **User-flow diagrams** (user-flow-mapping skill) for lead→deal, import, merge, invoice→payment, booking — in `docs/flows/` |
-| P2 | Profile extras: personal time zone, sign out of other sessions |
+| ~~P2~~ | ~~Profile extras~~ — done: Settings → Your account has a time zone for your emails (reminders, digest; empty = the workspace's) and “Where you’re signed in” with sign-out of other devices |
 
 ## How to verify UI work
 
