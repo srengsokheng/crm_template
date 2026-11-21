@@ -67,13 +67,15 @@ export function RadioGroup<T extends string>({ value, onChange, options, legend,
 }
 
 /** An on/off setting that takes effect at once (for a choice inside a form that is saved later, use `Checkbox`). */
-export function Switch({ checked, onChange, label, hint, disabled }: {
+export function Switch({ checked, onChange, label, hint, disabled, hideLabel, className }: {
   checked: boolean; onChange: (v: boolean) => void; label: ReactNode; hint?: ReactNode; disabled?: boolean;
+  /** Keep the label for screen readers only (e.g. a switch at the end of a list row that already names the item). */
+  hideLabel?: boolean; className?: string;
 }) {
   const id = useId();
   return (
-    <div className={cn('flex items-start justify-between gap-4', disabled && 'opacity-60')}>
-      <label htmlFor={id} className={cn('text-sm', disabled ? 'cursor-not-allowed' : 'cursor-pointer')}>
+    <div className={cn('flex items-start gap-4', hideLabel ? 'shrink-0' : 'justify-between', disabled && 'opacity-60', className)}>
+      <label htmlFor={id} className={cn(hideLabel ? 'sr-only' : 'text-sm', disabled ? 'cursor-not-allowed' : 'cursor-pointer')}>
         {label}{hint && <span className="block text-xs text-muted">{hint}</span>}
       </label>
       <button id={id} type="button" role="switch" aria-checked={checked} disabled={disabled} onClick={() => onChange(!checked)}

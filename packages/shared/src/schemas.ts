@@ -6,6 +6,19 @@ import {
 import { DATE_FORMATS, DUPLICATE_MODES, IMPORT_ENTITIES, IMPORT_LIMITS, MATCH_KEYS } from './imports.ts';
 import { isValidTimeZone } from './businessHours.ts';
 
+/**
+ * The schema for a PATCH: every field optional and **no defaults**. (`.partial()` keeps `.default()`s in zod 4, so a
+ * PATCH that sends one field would silently reset the others to their defaults — e.g. a product's price to 0.)
+ */
+export function updateSchemaOf<S extends z.ZodRawShape>(o: z.ZodObject<S>) {
+  const shape: Record<string, z.ZodType> = {};
+  for (const [k, v] of Object.entries(o.shape) as [string, z.ZodType][]) {
+    const inner = (v as unknown as { def: { type: string } }).def.type === 'default' ? (v as unknown as z.ZodDefault<z.ZodType>).removeDefault() : v;
+    shape[k] = inner.optional();
+  }
+  return z.object(shape) as unknown as z.ZodObject<{ [K in keyof S]: z.ZodOptional<S[K] extends z.ZodDefault<infer I> ? I : S[K]> }>;
+}
+
 const trimmed = (max = 200) => z.string().trim().max(max);
 const optText = (max = 200) => trimmed(max).nullish().transform((v) => (v ? v : null));
 export const idSchema = z.coerce.number().int().positive();
@@ -159,7 +172,7 @@ export const productCreateSchema = z.object({
   unitPrice: moneySchema.default('0'), currency, unit: trimmed(20).default('pcs'),
   taxRate: z.coerce.number().min(0).max(100).nullish(), taxIncluded: z.boolean().optional(), isActive: z.boolean().optional(),
 });
-export const productUpdateSchema = productCreateSchema.partial();
+export const productUpdateSchema = updateSchemaOf(productCreateSchema);
 export const lineItemSchema = z.object({
   productId: optId,
   name: trimmed(200).min(1, 'Required'),
@@ -228,7 +241,7 @@ export const stageSchema = z.object({
   probability: z.coerce.number().int().min(0).max(100).nullish(),
   rotDays: z.coerce.number().int().min(1).max(365).nullish(),
 });
-export const stageUpdateSchema = stageSchema.partial();
+export const stageUpdateSchema = updateSchemaOf(stageSchema);
 export const reorderSchema = z.object({ ids: z.array(idSchema).min(1).max(100) });
 export const stageDeleteSchema = z.object({ moveToStageId: optId });
 
@@ -243,7 +256,7 @@ export const fieldCreateSchema = z.object({
   requiredStageIds: z.array(idSchema).max(50).default([]),
   helpText: optText(300),
 });
-export const fieldUpdateSchema = fieldCreateSchema.omit({ entityType: true, key: true, type: true }).partial().extend({
+export const fieldUpdateSchema = updateSchemaOf(fieldCreateSchema.omit({ entityType: true, key: true, type: true })).extend({
   isActive: z.boolean().optional(),
 });
 
@@ -290,7 +303,7 @@ export const automationRuleSchema = z.object({
   /** Count the delay in working hours only (Settings → Workspace). */
   businessHours: z.boolean().default(false),
 });
-export const automationRuleUpdateSchema = automationRuleSchema.partial();
+export const automationRuleUpdateSchema = updateSchemaOf(automationRuleSchema);
 
 // ───────── CSV import ─────────
 export const importUploadSchema = z.object({
