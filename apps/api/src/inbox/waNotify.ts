@@ -13,16 +13,16 @@ import { listTemplates, renderTemplate } from './meta.ts';
 import { preview, type ChannelRow } from './store.ts';
 
 /** WhatsApp addresses are digits only, with the country code (8–15 digits). */
-const waNumber = (phone: string) => {
+export const waNumber = (phone: string) => {
   const d = phone.replace(/\D/g, '');
   return d.length >= 8 && d.length <= 15 ? d : null;
 };
 
 interface Target { externalId: string; conversationId: number | null; contactId: number | null; title: string }
 
-async function targetsOf(db: Db, ch: ChannelRow, contactIds: number[], extraPhones: string[], fallbackTitle: string): Promise<Target[]> {
+async function targetsOf(db: Db, ch: ChannelRow, contactIds: number[], extraPhones: string[], fallbackTitle: string, onlyPhones = false): Promise<Target[]> {
   const out = new Map<string, Target>();
-  if (contactIds.length) {
+  if (contactIds.length && !onlyPhones) {
     const convs = await q<{ id: number; external_id: string; contact_id: number; title: string }>(sql`SELECT id, external_id, contact_id, title FROM conversations
       WHERE channel_id = ${ch.id} AND kind = 'direct' AND contact_id = ANY(${contactIds}) ORDER BY last_message_at DESC`, db);
     for (const c of convs) if (!out.has(c.external_id)) out.set(c.external_id, { externalId: c.external_id, conversationId: c.id, contactId: Number(c.contact_id), title: c.title });
@@ -54,12 +54,17 @@ async function targetsOf(db: Db, ch: ChannelRow, contactIds: number[], extraPhon
 export async function sendWaTemplate(db: Db, o: {
   workspaceId: number; setting: WaTemplateSetting | null | undefined; contactIds: number[]; extraPhones?: string[];
   values: Record<string, string>; senderName: string; authorId?: number | null; title: string; dryRun?: boolean;
+  /**
+   * Only `extraPhones` (linked to contactIds[0]), never the contacts' saved numbers or chats. For flows started by
+   * someone outside the team (public booking pages), where the contact was matched by an email anyone can type.
+   */
+  onlyPhones?: boolean;
 }): Promise<number> {
   const s = o.setting;
   if (!s?.channelId || !s.name) return 0;
   const ch = await q1<ChannelRow>(sql`SELECT * FROM channels WHERE id = ${s.channelId} AND workspace_id = ${o.workspaceId} AND kind = 'whatsapp' AND status = 'active'`, db);
   if (!ch) return 0;
-  const targets = await targetsOf(db, ch, o.contactIds, o.extraPhones ?? [], o.title);
+  const targets = await targetsOf(db, ch, o.contactIds, o.extraPhones ?? [], o.title, o.onlyPhones);
   if (o.dryRun || !targets.length) return targets.length;
   let template;
   try { template = (await listTemplates(ch)).find((t) => t.name === s.name && t.language === s.language); } catch { return 0; }

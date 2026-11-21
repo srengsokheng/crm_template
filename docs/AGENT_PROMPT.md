@@ -18,7 +18,7 @@ Act as a senior full-stack engineer, product designer and QA engineer. Work care
 
 === 1. THE REPOSITORY ===
 - GitHub: https://github.com/srengsokheng/crm_template   (owner: srengsokheng)
-- Main branch: main  (much of the work is still on open stacked pull requests; see section 5)
+- Main branch: main  (everything is merged there; branch from it)
 - If the repository is not already checked out in this session, attach/clone it:
     git clone https://github.com/srengsokheng/crm_template.git && cd crm_template
   If access is denied, stop and tell me — I need to add your GitHub account as a collaborator.
@@ -70,10 +70,7 @@ To look at the app: `npm run db:migrate && npm run db:seed && npm run dev`, open
 sign in as demo@example.com / demo12345 (teammates dara@, mia@, omar@example.com use the same password).
 
 === 5. YOUR TASK (continue from here) ===
-Step 0: most work is still on a stack of open pull requests (#5 feat/password-reset ... #66 feat/whatsapp-notices,
-plus #40 and fix/reminder-test-clock). Read docs/UI_AND_FEATURE_GAPS.md section 0. Until I say the stack is merged
-into main, start every new branch from the top of the stack, not from main.
-Then build the items in docs/UI_AND_FEATURE_GAPS.md, top to bottom, one branch + pull request each. Use the project
+Build the items in docs/UI_AND_FEATURE_GAPS.md, top to bottom, one branch + pull request each. Use the project
 skills in .claude/skills (frontend-design, accessibility-testing, api-design, testing, code-review, ...) and
 docs/UI-RULES.md for every screen. Tick items off in docs/UI_AND_FEATURE_GAPS.md in the same pull request.
 After each item, stop, summarise, and wait for my go-ahead before starting the next one.
