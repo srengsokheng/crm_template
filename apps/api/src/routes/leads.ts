@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import type { z } from 'zod';
 import {
-  convertLeadSchema, disqualifySchema, leadCreateSchema, leadUpdateSchema, lineItemsSchema, listQuerySchema, moveSchema, personName,
+  convertLeadSchema, disqualifySchema, LEAD_TIER_MIN, leadCreateSchema, leadUpdateSchema, lineItemsSchema, listQuerySchema, moveSchema, personName,
 } from '@crm/shared';
 import { and, pool, q, q1, sql, tx, type Db } from '../db/index.ts';
 import { audit, diff } from '../lib/audit.ts';
@@ -41,6 +41,7 @@ const autoTitle = (b: { title?: string | null; companyName?: string | null; firs
 function leadFilters(ctx: Ctx, query: Record<string, unknown>) {
   const owner = query.ownerId === 'me' ? ctx.userId : qs.id(query.ownerId);
   const status = qs.str(query.status);
+  const tier = qs.str(query.tier);
   return [
     sql`l.workspace_id = ${ctx.workspaceId}`, sql`l.deleted_at IS NULL`, scopeWhere(ctx, 'lead', 'view', 'l'),
     owner ? sql`l.owner_id = ${owner}` : null,
@@ -48,13 +49,15 @@ function leadFilters(ctx: Ctx, query: Record<string, unknown>) {
     qs.ids(query.stageId) ? sql`l.stage_id = ANY(${qs.ids(query.stageId)})` : null,
     status && ['open', 'won', 'lost'].includes(status) ? sql`l.status = ${status}` : null,
     qs.id(query.sourceId) ? sql`l.source_id = ${qs.id(query.sourceId)}` : null,
+    tier === 'hot' ? sql`sc.score >= ${LEAD_TIER_MIN.hot}` : tier === 'warm' ? sql`sc.score >= ${LEAD_TIER_MIN.warm} AND sc.score < ${LEAD_TIER_MIN.hot}`
+      : tier === 'cold' ? sql`sc.score < ${LEAD_TIER_MIN.warm}` : null,
     qs.date(query.createdFrom) ? sql`l.created_at >= ${qs.date(query.createdFrom)}::date` : null,
     qs.date(query.createdTo) ? sql`l.created_at < ${qs.date(query.createdTo)}::date + 1` : null,
   ];
 }
 const leadSearch = (t: string) => sql`((l.title || ' ' || coalesce(l.first_name,'') || ' ' || coalesce(l.last_name,'') || ' ' || coalesce(l.company_name,'')) ILIKE ${likeTerm(t)}
   OR EXISTS (SELECT 1 FROM contact_methods cm WHERE cm.party_type = 'lead' AND cm.party_id = l.id AND (cm.normalized ILIKE ${likeTerm(t.toLowerCase())} OR cm.value ILIKE ${likeTerm(t)})))`;
-const LEAD_SELECT = sql`l.id, l.title, l.first_name, l.last_name, l.company_name, l.amount, l.currency, l.status, l.stage_id, l.pipeline_id,
+const LEAD_SELECT = sql`l.id, l.title, sc.score, l.first_name, l.last_name, l.company_name, l.amount, l.currency, l.status, l.stage_id, l.pipeline_id,
   l.source_id, l.owner_id, l.created_at, l.updated_at, l.stage_changed_at, l.converted_deal_id,
   u.name AS owner_name, s.name AS stage_name, s.color AS stage_color, src.label AS source_name,
   (SELECT value FROM contact_methods cm WHERE cm.party_type = 'lead' AND cm.party_id = l.id AND cm.kind = 'email' ORDER BY is_primary DESC, sort LIMIT 1) AS email,
@@ -62,7 +65,24 @@ const LEAD_SELECT = sql`l.id, l.title, l.first_name, l.last_name, l.company_name
   (SELECT json_build_object('id', a.id, 'subject', a.subject, 'dueAt', a.due_at, 'kind', a.kind) FROM activity_links al
      JOIN activities a ON a.id = al.activity_id AND a.status = 'open' AND a.deleted_at IS NULL
      WHERE al.entity_type = 'lead' AND al.entity_id = l.id ORDER BY a.due_at NULLS LAST LIMIT 1) AS next_activity`;
-const LEAD_FROM = sql`leads l JOIN stages s ON s.id = l.stage_id LEFT JOIN users u ON u.id = l.owner_id LEFT JOIN dictionary_items src ON src.id = l.source_id`;
+/**
+ * Lead score parts (weights in @crm/shared LEAD_SCORE_PARTS): fit from what we know, engagement from the last 30 days.
+ * A lateral join, so lists can sort and filter by `sc.score` and the lead page can explain it.
+ */
+const LEAD_SCORE = sql`CROSS JOIN LATERAL (SELECT p.*, (p.email + p.phone + p.company + p.title + p.value + p.done + p.next + p.notes + p.stage)::int AS score FROM (SELECT
+    CASE WHEN EXISTS (SELECT 1 FROM contact_methods cm WHERE cm.party_type = 'lead' AND cm.party_id = l.id AND cm.kind = 'email') THEN 10 ELSE 0 END AS email,
+    CASE WHEN EXISTS (SELECT 1 FROM contact_methods cm WHERE cm.party_type = 'lead' AND cm.party_id = l.id AND cm.kind = 'phone') THEN 10 ELSE 0 END AS phone,
+    CASE WHEN coalesce(trim(l.company_name), '') <> '' THEN 10 ELSE 0 END AS company,
+    CASE WHEN coalesce(trim(l.job_title), '') <> '' THEN 5 ELSE 0 END AS title,
+    CASE WHEN l.amount >= 1000 THEN 15 WHEN l.amount > 0 THEN 5 ELSE 0 END AS value,
+    least(20, 5 * (SELECT count(*) FROM activity_links al JOIN activities a ON a.id = al.activity_id
+      WHERE al.entity_type = 'lead' AND al.entity_id = l.id AND a.status = 'done' AND a.deleted_at IS NULL AND a.completed_at > now() - interval '30 days'))::int AS done,
+    CASE WHEN EXISTS (SELECT 1 FROM activity_links al JOIN activities a ON a.id = al.activity_id
+      WHERE al.entity_type = 'lead' AND al.entity_id = l.id AND a.status = 'open' AND a.deleted_at IS NULL) THEN 10 ELSE 0 END AS next,
+    least(10, 5 * (SELECT count(*) FROM notes n WHERE n.entity_type = 'lead' AND n.entity_id = l.id AND n.created_at > now() - interval '30 days'))::int AS notes,
+    CASE WHEN s.kind = 'open' AND s.sort > (SELECT min(s2.sort) FROM stages s2 WHERE s2.pipeline_id = l.pipeline_id AND s2.kind = 'open') THEN 10 ELSE 0 END AS stage
+  ) p) sc`;
+const LEAD_FROM = sql`leads l JOIN stages s ON s.id = l.stage_id LEFT JOIN users u ON u.id = l.owner_id LEFT JOIN dictionary_items src ON src.id = l.source_id ${LEAD_SCORE}`;
 
 export async function moveLead(db: Db, ctx: Ctx, id: number, input: MoveInput, opts: { checkPermission?: boolean; events?: boolean; extra?: Record<string, unknown> } = {}): Promise<LeadRow> {
   const before = await getActive<LeadRow>(db, 'leads', id, ctx, 'Lead');
@@ -146,14 +166,14 @@ export async function leadRoutes(app: FastifyInstance) {
     const query = parse(listQuerySchema, req.query);
     const spec: ListSpec = {
       select: LEAD_SELECT, from: LEAD_FROM, where: leadFilters(ctx, query), search: leadSearch,
-      sorts: { title: 'lower(l.title)', amount: 'l.amount', stage: 's.sort', owner: 'u.name', source: 'src.label', createdAt: 'l.created_at', updatedAt: 'l.updated_at' },
+      sorts: { title: 'lower(l.title)', score: 'sc.score', amount: 'l.amount', stage: 's.sort', owner: 'u.name', source: 'src.label', createdAt: 'l.created_at', updatedAt: 'l.updated_at' },
       defaultSort: '-createdAt',
       aggregates: sql`coalesce(sum(${inBase(ctx, 'l')}), 0)::text AS amount_sum`,
     };
     if (query.format === 'csv') {
       return exportCsv(reply, ctx, 'lead', spec, query, 'l', [['ID', 'id'], ['Title', 'title'], ['First name', 'first_name'],
         ['Last name', 'last_name'], ['Company', 'company_name'], ['Email', 'email'], ['Phone', 'phone'], ['Stage', 'stage_name'],
-        ['Status', 'status'], ['Source', 'source_name'], ['Amount', 'amount'], ['Currency', 'currency'], ['Owner', 'owner_name'],
+        ['Status', 'status'], ['Source', 'source_name'], ['Score', 'score'], ['Amount', 'amount'], ['Currency', 'currency'], ['Owner', 'owner_name'],
         ['Created', 'created_at'], ['Updated', 'updated_at']], 'leads');
     }
     const r = await runList(spec, query);
@@ -188,7 +208,10 @@ export async function leadRoutes(app: FastifyInstance) {
         (SELECT json_build_object('id', id, 'name', trim(coalesce(first_name,'') || ' ' || coalesce(last_name,''))) FROM contacts WHERE id = ${row.converted_contact_id as number | null}) AS contact,
         (SELECT json_build_object('id', id, 'name', name) FROM companies WHERE id = ${row.converted_company_id as number | null}) AS company`),
     ]);
-    return { ...camel(row), methods: camelAll((methods[id] ?? []) as unknown as Record<string, unknown>[]), lineItems: items, owner: camel(owner), converted };
+    // The score and what makes it up (same SQL as the lists).
+    const sc = await q1<Record<string, number>>(sql`SELECT sc.* FROM ${LEAD_FROM} WHERE l.id = ${id}`);
+    const { score = 0, ...scoreParts } = sc ?? {};
+    return { ...camel(row), methods: camelAll((methods[id] ?? []) as unknown as Record<string, unknown>[]), lineItems: items, owner: camel(owner), converted, score, scoreParts };
   });
 
   app.post('/leads', async (req, reply) => {

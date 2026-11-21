@@ -39,7 +39,7 @@ into `main`.
 | ~~P1~~ | ~~**Edit drawer**~~ — done: **Edit** on deal, lead, contact and company pages opens the create form pre-filled; only changed fields are sent, with the record version (a conflicting save is refused) |
 | ~~P1~~ | ~~**Calendar views**~~ — done: `/calendar` (month/week; phones get an agenda) with activities by due time and open deals by expected close, drag to another day with Undo, Mine/Everyone. Still open: bookings on it, and a keyboard way to move items (today: change the date on the record) |
 | ~~P1~~ | ~~**Dashboard period picker**~~ — done: this/last month, quarter, year, or a custom range (remembered per browser); the pipeline picker was already there |
-| P2 | **Lead scoring** (lead-scoring skill): fit + engagement score, Hot/Warm/Cold badge, sort and filter by score |
+| ~~P2~~ | ~~**Lead scoring**~~ — done: 0–100 (fit 50 + engagement in the last 30 days 50), Hot ≥ 70 / Warm ≥ 40 / Cold; badge on the lead list and board, sort by score, filter by tier, breakdown on the lead page, Score column in CSV export. Weights in `packages/shared/src/leadScore.ts` |
 | P2 | **User-flow diagrams** (user-flow-mapping skill) for lead→deal, import, merge, invoice→payment, booking — in `docs/flows/` |
 | P2 | Profile extras: personal time zone, sign out of other sessions |
 

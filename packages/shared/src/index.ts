@@ -10,3 +10,4 @@ export * from './customerText.ts';
 export * from './booking.ts';
 export * from './signature.ts';
 export * from './period.ts';
+export * from './leadScore.ts';
