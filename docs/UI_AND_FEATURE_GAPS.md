@@ -25,8 +25,8 @@ webhooks, messaging, permissions). CI must be green; merge only with the owner's
   section headers, radio groups, switches and tooltips. Add `Tabs`, `Toolbar`/`FilterBar`, `Section`, `RadioGroup`,
   `Switch`, `Tooltip`, `KeyValueList`; replace the hand-built versions (behaviour unchanged, one refactor PR).
 - **Component gallery**: a dev-only `/dev/components` page showing every component in every state, light + dark.
-- **Touch targets**: `UI-RULES.md` asks for 44px, but `IconButton size="sm"` and checkboxes are smaller and nothing
-  enlarges them on touch screens. Enforce ≥44px under `pointer: coarse` and add a Playwright check at 390px.
+- ~~**Touch targets**~~ — done: 44px tap areas on touch screens (global rule in `styles.css`), checked by
+  `e2e/touch-targets.spec.ts`.
 
 ## 2. Lists & pagination (api-design)
 
