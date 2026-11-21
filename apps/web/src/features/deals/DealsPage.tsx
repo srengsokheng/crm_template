@@ -12,7 +12,7 @@ import { DataTable, Pagination, type Column } from '../../components/ui/DataTabl
 import { StageBadge } from '../../components/ui/StageBadge.tsx';
 import { useCreate } from '../../app/create.tsx';
 import { SavedViews } from '../records/SavedViews.tsx';
-import { ExportLink, BulkBar, FilterSelect, SearchBox, Toolbar, useListParams } from '../records/list.tsx';
+import { columnChoice, ExportLink, BulkBar, FilterSelect, SearchBox, Toolbar, useListParams } from '../records/list.tsx';
 import { Board, useBoardMore, type BoardCard, type BoardStat } from './Board.tsx';
 import { useStageMove } from './useStageMove.tsx';
 
@@ -64,6 +64,7 @@ export function DealsPage() {
     { key: 'close', header: 'Expected close', sortKey: 'expectedCloseDate', hideOnMobile: true, cell: (r) => <span className={r.status === 'open' && r.expectedCloseDate && r.expectedCloseDate < new Date().toISOString().slice(0, 10) ? 'text-rose-600' : ''}>{date(r.expectedCloseDate)}</span> },
     { key: 'owner', header: 'Owner', sortKey: 'owner', hideOnMobile: true, className: 'whitespace-nowrap', cell: (r) => r.ownerName ?? '—' },
   ];
+  const colChoice = columnChoice(lp, cols);
   const statusOptions = [{ value: 'open', label: 'Open' }, { value: 'won', label: 'Won' }, { value: 'lost', label: 'Lost' }];
   return (
     <div>
@@ -75,6 +76,7 @@ export function DealsPage() {
       </>} />
       <SavedViews entity="deal" />
       <Toolbar right={<>
+        {view === 'list' && colChoice.picker}
         {view === 'list' && list.data?.aggregates && <span className="text-[13px] text-muted">Total <span className="font-semibold text-[var(--text)] tabular">{money(list.data.aggregates.amountSum, currency)}</span></span>}
         {can('deal', 'export') && <ExportLink path="/deals" params={lp.params} />}
       </>}>
@@ -106,7 +108,7 @@ export function DealsPage() {
       ) : (
         <>
           <BulkBar entityPath="deals" selected={selected} clear={() => setSelected(new Set())} canDelete={can('deal', 'delete')} canEdit={can('deal', 'edit')} />
-          <DataTable columns={cols} rows={list.data?.data ?? []} loading={list.isLoading} error={list.error ? errorMessage(list.error) : null} onRetry={() => list.refetch()}
+          <DataTable columns={colChoice.visible} rows={list.data?.data ?? []} loading={list.isLoading} error={list.error ? errorMessage(list.error) : null} onRetry={() => list.refetch()}
             sort={lp.sort} onSort={(s) => lp.set({ sort: s })} onRowClick={(r) => nav(`/deals/${r.id}`)} selected={selected} onSelect={setSelected}
             empty={<EmptyState icon={<Handshake className="size-5" />} title="No deals found" description="Try clearing filters, or create a new deal." />}
             footer={<Pagination page={lp.page} pageSize={lp.pageSize} total={list.data?.total ?? 0} onPage={(p) => lp.set({ page: p }, false)} onPageSize={(n) => lp.set({ pageSize: n })} />} />
