@@ -96,8 +96,8 @@ test('send a file from the Inbox: the visitor sees the image in the website chat
   await page.getByRole('button', { name: 'Send' }).click();
   await expect(page.getByRole('img', { name: 'colours.png' })).toBeVisible();
   await expect(page.locator('ol').getByText('Here they are')).toBeVisible();
-  const loaded = await page.getByRole('img', { name: 'colours.png' }).evaluate((img: HTMLImageElement) => img.complete && img.naturalWidth === 1);
-  expect(loaded).toBe(true);
+  // Visible as soon as the <img> is in the page; the bytes arrive a moment later.
+  await expect.poll(() => page.getByRole('img', { name: 'colours.png' }).evaluate((img: HTMLImageElement) => img.complete && img.naturalWidth === 1)).toBe(true);
 
   await expect(site.getByRole('img', { name: 'colours.png' })).toBeVisible({ timeout: 10_000 });
   await expect(site.getByText('Here they are')).toBeVisible();

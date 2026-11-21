@@ -40,6 +40,8 @@ test('global search and command palette navigate to records', async ({ page }) =
   await signUp(page);
   await api(page, 'POST', '/companies', { name: 'Globex Corporation' });
   await page.goto('/');
+  // The shortcut listener comes with the app shell; page.goto can return before it is mounted.
+  await expect(page.getByRole('button', { name: /^Search…/ })).toBeVisible();
   await page.keyboard.press('Control+k');
   await page.getByRole('textbox', { name: 'Search' }).fill('globex');
   await page.getByRole('option').filter({ hasText: 'Globex Corporation' }).click();

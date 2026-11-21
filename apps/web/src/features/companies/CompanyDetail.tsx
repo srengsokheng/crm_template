@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Combine, MoreHorizontal, Plus, Trash2 } from 'lucide-react';
+import { Combine, MoreHorizontal, Pencil, Plus, Trash2 } from 'lucide-react';
+import { CompanyForm } from './CompanyForm.tsx';
 import { api } from '../../lib/api.ts';
 import { money, personName } from '../../lib/format.ts';
 import { useCan, useDictLabel, useUserName, useFieldLock } from '../../lib/hooks.ts';
@@ -36,6 +37,7 @@ export function CompanyDetail() {
   const q = useQuery({ queryKey: ['company', id], queryFn: () => api.get<Company>(`/companies/${id}`) });
   const del = useDeleteWithUndo('companies', 'Company', () => nav('/companies'));
   const [merging, setMerging] = useState(false);
+  const [editing, setEditing] = useState(false);
   if (q.isLoading) return <RecordSkeleton />;
   if (q.error || !q.data) return <RecordError error={q.error} back="/companies" />;
   const c = q.data;
@@ -51,6 +53,7 @@ export function CompanyDetail() {
     <RecordShell back={{ to: '/companies', label: 'Companies' }} title={c.name}
       subtitle={<>{c.industryId && <span>{label(c.industryId)}</span>}{c.typeId && <span>{label(c.typeId)}</span>}<span>Owner: {userName(c.ownerId)}</span></>}
       actions={<>
+        {edit && <Button icon={<Pencil className="size-4" />} onClick={() => setEditing(true)}>Edit</Button>}
         {can('deal', 'create') && <Button icon={<Plus className="size-4" />} onClick={() => create.open('deal', { company: asPicker })}>New deal</Button>}
         <Menu trigger={<IconButton label="More actions"><MoreHorizontal className="size-4" /></IconButton>}
           items={[
@@ -91,6 +94,6 @@ export function CompanyDetail() {
         <RelatedDeals deals={c.deals} total={c.dealsTotal} filter={{ companyId: id }} onAdd={can('deal', 'create') ? () => create.open('deal', { company: asPicker, stay: true }) : undefined} />
         <Attachments entityType="company" entityId={id} canEdit={edit} />
       </>}
-      right={<Timeline type="company" id={id} />} />
+      right={<>{editing && <CompanyForm open record={c} onClose={() => setEditing(false)} />}<Timeline type="company" id={id} /></>} />
   );
 }
