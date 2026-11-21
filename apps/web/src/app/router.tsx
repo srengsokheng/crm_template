@@ -14,6 +14,7 @@ import { CompaniesPage } from '../features/companies/CompaniesPage.tsx';
 import { CompanyDetail } from '../features/companies/CompanyDetail.tsx';
 import { ProductsPage } from '../features/products/ProductsPage.tsx';
 import { ActivitiesPage } from '../features/activities/ActivitiesPage.tsx';
+import { CalendarPage } from '../features/activities/CalendarPage.tsx';
 const ReportsPage = lazy(() => import('../features/reports/ReportsPage.tsx').then((m) => ({ default: m.ReportsPage })));
 import { SettingsLayout } from '../features/settings/SettingsLayout.tsx';
 import { WorkspaceSettings } from '../features/settings/WorkspaceSettings.tsx';
@@ -80,6 +81,7 @@ export const router = createBrowserRouter([
       { path: 'companies/:id', element: <CompanyDetail /> },
       { path: 'products', element: <ProductsPage /> },
       { path: 'activities', element: <ActivitiesPage /> },
+      { path: 'calendar', element: <CalendarPage /> },
       { path: 'reports', element: <ReportsPage /> },
       { path: 'import/:entity', element: <ImportStart /> },
       { path: 'imports/:id', element: <ImportDetail /> },
