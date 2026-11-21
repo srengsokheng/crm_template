@@ -7,7 +7,7 @@ afterAll(async () => { await (await getApp()).close(); await pool.end(); });
 describe('your account', () => {
   it('changes your name', async () => {
     const { c } = await signup('Ada');
-    expect((await c.patch('/auth/profile', { name: '  Ada Lovelace ' })).body).toEqual({ name: 'Ada Lovelace' });
+    expect((await c.patch('/auth/profile', { name: '  Ada Lovelace ' })).body).toEqual({ name: 'Ada Lovelace', timezone: null });
     expect((await c.get('/auth/me')).body.user.name).toBe('Ada Lovelace');
     expect((await c.patch('/auth/profile', { name: '' })).status).toBe(400);
   });
