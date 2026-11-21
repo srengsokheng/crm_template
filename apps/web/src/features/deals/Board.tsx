@@ -36,6 +36,8 @@ import { STAGE_SOLID } from '../../components/ui/stageColors.ts';
 export interface BoardCard {
   id: number; title: string; amount: string | null; currency: string; stageId: number; ownerName: string | null; ownerId: number;
   subtitle?: string | null; nextActivity: NextActivity | null; stageChangedAt: string; rotDays?: number | null; href: string;
+  /** Small tag under the title (e.g. the lead score). */
+  badge?: ReactNode;
 }
 export interface BoardStat { stageId: number; count: number; sum: string }
 
@@ -180,6 +182,7 @@ function CardBody({ card, overlay, handle }: { card: BoardCard; overlay?: boolea
         {handle}
       </div>
       {card.subtitle && <p className="mt-0.5 truncate text-xs text-muted">{card.subtitle}</p>}
+      {card.badge && <div className="mt-1.5">{card.badge}</div>}
       <div className="mt-2 flex items-center justify-between gap-2">
         <span className="text-sm font-semibold tabular">{card.amount && Number(card.amount) > 0 ? money(card.amount, card.currency) : <span className="font-normal text-muted">No value</span>}</span>
         <Avatar size="xs" name={card.ownerName} />
