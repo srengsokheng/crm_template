@@ -15,6 +15,7 @@ The research behind every decision is in this folder:
 | `CRM_ARCHITECTURE.md` | Architecture; the "As built" table lists where we deviated from the plan and why |
 | `DATABASE_SCHEMA.md` | Tables, relations and service-layer rules |
 | `CRM_FEATURES.md` / `IMPLEMENTATION_PLAN.md` | Scope and roadmap |
+| `flows/README.md` | The main user journeys as diagrams, with the screens and routes behind each step |
 
 ## 2. Status (Nov 2026)
 
