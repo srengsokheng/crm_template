@@ -69,7 +69,11 @@ export const signupSchema = z.object({
 });
 export const loginSchema = z.object({ email: z.email('Invalid email address'), password: z.string().min(1, 'Required') });
 /** Your account: display name, and changing your password while signed in. */
-export const profileSchema = z.object({ name: trimmed(100).min(1, 'Required') });
+export const profileSchema = z.object({
+  name: trimmed(100).min(1, 'Required').optional(),
+  /** Your time zone for emails (reminders, digest); null = the workspace's. */
+  timezone: z.string().max(60).refine(isValidTimeZone, 'Unknown time zone').nullable().optional(),
+});
 export const emailChangeSchema = z.object({
   newEmail: z.email('Invalid email address').max(200),
   currentPassword: z.string().min(1, 'Required'),
