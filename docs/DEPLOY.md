@@ -1,7 +1,8 @@
 # Deploying Acme CRM
 
-From an empty server to the CRM on `https://your-domain`, then backups and upgrades. For what the app does and how to
-develop it, see `HANDOFF.md`.
+From an empty server to the CRM on `https://your-domain`, then backups and upgrades. Every step here was run on a
+test install (Docker 29, `DOMAIN=localhost`): build, start, HTTPS, sign-up rules, PDFs, backup, restore, restart.
+For what the app does and how to develop it, see `HANDOFF.md`.
 
 ## What you need
 
@@ -13,7 +14,7 @@ develop it, see `HANDOFF.md`.
 ## First install
 
 ```bash
-git clone https://github.com/srengsokheng/crm_template.git && cd crm_template
+git clone -b main https://github.com/srengsokheng/crm_template.git && cd crm_template
 cp .env.production.example .env
 nano .env            # DOMAIN, POSTGRES_PASSWORD, SECRETS_KEY, SMTP_* (instructions inside)
 docker compose -f docker-compose.prod.yml up -d --build
@@ -51,7 +52,7 @@ docker run --rm -v crm_template_files:/f -v "$PWD":/b alpine tar xzf /b/files-YY
 ## Upgrading
 
 ```bash
-git pull
+git pull origin main
 docker compose -f docker-compose.prod.yml up -d --build
 ```
 
