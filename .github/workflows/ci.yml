@@ -35,7 +35,7 @@ jobs:
       - name: Create e2e database
         run: PGPASSWORD=crm psql -h localhost -U crm -d crm_test -c "CREATE DATABASE crm_e2e"
       - run: npm ci
-      - run: npm audit --audit-level=moderate
+      - run: npm run audit   # production deps: 0 advisories; dev tools: only allowlisted ones (audit-allowlist.json)
       - run: npm run typecheck
       - run: npm run lint
       - run: npm test

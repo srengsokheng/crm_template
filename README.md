@@ -20,7 +20,7 @@ for invitations and reminders.
 | Jobs | Built-in Postgres job table + outbox (automation delays, reminders, purge) |
 | Tests | Vitest (API against a real database) and Playwright (desktop, tablet, phone) |
 
-All dependencies are pinned to exact, current stable versions; `npm audit` reports 0 vulnerabilities (checked in CI).
+All dependencies are pinned to exact, current stable versions; production dependencies have 0 known vulnerabilities (`npm run audit`, checked in CI). Advisories in build/test tooling that have no fix yet may be allowlisted in `audit-allowlist.json`, each with a reason and a review-by date; new advisories and expired entries fail CI.
 
 ## Getting started
 
