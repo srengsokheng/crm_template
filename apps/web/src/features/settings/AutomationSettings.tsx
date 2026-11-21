@@ -1,3 +1,4 @@
+import { Switch } from '../../components/ui/controls.tsx';
 import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
@@ -85,7 +86,7 @@ export function AutomationSettings() {
                         <div className="text-xs text-muted">{r.successCount} runs{r.failedCount ? ` · ${r.failedCount} failed` : ''}</div>
                       </button>
                       {!r.isEnabled && <Badge>Off</Badge>}
-                      <Checkbox checked={r.isEnabled} onChange={() => toggle(r)} label={<span className="sr-only">Enabled</span>} />
+                      <Switch checked={r.isEnabled} onChange={() => toggle(r)} label={`Rule ${i + 1} on`} hideLabel />
                       <IconButton size="sm" label="Delete rule" onClick={() => remove(r)}><Trash2 className="size-3.5" /></IconButton>
                     </li>
                   ))}

@@ -1,3 +1,4 @@
+import { Switch } from '../../components/ui/controls.tsx';
 import { useEffect, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
@@ -358,7 +359,7 @@ function TelegramUserDetails({ c, onChange, save, busy }: { c: Channel; onChange
       <Field label="Assign new conversations to" htmlFor={`to${c.id}`}>
         <div className="max-w-xs"><UserSelect id={`to${c.id}`} value={c.config.ownerId ?? null} onChange={(v) => { if (v) save({ ownerId: v }, 'Saved'); }} /></div>
       </Field>
-      <Checkbox checked={!!c.config.includeGroups} disabled={busy} onChange={(v) => save({ includeGroups: v }, v ? 'Group chats will be taken in' : 'Only private chats from now on')} label="Also take in group chats" />
+      <div className="max-w-md"><Switch checked={!!c.config.includeGroups} disabled={busy} onChange={(v) => save({ includeGroups: v }, v ? 'Group chats will be taken in' : 'Only private chats from now on')} label="Also take in group chats" /></div>
       <p className="text-muted">Only messages people send to the account are taken in; what the owner writes from their phone stays in Telegram. To stop, disable the channel, or end the “CRM Inbox” session in Telegram → Settings → Devices.</p>
     </div>
   );
