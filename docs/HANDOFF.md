@@ -549,7 +549,7 @@ The research behind every decision is in this folder:
   one at their request (the email choice covers every contact with the same address). Every change — the customer’s
   STOP/START or link, or a team member — is on the contact’s timeline.
 
-**Quality:** 278 Vitest tests (API against real PostgreSQL), 80 Playwright tests (desktop, tablet, phone), lint and
+**Quality:** 304 Vitest tests (API against real PostgreSQL), 95 Playwright tests (desktop, tablet, phone), lint and
 typecheck clean, `npm audit` = 0, GitHub Actions CI in `.github/workflows/ci.yml`.
 
 ## 3. Not built yet — suggested next work (in priority order)
