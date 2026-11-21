@@ -3,7 +3,7 @@ import type { z } from 'zod';
 import {
   companyCreateSchema, companyUpdateSchema, contactCreateSchema, contactUpdateSchema, listQuerySchema, personName,
 } from '@crm/shared';
-import { pool, q, q1, raw, sql, tx, type Db } from '../db/index.ts';
+import { pool, q, q1, raw, sql, tx, type Db, type Fragment } from '../db/index.ts';
 import type { Ctx } from '../lib/context.ts';
 import { AppError, badRequest } from '../lib/errors.ts';
 import { audit, diff } from '../lib/audit.ts';
@@ -152,6 +152,18 @@ export async function updateCompany(db: Db, ctx: Ctx, id: number, body: CompanyU
   return row;
 }
 
+/** Inline on contact/company pages: the 10 newest deals the user may see, and how many there are (the deals list pages the rest). */
+export const RELATED_DEALS_INLINE = 10;
+async function relatedDeals(ctx: Ctx, link: Fragment) {
+  const where = sql`d.workspace_id = ${ctx.workspaceId} AND d.deleted_at IS NULL AND ${scopeWhere(ctx, 'deal', 'view', 'd')} AND ${link}`;
+  const [rows, total] = await Promise.all([
+    q(sql`SELECT d.id, d.title, d.amount, d.currency, d.status, s.name AS stage_name, s.color AS stage_color FROM deals d
+      JOIN stages s ON s.id = d.stage_id WHERE ${where} ORDER BY d.created_at DESC, d.id DESC LIMIT ${RELATED_DEALS_INLINE}`),
+    q1<{ n: number }>(sql`SELECT count(*)::int AS n FROM deals d WHERE ${where}`),
+  ]);
+  return { deals: camelAll(rows), dealsTotal: total?.n ?? 0 };
+}
+
 export async function partyRoutes(app: FastifyInstance) {
   // ─────────────── Contacts ───────────────
   app.get('/contacts', async (req, reply) => {
@@ -199,12 +211,10 @@ export async function partyRoutes(app: FastifyInstance) {
       loadMethods('contact', [id]),
       q(sql`SELECT co.id, co.name, cc.role FROM contact_companies cc JOIN companies co ON co.id = cc.company_id
             WHERE cc.contact_id = ${id} AND co.deleted_at IS NULL ORDER BY co.name`),
-      q(sql`SELECT d.id, d.title, d.amount, d.currency, d.status, s.name AS stage_name, s.color AS stage_color
-            FROM deal_contacts dc JOIN deals d ON d.id = dc.deal_id JOIN stages s ON s.id = d.stage_id
-            WHERE dc.contact_id = ${id} AND d.deleted_at IS NULL AND ${pipelineAllowed(ctx, 'd')} ORDER BY d.created_at DESC LIMIT 50`),
+      relatedDeals(ctx, sql`EXISTS (SELECT 1 FROM deal_contacts dc WHERE dc.deal_id = d.id AND dc.contact_id = ${id})`),
       q1(sql`SELECT id, name FROM users WHERE id = ${row.owner_id}`),
     ]);
-    return { ...camel(row), methods: camelAll((methods[id] ?? []) as unknown as Record<string, unknown>[]), companies: camelAll(companies), deals: camelAll(deals), owner: camel(owner) };
+    return { ...camel(row), methods: camelAll((methods[id] ?? []) as unknown as Record<string, unknown>[]), companies: camelAll(companies), ...deals, owner: camel(owner) };
   });
 
   app.post('/contacts', async (req, reply) => {
@@ -263,11 +273,10 @@ export async function partyRoutes(app: FastifyInstance) {
       loadMethods('company', [id]),
       q(sql`SELECT c.id, c.first_name, c.last_name, c.job_title FROM contact_companies cc JOIN contacts c ON c.id = cc.contact_id
             WHERE cc.company_id = ${id} AND c.deleted_at IS NULL ORDER BY c.first_name, c.last_name`),
-      q(sql`SELECT d.id, d.title, d.amount, d.currency, d.status, s.name AS stage_name, s.color AS stage_color FROM deals d
-            JOIN stages s ON s.id = d.stage_id WHERE d.company_id = ${id} AND d.deleted_at IS NULL AND ${pipelineAllowed(ctx, 'd')} ORDER BY d.created_at DESC LIMIT 50`),
+      relatedDeals(ctx, sql`d.company_id = ${id}`),
       q1(sql`SELECT id, name FROM users WHERE id = ${row.owner_id}`),
     ]);
-    return { ...camel(row), methods: camelAll((methods[id] ?? []) as unknown as Record<string, unknown>[]), contacts: camelAll(contacts), deals: camelAll(deals), owner: camel(owner) };
+    return { ...camel(row), methods: camelAll((methods[id] ?? []) as unknown as Record<string, unknown>[]), contacts: camelAll(contacts), ...deals, owner: camel(owner) };
   });
 
   app.post('/companies', async (req, reply) => {

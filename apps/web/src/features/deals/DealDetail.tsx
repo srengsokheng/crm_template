@@ -1,7 +1,8 @@
+import { useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { Building2, CheckCircle2, MoreHorizontal, RotateCcw, Trash2, XCircle } from 'lucide-react';
+import { Building2, CheckCircle2, MoreHorizontal, Pencil, RotateCcw, Trash2, XCircle } from 'lucide-react';
 import { api, errorMessage } from '../../lib/api.ts';
 import { date, money, personName } from '../../lib/format.ts';
 import { useCan, useDictLabel, usePipelines, useUserName, useFieldLock } from '../../lib/hooks.ts';
@@ -20,6 +21,7 @@ import { DocumentsCard } from '../documents/DocumentsCard.tsx';
 import { DealFeedbackCard } from '../feedback/Feedback.tsx';
 import { LineItemsEditor, saveLineItems } from '../products/LineItemsEditor.tsx';
 import { useStageMove } from './useStageMove.tsx';
+import { DealForm } from './DealForm.tsx';
 
 interface Deal {
   id: number; version: number; title: string; amount: string; currency: string; amountMode: string; probability: number | null; expectedCloseDate: string | null;
@@ -41,6 +43,7 @@ export function DealDetail() {
   const q = useQuery({ queryKey: ['deal', id], queryFn: () => api.get<Deal>(`/deals/${id}`) });
   const del = useDeleteWithUndo('deals', 'Deal', () => nav('/deals'));
   const mover = useStageMove('deal');
+  const [editing, setEditing] = useState(false);
   if (q.isLoading) return <RecordSkeleton />;
   if (q.error || !q.data) return <RecordError error={q.error} back="/deals" />;
   const d = q.data;
@@ -71,6 +74,7 @@ export function DealDetail() {
         {d.status === 'lost' && <Badge tone="red">Lost{d.lostReason ? ` · ${d.lostReason.label}` : ''}</Badge>}
       </>}
       actions={<>
+        {edit && <Button icon={<Pencil className="size-4" />} onClick={() => setEditing(true)}>Edit</Button>}
         {edit && d.status === 'open' && won && <Button variant="success" icon={<CheckCircle2 className="size-4" />} onClick={() => mover.move(id, d.title, stage, won)}>Won</Button>}
         {edit && d.status === 'open' && lost && <Button variant="danger" icon={<XCircle className="size-4" />} onClick={() => mover.move(id, d.title, stage, lost)}>Lost</Button>}
         {edit && d.status !== 'open' && <Button icon={<RotateCcw className="size-4" />} onClick={reopen}>Reopen</Button>}
@@ -125,6 +129,6 @@ export function DealDetail() {
         <AutomationRuns type="deal" id={id} />
         <Attachments entityType="deal" entityId={id} canEdit={edit} />
       </>}
-      right={<>{mover.dialogs}<Timeline type="deal" id={id} /></>} />
+      right={<>{mover.dialogs}{editing && <DealForm open record={d} onClose={() => setEditing(false)} />}<Timeline type="deal" id={id} /></>} />
   );
 }

@@ -38,7 +38,7 @@ test('every main screen passes the accessibility scan, light and dark', async ({
   await signUp(page);
   const s = await seed(page, baseURL!);
   const screens: [string, string][] = [
-    ['home', '/'], ['inbox', `/inbox/${s.conv.id}`], ['activities', '/activities'], ['leads', '/leads'], ['lead', `/leads/${s.lead.id}`],
+    ['home', '/'], ['inbox', `/inbox/${s.conv.id}`], ['activities', '/activities'], ['calendar', '/calendar'], ['leads', '/leads'], ['lead', `/leads/${s.lead.id}`],
     ['deals', '/deals'], ['deal', `/deals/${s.deal.id}`], ['contacts', '/contacts'], ['contact', `/contacts/${s.contact.id}`],
     ['companies', '/companies'], ['company', `/companies/${s.co.id}`], ['products', '/products'], ['invoices', '/documents'],
     ['invoice', `/documents/${s.doc.id}`], ['reports', '/reports'], ['import', '/import/contact'], ['broadcasts', '/broadcasts'], ['new broadcast', '/broadcasts/new'],

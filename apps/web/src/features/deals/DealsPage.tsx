@@ -13,7 +13,7 @@ import { StageBadge } from '../../components/ui/StageBadge.tsx';
 import { useCreate } from '../../app/create.tsx';
 import { SavedViews } from '../records/SavedViews.tsx';
 import { ExportLink, BulkBar, FilterSelect, SearchBox, Toolbar, useListParams } from '../records/list.tsx';
-import { Board, type BoardCard, type BoardStat } from './Board.tsx';
+import { Board, useBoardMore, type BoardCard, type BoardStat } from './Board.tsx';
 import { useStageMove } from './useStageMove.tsx';
 
 interface DealRow {
@@ -34,7 +34,9 @@ export function DealsPage() {
   const pipeline = pipelines.find((p) => p.id === pipelineId);
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const qc = useQueryClient();
-  const filters = { q: lp.get('q'), ownerId: lp.get('ownerId'), pipelineId };
+  const baseFilters = { q: lp.get('q'), ownerId: lp.get('ownerId'), pipelineId };
+  const boardMore = useBoardMore(baseFilters);
+  const filters = { ...baseFilters, more: boardMore.more };
   const boardKey = ['deals-board', filters];
   const board = useQuery({
     queryKey: boardKey, enabled: view === 'board' && !!pipelineId, placeholderData: keepPreviousData,
@@ -95,6 +97,7 @@ export function DealsPage() {
               )}
               <Board stages={pipeline.stages} cards={cards} stats={board.data?.stats ?? []} currency={currency}
                 canDrag={(c) => can('deal', 'edit', c.ownerId)}
+                onLoadMore={boardMore.loadMore} loadingStage={board.isFetching ? boardMore.pending : null}
                 onMove={(card, to) => mover.move(card.id, card.title, pipeline.stages.find((s) => s.id === card.stageId), to)}
                 onQuickAdd={can('deal', 'create') ? (s) => create.open('deal', { pipelineId, stageId: s.id, stay: true }) : undefined}
                 closedZones={{ won: pipeline.stages.find((s) => s.kind === 'won'), lost: pipeline.stages.find((s) => s.kind === 'lost'), wonLabel: 'Won', lostLabel: 'Lost' }} />

@@ -25,23 +25,23 @@ webhooks, messaging, permissions). CI must be green; merge only with the owner's
   section headers, radio groups, switches and tooltips. Add `Tabs`, `Toolbar`/`FilterBar`, `Section`, `RadioGroup`,
   `Switch`, `Tooltip`, `KeyValueList`; replace the hand-built versions (behaviour unchanged, one refactor PR).
 - **Component gallery**: a dev-only `/dev/components` page showing every component in every state, light + dark.
-- **Touch targets**: `UI-RULES.md` asks for 44px, but `IconButton size="sm"` and checkboxes are smaller and nothing
-  enlarges them on touch screens. Enforce ≥44px under `pointer: coarse` and add a Playwright check at 390px.
+- ~~**Touch targets**~~ — done: 44px tap areas on touch screens (global rule in `styles.css`), checked by
+  `e2e/touch-targets.spec.ts`.
 
 ## 2. Lists & pagination (api-design)
 
-- **Kanban columns** still stop with "+N more — use the list view or search" — add per-column "Load more".
-- **Related deals** on contact and company pages are `LIMIT 50` with no total (`apps/api/src/routes/parties.ts`) —
-  page them or show "Load more" with the count.
+- ~~**Kanban columns**: per-column "Show more"~~ — done (`more=stageId:count` on `/deals/board` and `/leads/board`, up to 500 cards a column).
+- ~~**Related deals** on contact and company pages~~ — done: 10 inline with `dealsTotal`, "Load more" pages
+  `/deals?contactId=|companyId=`, open-pipeline sum over all of them; now filtered by the deal view scope too.
 - Column picker per list (saved with the saved view).
 
 ## 3. Missing features
 
 | Priority | Feature |
 |---|---|
-| P1 | **Edit drawer** on record pages to edit many fields at once (inline edits stay for quick changes) |
-| P1 | **Calendar views**: deals by expected close date, activities and bookings by date (week/month, drag to reschedule) |
-| P1 | **Dashboard period picker** (this month / quarter / year / custom) and a pipeline picker; today only the Me / My team / Everyone scope switch exists |
+| ~~P1~~ | ~~**Edit drawer**~~ — done: **Edit** on deal, lead, contact and company pages opens the create form pre-filled; only changed fields are sent, with the record version (a conflicting save is refused) |
+| ~~P1~~ | ~~**Calendar views**~~ — done: `/calendar` (month/week; phones get an agenda) with activities by due time and open deals by expected close, drag to another day with Undo, Mine/Everyone. Still open: bookings on it, and a keyboard way to move items (today: change the date on the record) |
+| ~~P1~~ | ~~**Dashboard period picker**~~ — done: this/last month, quarter, year, or a custom range (remembered per browser); the pipeline picker was already there |
 | P2 | **Lead scoring** (lead-scoring skill): fit + engagement score, Hot/Warm/Cold badge, sort and filter by score |
 | P2 | **User-flow diagrams** (user-flow-mapping skill) for lead→deal, import, merge, invoice→payment, booking — in `docs/flows/` |
 | P2 | Profile extras: personal time zone, sign out of other sessions |

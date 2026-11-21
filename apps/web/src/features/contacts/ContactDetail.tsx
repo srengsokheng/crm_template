@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import { useParams, useNavigate, Link } from 'react-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Combine, MoreHorizontal, Plus, Trash2, Building2 } from 'lucide-react';
+import { Combine, MoreHorizontal, Pencil, Plus, Trash2, Building2 } from 'lucide-react';
+import { ContactForm } from './ContactForm.tsx';
 import { api } from '../../lib/api.ts';
 import { date, personName } from '../../lib/format.ts';
 import { useCan, useDictLabel, useUserName, useFieldLock } from '../../lib/hooks.ts';
@@ -24,7 +25,7 @@ import { MergeUndoBanner } from '../records/MergeUndoBanner.tsx';
 interface Contact {
   id: number; version: number; firstName: string | null; lastName: string | null; jobTitle: string | null; birthday: string | null; typeId: number | null;
   sourceId: number | null; ownerId: number; visibility: string; description: string | null; address: Address | null; custom: Record<string, unknown>; createdAt: string;
-  methods: Method[]; companies: { id: number; name: string }[]; deals: RelatedDeal[]; primaryCompanyId: number | null;
+  methods: Method[]; companies: { id: number; name: string }[]; deals: RelatedDeal[]; dealsTotal: number; primaryCompanyId: number | null;
 }
 
 export function ContactDetail() {
@@ -39,6 +40,7 @@ export function ContactDetail() {
   const q = useQuery({ queryKey: ['contact', id], queryFn: () => api.get<Contact>(`/contacts/${id}`) });
   const del = useDeleteWithUndo('contacts', 'Contact', () => nav('/contacts'));
   const [merging, setMerging] = useState(false);
+  const [editing, setEditing] = useState(false);
   if (q.isLoading) return <RecordSkeleton />;
   if (q.error || !q.data) return <RecordError error={q.error} back="/contacts" />;
   const c = q.data;
@@ -55,6 +57,7 @@ export function ContactDetail() {
     <RecordShell back={{ to: '/contacts', label: 'Contacts' }} title={name}
       subtitle={<>{c.jobTitle && <span>{c.jobTitle}</span>}{c.companies[0] && <Link to={`/companies/${c.companies[0].id}`} className="inline-flex items-center gap-1 hover:underline"><Building2 className="size-3.5" />{c.companies[0].name}</Link>}<span>Owner: {userName(c.ownerId)}</span></>}
       actions={<>
+        {edit && <Button icon={<Pencil className="size-4" />} onClick={() => setEditing(true)}>Edit</Button>}
         {can('deal', 'create') && <Button icon={<Plus className="size-4" />} onClick={() => create.open('deal', { contacts: [{ id, label: name }], company: c.companies[0] ? { id: c.companies[0].id, label: c.companies[0].name } : undefined })}>New deal</Button>}
         <Menu trigger={<IconButton label="More actions"><MoreHorizontal className="size-4" /></IconButton>}
           items={[
@@ -86,11 +89,11 @@ export function ContactDetail() {
             <CustomFieldsRows entity="contact" custom={c.custom} canEdit={edit} onSave={(p) => patch({ custom: p })} />
           </div>
         </Card>
-        <RelatedDeals deals={c.deals} onAdd={can('deal', 'create') ? () => create.open('deal', { contacts: [{ id, label: name }], stay: true }) : undefined} />
+        <RelatedDeals deals={c.deals} total={c.dealsTotal} filter={{ contactId: id }} onAdd={can('deal', 'create') ? () => create.open('deal', { contacts: [{ id, label: name }], stay: true }) : undefined} />
         <LinkedConversations contactId={id} />
         <ContactBroadcasts contactId={id} />
         <Attachments entityType="contact" entityId={id} canEdit={edit} />
       </>}
-      right={<Timeline type="contact" id={id} />} />
+      right={<>{editing && <ContactForm open record={c} onClose={() => setEditing(false)} />}<Timeline type="contact" id={id} /></>} />
   );
 }
