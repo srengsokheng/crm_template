@@ -505,6 +505,10 @@ The research behind every decision is in this folder:
   message (delivery queue, retries, errors on the message). A reminder counts as sendable when WhatsApp can reach
   someone, even without an email; the invoice card shows "1 WhatsApp chat". If the channel is off or Meta withdrew the
   template, WhatsApp is skipped and the email still goes. Booking confirmations go on booking and on every move.
+  Because anyone can book, booking messages go **only to the number typed on the booking form** (never to the saved
+  numbers of a contact matched by email), at most **3 a day per number** and **100 bookings with a phone a day per
+  workspace** (`BOOKING_WA_PER_NUMBER`, `BOOKING_WA_PER_WORKSPACE` in `routes/booking.ts`); over a limit, the booking
+  and its email still go, without WhatsApp. Moves made by the team aren't limited.
 
 - **Installable app (PWA)** (`apps/web/public/manifest.webmanifest`, `sw.js`, `offline.html`, `lib/install.ts`):
   add to the home screen (Android, iPhone via Safari → Share → Add to Home Screen) or install on desktop Chrome/Edge;

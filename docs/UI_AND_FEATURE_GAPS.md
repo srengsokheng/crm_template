@@ -1,6 +1,6 @@
 # Remaining UI & feature gaps
 
-Checked against the tip of the open branch chain (`feat/whatsapp-notices` + `fix/reminder-test-clock`, 20 Nov 2026).
+Checked against `main` (21 Nov 2026).
 Already done there and not repeated here: password reset and change, account email change, saved views, CSV
 import/export, audit log, duplicates/merge, "Load more" feeds, `docs/UI-RULES.md`, attachments, quotes/invoices and
 payments (KHQR), payment reminders, inbox (Telegram, Meta, WhatsApp), broadcasts, booking pages, calls, webhooks,
@@ -9,15 +9,10 @@ Integration follow-ups (CJK PDFs, real Telegram/Meta accounts, TURN/SFU, broadca
 KHQR Bakong API…) are listed in `docs/HANDOFF.md` §3 — not duplicated here.
 Skills that help are in `.claude/skills/` (see its README).
 
-## 0. Before anything else: get the work into `main`
+## 0. ~~Get the work into `main`~~ — done (21 Nov 2026)
 
-`main` only has PRs #1–#4. About 65 commits sit on a stack of ~62 open PRs (#5 `feat/password-reset` → … → #66
-`feat/whatsapp-notices`, each based on the previous branch), plus #40 (`fix/audit-policy`, into `main`) and the
-test fix on `fix/reminder-test-clock`. Until they are merged, every new branch must start from the top of the stack.
-
-Suggested order: merge #40, then the stack bottom-up (or retarget #66 + the fix to `main` and merge once, if the owner
-prefers one big merge). Run the `code-review` skill on the risky parts first (payments, public customer links,
-webhooks, messaging, permissions). CI must be green; merge only with the owner's OK.
+The whole stack (#5–#73) and #40 are merged into `main`. Start every new branch from `main` and open the pull request
+into `main`.
 
 ## 1. Design system (frontend-design, refactoring)
 
