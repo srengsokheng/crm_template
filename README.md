@@ -39,6 +39,8 @@ Open http://localhost:5173 and sign in with the demo account, or create a new wo
 
 ### Production
 
+Full guide (Docker, automatic HTTPS, backups, upgrades): **[docs/DEPLOY.md](docs/DEPLOY.md)**.
+
 ```bash
 npm ci && npm run build
 NODE_ENV=production DATABASE_URL=postgres://… APP_URL=https://crm.example.com npm start

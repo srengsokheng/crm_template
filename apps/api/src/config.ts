@@ -6,6 +6,12 @@ export const config = {
   env: env.NODE_ENV ?? 'development',
   isProd: env.NODE_ENV === 'production',
   isTest: env.NODE_ENV === 'test',
+  /**
+   * Who may create a workspace with the sign-up page: `open` (anyone), `first` (only until the first workspace exists —
+   * the default in production, so a company's server isn't open to strangers; everyone else joins by invite) or
+   * `closed`.
+   */
+  signup: signupMode(env.SIGNUP, env.NODE_ENV === 'production'),
   port: Number(env.PORT ?? 3000),
   host: env.HOST ?? '0.0.0.0',
   databaseUrl: env.DATABASE_URL ?? 'postgres://crm:crm@127.0.0.1:5432/crm_dev',
@@ -78,4 +84,10 @@ function parseTrustProxy(v: string | undefined): boolean | string[] | ((address:
   if (t === 'true') return true;
   if (/^\d+$/.test(t)) { const hops = Number(t); return (_address: string, hop: number) => hop < hops; } // the nearest N proxies
   return t.split(',').map((s) => s.trim()).filter(Boolean);
+}
+
+function signupMode(v: string | undefined, prod: boolean): 'open' | 'first' | 'closed' {
+  const m = (v?.trim() || (prod ? 'first' : 'open')).toLowerCase();
+  if (m !== 'open' && m !== 'first' && m !== 'closed') throw new Error('SIGNUP must be open, first or closed');
+  return m;
 }

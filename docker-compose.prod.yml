@@ -1,0 +1,41 @@
+# Production: the CRM, PostgreSQL and Caddy (HTTPS with an automatic certificate).
+# 1. Point your domain's DNS at this server.  2. cp .env.production.example .env and fill it in.
+# 3. docker compose -f docker-compose.prod.yml up -d --build      (full guide: docs/DEPLOY.md)
+services:
+  app:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgres://crm:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@db:5432/crm
+      APP_URL: https://${DOMAIN:?set DOMAIN in .env}
+      TRUST_PROXY: "1"             # only Caddy (one hop) reaches the app; its port is not published
+    volumes: ["files:/app/data/files"]
+    depends_on:
+      db: { condition: service_healthy }
+  db:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: crm
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: crm
+    volumes: ["pgdata:/var/lib/postgresql/data"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U crm -d crm"]
+      interval: 5s
+      retries: 20
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    ports: ["80:80", "443:443"]
+    environment:
+      DOMAIN: ${DOMAIN}
+    volumes: ["./deploy/Caddyfile:/etc/caddy/Caddyfile:ro", "caddy_data:/data", "caddy_config:/config"]
+    depends_on: [app]
+volumes:
+  pgdata:
+  files:
+  caddy_data:
+  caddy_config:
