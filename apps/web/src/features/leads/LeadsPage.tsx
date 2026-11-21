@@ -12,7 +12,7 @@ import { DataTable, Pagination, type Column } from '../../components/ui/DataTabl
 import { StageBadge } from '../../components/ui/StageBadge.tsx';
 import { useCreate } from '../../app/create.tsx';
 import { SavedViews } from '../records/SavedViews.tsx';
-import { ExportLink, BulkBar, FilterSelect, SearchBox, Toolbar, useListParams } from '../records/list.tsx';
+import { columnChoice, ExportLink, BulkBar, FilterSelect, SearchBox, Toolbar, useListParams } from '../records/list.tsx';
 import { Board, useBoardMore, type BoardCard, type BoardStat } from '../deals/Board.tsx';
 import { useStageMove } from '../deals/useStageMove.tsx';
 
@@ -59,6 +59,7 @@ export function LeadsPage() {
     { key: 'owner', header: 'Owner', sortKey: 'owner', hideOnMobile: true, cell: (r) => r.ownerName ?? '—' },
     { key: 'created', header: 'Created', sortKey: 'createdAt', cell: (r) => <span className="text-muted">{relative(r.createdAt)}</span> },
   ];
+  const colChoice = columnChoice(lp, cols);
   return (
     <div>
       <PageHeader title="Leads" subtitle="New interest to qualify before it becomes a deal" actions={<>
@@ -70,7 +71,7 @@ export function LeadsPage() {
         {can('lead', 'create') && <Button variant="primary" icon={<Plus className="size-4" />} onClick={() => create.open('lead')}>New lead</Button>}
       </>} />
       <SavedViews entity="lead" />
-      <Toolbar right={can('lead', 'export') && <ExportLink path="/leads" params={lp.params} />}>
+      <Toolbar right={<>{view === 'list' && colChoice.picker}{can('lead', 'export') && <ExportLink path="/leads" params={lp.params} />}</>}>
         <SearchBox value={lp.get('q')} onChange={(v) => lp.set({ q: v })} placeholder="Search name, company, email, phone" />
         <FilterSelect label="Owner" value={lp.get('ownerId')} onChange={(v) => lp.set({ ownerId: v })} options={[{ value: 'me', label: 'Me' }]} />
         <FilterSelect label="Source" value={lp.get('sourceId')} onChange={(v) => lp.set({ sourceId: v })} options={sources.map((s) => ({ value: String(s.id), label: s.label }))} />
@@ -87,7 +88,7 @@ export function LeadsPage() {
       ) : (
         <>
           <BulkBar entityPath="leads" selected={selected} clear={() => setSelected(new Set())} canDelete={can('lead', 'delete')} canEdit={can('lead', 'edit')} />
-          <DataTable columns={cols} rows={list.data?.data ?? []} loading={list.isLoading} error={list.error ? errorMessage(list.error) : null} onRetry={() => list.refetch()}
+          <DataTable columns={colChoice.visible} rows={list.data?.data ?? []} loading={list.isLoading} error={list.error ? errorMessage(list.error) : null} onRetry={() => list.refetch()}
             sort={lp.sort} onSort={(s) => lp.set({ sort: s })} onRowClick={(r) => nav(`/leads/${r.id}`)} selected={selected} onSelect={setSelected}
             empty={<EmptyState icon={<Zap className="size-5" />} title="No open leads" description="New inquiries show up here. Converted and disqualified leads are hidden." />}
             footer={<Pagination page={lp.page} pageSize={lp.pageSize} total={list.data?.total ?? 0} onPage={(p) => lp.set({ page: p }, false)} onPageSize={(n) => lp.set({ pageSize: n })} />} />

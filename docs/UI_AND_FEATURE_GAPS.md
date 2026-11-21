@@ -28,7 +28,7 @@ into `main`.
 - ~~**Kanban columns**: per-column "Show more"~~ — done (`more=stageId:count` on `/deals/board` and `/leads/board`, up to 500 cards a column).
 - ~~**Related deals** on contact and company pages~~ — done: 10 inline with `dealsTotal`, "Load more" pages
   `/deals?contactId=|companyId=`, open-pipeline sum over all of them; now filtered by the deal view scope too.
-- Column picker per list (saved with the saved view).
+- ~~Column picker per list~~ — done: **Columns** on Deals, Leads, Contacts and Companies lists; kept in the URL (`cols=`), so saved views and links keep it.
 
 ## 3. Missing features
 
