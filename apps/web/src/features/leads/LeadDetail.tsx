@@ -1,3 +1,4 @@
+import { LeadScoreCard } from './LeadScore.tsx';
 import { useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -25,6 +26,7 @@ import { MergeDialog } from '../records/MergeDialog.tsx';
 import { MergeUndoBanner } from '../records/MergeUndoBanner.tsx';
 
 interface Lead {
+  score: number; scoreParts: Record<string, number>;
   id: number; version: number; title: string; firstName: string | null; lastName: string | null; jobTitle: string | null; companyName: string | null;
   stageId: number; pipelineId: number; status: 'open' | 'won' | 'lost'; sourceId: number | null; sourceDetails: string | null; amount: string | null; currency: string;
   ownerId: number; visibility: string; description: string | null; address: Address | null; custom: Record<string, unknown>; methods: Method[]; lineItems: LineItem[];
@@ -113,6 +115,7 @@ export function LeadDetail() {
           onSave={async (items) => { await saveLineItems(`/leads/${id}/line-items`, items); await refresh(); toast.success('Products saved'); }} />
         <LinkedConversations leadId={id} />
         <AutomationRuns type="lead" id={id} />
+        {l.status === 'open' && <LeadScoreCard score={l.score} parts={l.scoreParts} />}
         <Attachments entityType="lead" entityId={id} canEdit={edit} />
       </>}
       right={<>{mover.dialogs}{converting && <ConvertDialog leadId={id} open onClose={() => setConverting(false)} />}{editing && <LeadForm open record={l} onClose={() => setEditing(false)} />}<Timeline type="lead" id={id} /></>} />

@@ -1,3 +1,5 @@
+import { LEAD_TIER_LABEL, LEAD_TIER_MIN, LEAD_TIERS } from '@crm/shared';
+import { ScoreBadge } from './LeadScore.tsx';
 import { useState } from 'react';
 import { useNavigate } from 'react-router';
 import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -17,6 +19,7 @@ import { Board, useBoardMore, type BoardCard, type BoardStat } from '../deals/Bo
 import { useStageMove } from '../deals/useStageMove.tsx';
 
 interface LeadRow {
+  score: number;
   id: number; title: string; firstName: string | null; lastName: string | null; companyName: string | null; amount: string | null; currency: string;
   status: string; stageId: number; stageName: string; stageColor: string; sourceName: string | null; ownerName: string | null; ownerId: number;
   email: string | null; phone: string | null; nextActivity: NextActivity | null; stageChangedAt: string; createdAt: string;
@@ -49,10 +52,11 @@ export function LeadsPage() {
   const cards: BoardCard[] = (board.data?.leads ?? []).map((l) => ({
     id: l.id, title: l.title, amount: l.amount, currency: l.currency, stageId: l.stageId, ownerName: l.ownerName, ownerId: l.ownerId,
     subtitle: [personName(l.firstName, l.lastName) !== 'Unnamed' ? personName(l.firstName, l.lastName) : null, l.sourceName].filter(Boolean).join(' · ') || null,
-    nextActivity: l.nextActivity, stageChangedAt: l.stageChangedAt, href: `/leads/${l.id}`,
+    nextActivity: l.nextActivity, stageChangedAt: l.stageChangedAt, href: `/leads/${l.id}`, badge: <ScoreBadge score={l.score} />,
   }));
   const cols: Column<LeadRow>[] = [
     { key: 'title', header: 'Lead', sortKey: 'title', cell: (r) => <div className="min-w-0"><div className="truncate font-medium">{r.title}</div><div className="truncate text-xs text-muted">{[personName(r.firstName, r.lastName) !== 'Unnamed' && personName(r.firstName, r.lastName), r.email ?? r.phone].filter(Boolean).join(' · ')}</div></div> },
+    { key: 'score', header: 'Score', sortKey: 'score', cell: (r) => <ScoreBadge score={r.score} /> },
     { key: 'stage', header: 'Stage', sortKey: 'stage', cell: (r) => <StageBadge name={r.stageName} color={r.stageColor} /> },
     { key: 'source', header: 'Source', sortKey: 'source', hideOnMobile: true, cell: (r) => r.sourceName ?? <span className="text-muted">—</span> },
     { key: 'amount', header: 'Value', sortKey: 'amount', align: 'right', hideOnMobile: true, cell: (r) => money(r.amount, r.currency) },
@@ -74,6 +78,7 @@ export function LeadsPage() {
         <SearchBox value={lp.get('q')} onChange={(v) => lp.set({ q: v })} placeholder="Search name, company, email, phone" />
         <FilterSelect label="Owner" value={lp.get('ownerId')} onChange={(v) => lp.set({ ownerId: v })} options={[{ value: 'me', label: 'Me' }]} />
         <FilterSelect label="Source" value={lp.get('sourceId')} onChange={(v) => lp.set({ sourceId: v })} options={sources.map((s) => ({ value: String(s.id), label: s.label }))} />
+        <FilterSelect label="Score" value={lp.get('tier')} onChange={(v) => lp.set({ tier: v })} options={LEAD_TIERS.map((t) => ({ value: t, label: `${LEAD_TIER_LABEL[t]} (${LEAD_TIER_MIN[t]}+)` }))} />
       </Toolbar>
       {view === 'board' ? (
         board.isLoading || !pipeline ? <div className="flex gap-3">{Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-96 w-[17rem]" />)}</div>
