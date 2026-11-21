@@ -2,8 +2,7 @@
 
 From an empty server to the CRM on `https://your-domain`, then backups and upgrades. Every step here was run on a
 test install (Docker 29, `DOMAIN=localhost`): build, start, HTTPS, sign-up rules, PDFs, backup, restore, restart.
-For what the app does and how to
-develop it, see `HANDOFF.md`.
+For what the app does and how to develop it, see `HANDOFF.md`.
 
 ## What you need
 
