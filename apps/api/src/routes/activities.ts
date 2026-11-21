@@ -85,6 +85,9 @@ function redactEvents<T extends Record<string, unknown>>(ctx: Ctx, events: T[]):
   });
 }
 
+/** Most activities and most deals one calendar range returns (the totals tell the page when there are more). */
+export const CALENDAR_CAP = 500;
+
 export async function activityRoutes(app: FastifyInstance) {
   // ─────────────── Activities ───────────────
   app.get('/activities', async (req) => {
@@ -111,6 +114,37 @@ export async function activityRoutes(app: FastifyInstance) {
       defaultSort: bucket === 'done' ? '-completedAt' : 'dueAt',
     }, query);
     return { ...r, data: camelAll(r.data as Record<string, unknown>[]) };
+  });
+
+  /**
+   * Calendar: activities due between two instants (open and done) and open deals expected to close between two dates,
+   * each limited to what the user may see. At most CALENDAR_CAP of each come back, with the totals, so the page can say
+   * when it shows fewer than there are. `from`/`to` are the browser's local day boundaries as ISO instants; the deal
+   * dates are the same days as YYYY-MM-DD. Ranges up to 42 days (a month grid).
+   */
+  app.get('/calendar', async (req) => {
+    const ctx = ctxOf(req);
+    const query = req.query as Record<string, unknown>;
+    const from = new Date(String(query.from ?? '')), to = new Date(String(query.to ?? ''));
+    const fromDate = qs.date(query.fromDate), toDate = qs.date(query.toDate);
+    if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime()) || !fromDate || !toDate || from >= to || fromDate > toDate) throw badRequest('Give from/to (instants) and fromDate/toDate (dates)');
+    if (to.getTime() - from.getTime() > 43 * 864e5) throw badRequest('At most 6 weeks at a time');
+    const who = query.assigneeId === 'all' ? null : query.assigneeId === undefined || query.assigneeId === 'me' ? ctx.userId : qs.id(query.assigneeId) ?? ctx.userId;
+    const show = new Set(String(query.show ?? 'activities,deals').split(','));
+    const canActs = show.has('activities') && scopeOf(ctx, 'activity', 'view') !== 'none';
+    const canDeals = show.has('deals') && scopeOf(ctx, 'deal', 'view') !== 'none';
+    const actWhere = sql`a.workspace_id = ${ctx.workspaceId} AND a.deleted_at IS NULL AND ${scopeWhere(ctx, 'activity', 'view', 'a', 'assignee_id')}
+      AND a.due_at >= ${from} AND a.due_at < ${to} ${who ? sql`AND a.assignee_id = ${who}` : sql``}`;
+    const dealWhere = sql`d.workspace_id = ${ctx.workspaceId} AND d.deleted_at IS NULL AND d.status = 'open' AND ${scopeWhere(ctx, 'deal', 'view', 'd')}
+      AND d.expected_close_date BETWEEN ${fromDate}::date AND ${toDate}::date ${who ? sql`AND d.owner_id = ${who}` : sql``}`;
+    const [acts, actTotal, deals, dealTotal] = await Promise.all([
+      canActs ? q(sql`SELECT ${activitySelect(ctx)} FROM activities a LEFT JOIN users u ON u.id = a.assignee_id WHERE ${actWhere} ORDER BY a.due_at, a.id LIMIT ${CALENDAR_CAP}`) : Promise.resolve([]),
+      canActs ? q1<{ n: number }>(sql`SELECT count(*)::int AS n FROM activities a WHERE ${actWhere}`) : Promise.resolve({ n: 0 }),
+      canDeals ? q(sql`SELECT d.id, d.title, d.amount, d.currency, d.expected_close_date::text AS expected_close_date, d.owner_id, d.version, s.name AS stage_name, s.color AS stage_color
+        FROM deals d JOIN stages s ON s.id = d.stage_id WHERE ${dealWhere} ORDER BY d.expected_close_date, d.id LIMIT ${CALENDAR_CAP}`) : Promise.resolve([]),
+      canDeals ? q1<{ n: number }>(sql`SELECT count(*)::int AS n FROM deals d WHERE ${dealWhere}`) : Promise.resolve({ n: 0 }),
+    ]);
+    return { activities: camelAll(acts), activitiesTotal: actTotal?.n ?? 0, deals: camelAll(deals), dealsTotal: dealTotal?.n ?? 0, cap: CALENDAR_CAP };
   });
 
   app.get('/activities/counts', async (req) => {
