@@ -51,3 +51,19 @@ test('calendar on a phone: an agenda of the month', async ({ page }) => {
   await expect(page.getByRole('link', { name: /Showroom visit/ })).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
 });
+
+test('calendar: move an item with the keyboard only (grip button, Space, arrows, Space)', async ({ page }) => {
+  await signUp(page);
+  // A Monday–Friday this month, so "one day right" stays in the same week row whatever the month.
+  const t = new Date();
+  const d = [8, 9, 10, 11, 12, 13, 14].find((n) => { const w = new Date(t.getFullYear(), t.getMonth(), n).getDay(); return w >= 1 && w <= 5; })!;
+  await api(page, 'POST', '/activities', { kind: 'call', subject: 'Keyboard call', dueAt: new Date(`${dayOfMonth(d)}T09:30:00`).toISOString() });
+  await page.goto('/calendar');
+  const cell = (n: number) => page.locator(`[data-day="${dayOfMonth(n)}"]`);
+  await expect(cell(d).getByText('Keyboard call')).toBeVisible();
+  await apiIdle(page);
+  await page.getByRole('button', { name: 'Move Keyboard call' }).focus();
+  for (const key of ['Space', 'ArrowRight', 'Space']) { await page.keyboard.press(key); await page.waitForTimeout(200); }
+  await expect(page.getByText(/Moved “Keyboard call” to/)).toBeVisible();
+  await expect(cell(d + 1).getByText('Keyboard call')).toBeVisible();
+});

@@ -1,8 +1,9 @@
 import { useState, type ReactNode } from 'react';
 import { Link } from 'react-router';
 import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query';
-import { DndContext, PointerSensor, TouchSensor, useDraggable, useDroppable, useSensor, useSensors, type DragEndEvent } from '@dnd-kit/core';
-import { CalendarDays, ChevronLeft, ChevronRight, Handshake } from 'lucide-react';
+import { DndContext, KeyboardSensor, PointerSensor, TouchSensor, useDraggable, useDroppable, useSensor, useSensors, type DragEndEvent } from '@dnd-kit/core';
+import { CalendarDays, ChevronLeft, ChevronRight, GripVertical, Handshake } from 'lucide-react';
+import { jumpToDropArea } from '../deals/Board.tsx';
 import { toast } from 'sonner';
 import { api, errorMessage, qsOf } from '../../lib/api.ts';
 import { cn } from '../../lib/cn.ts';
@@ -100,6 +101,8 @@ export function CalendarPage() {
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
     useSensor(TouchSensor, { activationConstraint: { delay: 200, tolerance: 6 } }),
+    // Keyboard: the item's grip button, Space to pick up, arrows jump a day (or a week), Space to drop, Escape to cancel.
+    useSensor(KeyboardSensor, { coordinateGetter: jumpToDropArea }),
   );
   const onDragEnd = (e: DragEndEvent) => {
     const it = items.find((x) => x.key === e.active.id);
@@ -215,16 +218,24 @@ function ChipBody({ item }: { item: Item }) {
 }
 
 /**
- * A draggable item in the grid. Pointer and touch only: dnd-kit's keyboard attributes would wrap the link in a second
- * control. Keyboard users change the date on the record itself. Only the grid registers drag ids (the agenda's copies
- * would otherwise shadow them with hidden 0×0 nodes).
+ * A draggable item in the grid. Mouse and touch drag the whole item; keyboard users focus its grip button ("Move …",
+ * shown on hover/focus), press Space, use the arrows and press Space again — the link itself stays a plain link.
+ * Only the grid registers drag ids (the agenda's copies would otherwise shadow them with hidden 0×0 nodes).
  */
 function Chip({ item, draggable }: { item: Item; draggable: boolean }) {
-  const { listeners, setNodeRef, isDragging } = useDraggable({ id: item.key, disabled: !draggable });
+  const { attributes, listeners, setNodeRef, setActivatorNodeRef, isDragging } = useDraggable({ id: item.key, disabled: !draggable });
+  const { onKeyDown, ...pointer } = (listeners ?? {}) as Record<string, (e: unknown) => void>;
+  const name = item.kind === 'activity' ? item.a.subject : item.d.title;
   return (
-    <div ref={setNodeRef} {...(draggable ? listeners : {})} data-item={item.key}
-      className={cn(draggable && 'cursor-grab touch-manipulation', isDragging && 'opacity-40')}>
+    <div ref={setNodeRef} {...(draggable ? pointer : {})} data-item={item.key}
+      className={cn('group/chip relative', draggable && 'cursor-grab touch-manipulation', isDragging && 'opacity-40')}>
       <ChipBody item={item} />
+      {draggable && (
+        <button type="button" ref={setActivatorNodeRef} {...attributes} onKeyDown={onKeyDown} aria-label={`Move ${name}`} title="Move to another day"
+          className="absolute right-0 top-1/2 inline-flex size-5 -translate-y-1/2 items-center justify-center rounded bg-[var(--surface)] text-muted opacity-0 shadow-xs focus:opacity-100 group-hover/chip:opacity-100">
+          <GripVertical className="size-3" />
+        </button>
+      )}
     </div>
   );
 }

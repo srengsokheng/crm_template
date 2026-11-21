@@ -5,7 +5,7 @@ import { DndContext, DragOverlay, KeyboardSensor, PointerSensor, TouchSensor, us
  * Keyboard moving: each arrow key jumps to the nearest drop area (stage column, Won / Lost) in that direction, instead
  * of dnd-kit's default 25px nudge, which never reached the next column.
  */
-const jumpToDropArea: KeyboardCoordinateGetter = (event, { context: { droppableRects, droppableContainers, collisionRect } }) => {
+export const jumpToDropArea: KeyboardCoordinateGetter = (event, { context: { droppableRects, droppableContainers, collisionRect } }) => {
   const dir = ({ ArrowRight: [1, 0], ArrowLeft: [-1, 0], ArrowDown: [0, 1], ArrowUp: [0, -1] } as Record<string, [number, number]>)[event.code];
   if (!dir || !collisionRect) return undefined;
   event.preventDefault();
