@@ -11,7 +11,7 @@ import { assertRequired, loadDefs, mergeCustom, missingRequired } from '../lib/c
 import { badRequest, AppError } from '../lib/errors.ts';
 import { emit } from '../lib/events.ts';
 import { ctxOf } from '../lib/http.ts';
-import { likeTerm, qs, runList, type ListSpec } from '../lib/list.ts';
+import { boardLimits, likeTerm, qs, runList, type ListSpec } from '../lib/list.ts';
 import { assertOnRecord, requireAny, scopeWhere } from '../lib/permissions.ts';
 import { assertMembers, assertRefs, camel, camelAll, getActive, insertRow, pickColumns, updateRow } from '../lib/records.ts';
 import { getStage, recordStageChange, resolvePipelineStage, stageOfKind, type MoveInput } from '../lib/stages.ts';
@@ -165,11 +165,12 @@ export async function leadRoutes(app: FastifyInstance) {
     requireAny(ctx, 'lead', 'view');
     const query = req.query as Record<string, string>;
     const pipelineId = qs.id(query.pipelineId) ?? (await resolvePipelineStage(pool, ctx, 'lead')).pipeline_id;
-    const limit = Math.min(qs.id(query.limit) ?? 50, 200);
+    const { limit, stageIds, limits } = boardLimits(query);
     const where = and([...leadFilters(ctx, { ...query, pipelineId: String(pipelineId) }), query.q ? leadSearch(query.q) : null]);
     const stats = await q(sql`SELECT l.stage_id, count(*)::int AS count, coalesce(sum(${inBase(ctx, 'l')}),0)::text AS sum FROM ${LEAD_FROM} WHERE ${where} GROUP BY l.stage_id`);
     const rows = await q(sql`SELECT * FROM (SELECT ${LEAD_SELECT}, row_number() OVER (PARTITION BY l.stage_id ORDER BY l.stage_changed_at DESC, l.id DESC) AS rn
-      FROM ${LEAD_FROM} WHERE ${where}) x WHERE rn <= ${limit}`);
+      FROM ${LEAD_FROM} WHERE ${where}) x
+      WHERE rn <= coalesce((SELECT m.lim FROM unnest(${stageIds}::bigint[], ${limits}::int[]) AS m(sid, lim) WHERE m.sid = x.stage_id), ${limit})`);
     return { pipelineId, stats: camelAll(stats), leads: camelAll(rows) };
   });
 

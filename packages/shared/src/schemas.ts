@@ -429,6 +429,26 @@ export const khqrSettingsSchema = z.object({
 export type KhqrSettings = z.infer<typeof khqrSettingsSchema>;
 
 /**
+ * Sending a WhatsApp message through an approved template: the channel, the template, and what fills each blank
+ * ({{1}}, {{2}}…) — one of the fields the sender knows (an invoice's number, a booking's time…). No channel = off.
+ */
+export const WA_REMINDER_FIELDS = ['name', 'number', 'amount', 'dueDate', 'link', 'company'] as const;
+export const WA_BOOKING_FIELDS = ['name', 'title', 'when', 'link', 'company'] as const;
+export const WA_FIELD_LABELS: Record<string, string> = {
+  name: 'Customer name', number: 'Invoice number', amount: 'Amount due', dueDate: 'Due date', link: 'Link (pay / manage)',
+  company: 'Your company name', title: 'What was booked', when: 'Date and time',
+};
+const waTemplateSetting = <T extends readonly [string, ...string[]]>(fields: T) => z.object({
+  channelId: idSchema.nullable().default(null),
+  name: z.string().trim().max(512).default(''),
+  language: z.string().trim().max(20).default(''),
+  params: z.array(z.enum(fields)).max(10).default([]),
+}).refine((v) => !v.channelId || (v.name && v.language), { message: 'Pick an approved template', path: ['name'] });
+export const waReminderSchema = waTemplateSetting(WA_REMINDER_FIELDS);
+export const waBookingSchema = waTemplateSetting(WA_BOOKING_FIELDS);
+export type WaTemplateSetting = { channelId: number | null; name: string; language: string; params: string[] };
+
+/**
  * Automatic payment reminders for sent invoices with a balance: N days before the due date, on it, and N days after
  * (up to three). By email to whoever the invoice was emailed to, and (optionally) the Telegram bot chats of the
  * deal's contacts. Sent after 9:00 in the workspace's time zone.
@@ -440,6 +460,8 @@ export const reminderSettingsSchema = z.object({
   afterDays: z.array(z.coerce.number().int().min(1).max(90)).max(3, 'Up to three').default([7])
     .transform((a) => [...new Set(a)].sort((x, y) => x - y)),
   telegram: z.boolean().default(true),
+  /** Also by WhatsApp, through an approved template, to the deal's contacts (their chat, or their phone number). */
+  whatsapp: waReminderSchema.prefault({}),
 });
 export type ReminderSettings = z.infer<typeof reminderSettingsSchema>;
 export const documentRemindersSchema = z.object({ off: z.boolean() });
@@ -548,6 +570,8 @@ export const bookingPageSchema = z.object({
   video: z.boolean().default(true),
   location: z.string().trim().max(300).default(''),
   active: z.boolean().default(true),
+  /** Also confirm (and confirm moves) by WhatsApp through an approved template. */
+  whatsapp: waBookingSchema.nullable().default(null),
 }).refine((v) => v.end > v.start, { message: 'Must be after the start', path: ['end'] })
   .refine((v) => v.hostId || v.hostIds?.length, { message: 'Pick who customers meet', path: ['hostIds'] })
   .transform(({ hostId, hostIds, ...v }) => ({ ...v, hostIds: [...new Set([...(hostId ? [hostId] : []), ...(hostIds ?? [])])] }));

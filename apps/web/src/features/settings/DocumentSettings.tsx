@@ -4,9 +4,11 @@ import { toast } from 'sonner';
 import { api, ApiError, errorMessage } from '../../lib/api.ts';
 import { Button, Card, Checkbox, ErrorState, Field, Input, Select, Skeleton, Textarea } from '../../components/ui/primitives.tsx';
 import { AdminOnly } from './SettingsLayout.tsx';
+import { WhatsAppTemplateField } from './WhatsAppTemplateField.tsx';
+import { WA_REMINDER_FIELDS, type WaTemplateSetting } from '@crm/shared';
 
 interface K { enabled: boolean; accountId: string; merchantName: string; city: string; accountType: 'individual' | 'merchant'; merchantId: string; acquiringBank: string; validDays: number }
-interface R { enabled: boolean; beforeDays: number | null; onDue: boolean; afterDays: number[]; telegram: boolean }
+interface R { enabled: boolean; beforeDays: number | null; onDue: boolean; afterDays: number[]; telegram: boolean; whatsapp: WaTemplateSetting }
 interface S { companyDetails: string; footer: string; quotePrefix: string; invoicePrefix: string; quoteValidDays: number; paymentTermsDays: number; khqr: K; customerLanguage: 'en' | 'km' | 'both'; reminders: R; requireSignature: boolean }
 
 /** What appears on quote and invoice PDFs, and how they are numbered. */
@@ -94,6 +96,12 @@ export function DocumentSettings() {
                     </Field>
                     <Checkbox checked={f.reminders.onDue} onChange={(v) => setR({ onDue: v })} label="On the due date" />
                     <Checkbox checked={f.reminders.telegram} onChange={(v) => setR({ telegram: v })} label="Also in the Telegram chats of the deal’s contacts" />
+                    <div className="sm:col-span-2">
+                      <WhatsAppTemplateField id="rm-wa" fields={WA_REMINDER_FIELDS} error={errors['reminders.whatsapp.name']}
+                        value={f.reminders.whatsapp.channelId ? f.reminders.whatsapp : null}
+                        onChange={(v) => setR({ whatsapp: v ?? { channelId: null, name: '', language: '', params: [] } })}
+                        samples={{ name: 'Umbrella Foods', number: 'INV-0042', amount: '$1,250.00', dueDate: 'Dec 15, 2026', link: 'https://…/d/…', company: 'Acme Robotics' }} />
+                    </div>
                   </div>
                 )}
               </fieldset>

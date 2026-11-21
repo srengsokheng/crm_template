@@ -46,6 +46,21 @@
   }
   :focus-visible { outline: 2px solid var(--color-brand-500); outline-offset: 2px; }
   input, select, textarea, button { font: inherit; color: inherit; }
+
+  /*
+   * Touch screens (UI-RULES §7): every button, tab and switch gets a tap area of at least 44×44px through an
+   * invisible ::after, so compact desktop controls stay the same size on screen but are easy to hit with a finger.
+   * :where() keeps specificity at 0, so a component's own `absolute`/`fixed` or after: classes still win.
+   * Checkboxes and radios can't carry a pseudo-element; they grow to 24px (WCAG 2.5.8) and sit in clickable rows.
+   */
+  @media (pointer: coarse) {
+    :where(button, [role='button'], [role='tab'], [role='switch'], [role='menuitem'], summary) { position: relative; }
+    :where(button, [role='button'], [role='tab'], [role='switch'], [role='menuitem'], summary)::after {
+      content: ''; position: absolute; left: 50%; top: 50%; width: max(100%, 44px); height: max(100%, 44px);
+      transform: translate(-50%, -50%);
+    }
+    :where(input[type='checkbox'], input[type='radio']) { min-width: 24px; min-height: 24px; }
+  }
 }
 
 @utility surface { background: var(--surface); }

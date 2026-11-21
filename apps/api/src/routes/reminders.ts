@@ -19,6 +19,7 @@ import { ctxOf } from '../lib/http.ts';
 import { documentMail, queueMail, workspaceSender } from '../lib/mailer.ts';
 import { parse } from '../lib/validate.ts';
 import { documentSettings, ensureLink, loadDoc, renderPdf, type Doc } from './documents.ts';
+import { sendWaTemplate } from '../inbox/waNotify.ts';
 
 type InvoiceRow = Doc & { email_to: string[]; reminders_off: boolean };
 interface Step { step: string; date: string; label: string }
@@ -26,13 +27,17 @@ interface Step { step: string; date: string; label: string }
 const addDays = (d: string, n: number) => { const t = new Date(`${d.slice(0, 10)}T00:00:00Z`); t.setUTCDate(t.getUTCDate() + n); return t.toISOString().slice(0, 10); };
 
 /** The reminder steps of an invoice, in date order. */
-export function reminderSteps(s: ReminderSettings, dueDate: string): Step[] {
+export function reminderSteps(s: Pick<ReminderSettings, 'beforeDays' | 'onDue' | 'afterDays'> & Partial<ReminderSettings>, dueDate: string): Step[] {
   const out: Step[] = [];
   if (s.beforeDays) out.push({ step: `before:${s.beforeDays}`, date: addDays(dueDate, -s.beforeDays), label: `${s.beforeDays} day${s.beforeDays === 1 ? '' : 's'} before the due date` });
   if (s.onDue) out.push({ step: 'due', date: dueDate.slice(0, 10), label: 'on the due date' });
   for (const n of s.afterDays) out.push({ step: `after:${n}`, date: addDays(dueDate, n), label: `${n} day${n === 1 ? '' : 's'} overdue` });
   return out;
 }
+
+/** The deal's contacts (primary first). */
+const dealContactIds = async (db: Db, dealId: number) => (await q<{ id: number }>(sql`SELECT dc.contact_id AS id FROM deal_contacts dc
+  JOIN contacts c ON c.id = dc.contact_id AND c.deleted_at IS NULL WHERE dc.deal_id = ${dealId} ORDER BY dc.is_primary DESC, c.id`, db)).map((r) => Number(r.id));
 
 /** Telegram bot chats of the deal's contacts (where a reminder can go besides email). */
 async function telegramChats(db: Db, dealId: number) {
@@ -49,14 +54,17 @@ async function telegramChats(db: Db, dealId: number) {
  */
 async function sendReminder(db: Db, doc: InvoiceRow, step: string, by: Ctx | null, useTelegram: boolean, today: string): Promise<boolean> {
   const balance = moneyMinus(doc.total, doc.paid_amount);
+  const s = await documentSettings(doc.workspace_id, db);
   const chats = useTelegram ? await telegramChats(db, doc.deal_id) : [];
-  if (!doc.email_to.length && !chats.length) return false;
+  const contactIds = await dealContactIds(db, doc.deal_id);
+  const waBase = { workspaceId: doc.workspace_id, setting: s.reminders.whatsapp, contactIds, title: doc.bill_to_name || 'Customer' };
+  const waReach = await sendWaTemplate(db, { ...waBase, values: {}, senderName: '', dryRun: true });
+  if (!doc.email_to.length && !chats.length && !waReach) return false;
   const row = await q1<{ id: number }>(sql`INSERT INTO invoice_reminders (workspace_id, document_id, step, sent_to, chats, balance, sent_by)
     VALUES (${doc.workspace_id}, ${doc.id}, ${step}, ${doc.email_to}, ${chats.length}, ${balance}, ${by?.userId ?? null})
     ON CONFLICT (document_id, step) DO NOTHING RETURNING id`, db);
   if (!row) return false;
 
-  const s = await documentSettings(doc.workspace_id, db);
   const lang: CustomerLanguage = s.customerLanguage;
   const vars = { number: doc.number ?? '', amount: formatMoney(balance, doc.currency), date: customerDate(lang, doc.due_date), company: s.sellerName };
   const due = doc.due_date!.slice(0, 10);
@@ -84,8 +92,13 @@ async function sendReminder(db: Db, doc: InvoiceRow, step: string, by: Ctx | nul
       VALUES (${doc.workspace_id}, ${c.id}, 'out', ${by?.userName ?? s.sellerName}, ${by?.userId ?? null}, ${text}, 'pending') RETURNING id`, db);
     await q(sql`INSERT INTO jobs (type, payload) VALUES ('inbox.send', ${JSON.stringify({ messageId: m!.id })})`, db);
   }
+  const wa = waReach ? await sendWaTemplate(db, {
+    ...waBase, senderName: by?.userName ?? s.sellerName, authorId: by?.userId ?? null,
+    values: { name: doc.bill_to_name, number: doc.number ?? '', amount: vars.amount, dueDate: vars.date, link, company: s.sellerName },
+  }) : 0;
+  if (wa) await q(sql`UPDATE invoice_reminders SET whatsapp = ${wa} WHERE id = ${row.id}`, db);
   const ctx = by ?? systemCtx(doc.workspace_id, 0);
-  await audit(db, ctx, 'deal', doc.deal_id, 'invoice_reminder', { document: { id: doc.id, number: doc.number }, step, to: doc.email_to, chats: chats.length, balance },
+  await audit(db, ctx, 'deal', doc.deal_id, 'invoice_reminder', { document: { id: doc.id, number: doc.number }, step, to: doc.email_to, chats: chats.length, whatsapp: wa, balance },
     by ? 'user' : 'automation');
   return true;
 }
@@ -132,17 +145,18 @@ export async function reminderRoutes(app: FastifyInstance) {
     const doc = d as InvoiceRow;
     const s = (await documentSettings(ctx.workspaceId)).reminders;
     const today = (await q1<{ today: string }>(sql`SELECT to_char((now() AT TIME ZONE timezone)::date, 'YYYY-MM-DD') AS today FROM workspaces WHERE id = ${ctx.workspaceId}`))!.today;
-    const sent = await q(sql`SELECT r.id, r.step, r.sent_to, r.chats, r.balance::text, r.sent_at, u.name AS sent_by_name
+    const sent = await q(sql`SELECT r.id, r.step, r.sent_to, r.chats, r.whatsapp, r.balance::text, r.sent_at, u.name AS sent_by_name
       FROM invoice_reminders r LEFT JOIN users u ON u.id = r.sent_by WHERE r.document_id = ${doc.id} ORDER BY r.sent_at DESC LIMIT 20`);
     const chats = s.telegram ? (await telegramChats(pool, doc.deal_id)).length : 0;
+    const whatsapp = await sendWaTemplate(pool, { workspaceId: ctx.workspaceId, setting: s.whatsapp, contactIds: await dealContactIds(pool, doc.deal_id), values: {}, senderName: '', title: '', dryRun: true });
     const owed = doc.kind === 'invoice' && doc.status === 'sent' && moneyCompare(doc.total, doc.paid_amount) > 0;
     const done = new Set(sent.map((r) => (r as { step: string }).step));
     const next = owed && s.enabled && !doc.reminders_off && doc.due_date
       ? reminderSteps(s, doc.due_date).find((x) => !done.has(x.step) && x.date >= today) ?? null : null;
     return {
-      enabled: s.enabled, off: doc.reminders_off, owed, emailTo: doc.email_to, chats, telegram: s.telegram,
-      next: next && (doc.email_to.length || chats) ? next : null,
-      sent: sent.map((r) => { const x = r as Record<string, unknown>; return { id: x.id, step: x.step, sentTo: x.sent_to, chats: x.chats, balance: x.balance, sentAt: x.sent_at, sentByName: x.sent_by_name }; }),
+      enabled: s.enabled, off: doc.reminders_off, owed, emailTo: doc.email_to, chats, telegram: s.telegram, whatsapp,
+      next: next && (doc.email_to.length || chats || whatsapp) ? next : null,
+      sent: sent.map((r) => { const x = r as Record<string, unknown>; return { id: x.id, step: x.step, sentTo: x.sent_to, chats: x.chats, whatsapp: x.whatsapp, balance: x.balance, sentAt: x.sent_at, sentByName: x.sent_by_name }; }),
     };
   });
 
@@ -172,7 +186,7 @@ export async function reminderRoutes(app: FastifyInstance) {
       const s = (await documentSettings(ctx.workspaceId, db)).reminders;
       const today = (await q1<{ today: string }>(sql`SELECT to_char((now() AT TIME ZONE timezone)::date, 'YYYY-MM-DD') AS today FROM workspaces WHERE id = ${ctx.workspaceId}`, db))!.today;
       const ok = await sendReminder(db, d, `manual:${new Date().toISOString()}`, ctx, s.telegram, today);
-      if (!ok) throw new AppError(422, 'NO_RECIPIENT', 'Nobody to remind: email the invoice to the customer first, or link their Telegram chat to a contact on the deal.');
+      if (!ok) throw new AppError(422, 'NO_RECIPIENT', 'Nobody to remind: email the invoice to the customer first, link their Telegram chat to a contact on the deal, or add a phone number for WhatsApp.');
     });
     return { ok: true };
   });

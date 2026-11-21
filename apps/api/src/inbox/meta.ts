@@ -446,6 +446,21 @@ export function showMetaTyping(channelId: number, conversationId: number): void 
 // ---------------------------------------------------------------------------------------------------------------
 // Incoming files ("url:<cdn url>" for Messenger/Instagram, "media:<id>" for WhatsApp)
 
+/**
+ * Incoming file URLs arrive in webhook payloads, which are signed with an app secret the workspace itself chose — so
+ * they are not trusted: only Meta's CDN hosts over HTTPS (or the configured Graph API origin, used by tests) are
+ * fetched, never internal addresses.
+ */
+const META_FILE_HOSTS = ['fbcdn.net', 'fbsbx.com', 'cdninstagram.com', 'facebook.com', 'whatsapp.net'];
+export function metaFileUrlAllowed(raw: string): boolean {
+  let u: URL;
+  try { u = new URL(raw); } catch { return false; }
+  if (u.username || u.password) return false;
+  if (u.origin === new URL(config.meta.graphUrl).origin) return true;
+  const h = u.hostname.toLowerCase();
+  return u.protocol === 'https:' && !u.port && META_FILE_HOSTS.some((d) => h === d || h.endsWith(`.${d}`));
+}
+
 export async function fetchMetaFile(fileRowId: number, ch: ChannelRow, ref: string): Promise<void> {
   const { accessToken } = credentialsOf(ch);
   let url: string;
@@ -464,8 +479,19 @@ export async function fetchMetaFile(fileRowId: number, ch: ChannelRow, ref: stri
   } else {
     url = ref.slice(4);
   }
-  if (!/^https?:\/\//.test(url)) return setStatus(fileRowId, 'failed');
-  const res = await fetch(url, { headers: auth ? { authorization: `Bearer ${accessToken}` } : {}, signal: AbortSignal.timeout(60_000) });
+  if (!metaFileUrlAllowed(url)) return setStatus(fileRowId, 'failed');
+  // Redirects are followed by hand so every hop stays on Meta's hosts (the URL comes from a webhook payload).
+  let res: Response | null = null;
+  for (let hop = 0; hop < 4; hop++) {
+    res = await fetch(url, { headers: auth ? { authorization: `Bearer ${accessToken}` } : {}, redirect: 'manual', signal: AbortSignal.timeout(60_000) });
+    if (res.status < 300 || res.status >= 400) break;
+    const next = res.headers.get('location');
+    await res.body?.cancel();
+    if (!next) return setStatus(fileRowId, 'failed');
+    url = new URL(next, url).toString();
+    if (!metaFileUrlAllowed(url) || hop === 3) return setStatus(fileRowId, 'failed');
+  }
+  if (!res) return setStatus(fileRowId, 'failed');
   if (res.status === 403 || res.status === 404 || res.status === 410) return setStatus(fileRowId, 'failed'); // link expired
   if (!res.ok) throw new Error(`Meta file download answered ${res.status}`);
   const size = Number(res.headers.get('content-length') ?? 0);

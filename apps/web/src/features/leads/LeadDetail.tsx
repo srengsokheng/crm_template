@@ -2,7 +2,8 @@ import { useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { ArrowRightCircle, Ban, Combine, MoreHorizontal, Trash2 } from 'lucide-react';
+import { ArrowRightCircle, Ban, Combine, MoreHorizontal, Pencil, Trash2 } from 'lucide-react';
+import { LeadForm } from './LeadForm.tsx';
 import { api } from '../../lib/api.ts';
 import { money, personName } from '../../lib/format.ts';
 import { useCan, useDictLabel, usePipelines, useUserName, useFieldLock } from '../../lib/hooks.ts';
@@ -41,6 +42,7 @@ export function LeadDetail() {
   const pipeline = usePipelines('lead')[0];
   const [converting, setConverting] = useState(false);
   const [merging, setMerging] = useState(false);
+  const [editing, setEditing] = useState(false);
   const q = useQuery({ queryKey: ['lead', id], queryFn: () => api.get<Lead>(`/leads/${id}`) });
   const del = useDeleteWithUndo('leads', 'Lead', () => nav('/leads'));
   const mover = useStageMove('lead');
@@ -65,6 +67,7 @@ export function LeadDetail() {
         {l.status === 'lost' && <Badge tone="red">Disqualified</Badge>}
       </>}
       actions={<>
+        {edit && <Button icon={<Pencil className="size-4" />} onClick={() => setEditing(true)}>Edit</Button>}
         {edit && l.status === 'open' && <Button variant="primary" icon={<ArrowRightCircle className="size-4" />} onClick={() => setConverting(true)}>Convert</Button>}
         {edit && l.status === 'open' && lost && <Button icon={<Ban className="size-4" />} onClick={() => mover.move(id, l.title, stage, lost)}>Disqualify</Button>}
         {can('lead', 'edit', l.ownerId, l.visibility) && l.status === 'lost' && <Button onClick={reopen}>Reopen</Button>}
@@ -112,6 +115,6 @@ export function LeadDetail() {
         <AutomationRuns type="lead" id={id} />
         <Attachments entityType="lead" entityId={id} canEdit={edit} />
       </>}
-      right={<>{mover.dialogs}{converting && <ConvertDialog leadId={id} open onClose={() => setConverting(false)} />}<Timeline type="lead" id={id} /></>} />
+      right={<>{mover.dialogs}{converting && <ConvertDialog leadId={id} open onClose={() => setConverting(false)} />}{editing && <LeadForm open record={l} onClose={() => setEditing(false)} />}<Timeline type="lead" id={id} /></>} />
   );
 }
