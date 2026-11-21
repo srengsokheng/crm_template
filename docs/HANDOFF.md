@@ -16,6 +16,7 @@ The research behind every decision is in this folder:
 | `DATABASE_SCHEMA.md` | Tables, relations and service-layer rules |
 | `CRM_FEATURES.md` / `IMPLEMENTATION_PLAN.md` | Scope and roadmap |
 | `flows/README.md` | The main user journeys as diagrams, with the screens and routes behind each step |
+| `DEPLOY.md` | Putting it on a server: Docker, HTTPS, backups, upgrades, security checklist |
 
 ## 2. Status (Nov 2026)
 
@@ -676,6 +677,8 @@ Gotchas learned the hard way:
 
 ## 6. Production
 
+**Step by step (Docker + automatic HTTPS, backups, upgrades): `docs/DEPLOY.md`.** The essentials:
+
 `npm ci && npm run build`, then `NODE_ENV=production DATABASE_URL=… APP_URL=https://… npm start`.
 For real email set `SMTP_HOST` (+ `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `EMAIL_FROM`) in the environment; without it messages
 are only printed to the log. Check it in Settings → Workspace → "Send a test email to me".
@@ -684,6 +687,8 @@ the real client address; leave it unset when the app is reached directly (otherw
 and dodge the login and website-chat limits).
 One process serves `/api/v1/*` and the built SPA, runs migrations on start and runs jobs inline. Serve over HTTPS
 (cookies are `Secure` in production). Health checks: `GET /api/v1/health`.
+Sign-up: `SIGNUP=first` (production default) lets only the first workspace be created; everyone else is invited.
+`open` lets anyone create a workspace on your server; `closed` turns sign-up off.
 Set `SECRETS_KEY` (32 random bytes, base64) before connecting Telegram bots: their tokens are encrypted with it, and
 without it production refuses to store them. Back it up with the database; if it's lost, reconnect the bots.
 

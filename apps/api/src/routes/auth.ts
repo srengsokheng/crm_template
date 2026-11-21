@@ -22,6 +22,9 @@ const limit = { config: { rateLimit: { max: config.isTest ? 1000 : 10, timeWindo
 export async function authRoutes(app: FastifyInstance) {
   app.post('/auth/signup', limit, async (req, reply) => {
     const body = parse(signupSchema, req.body);
+    if (config.signup === 'closed' || (config.signup === 'first' && (await q1(sql`SELECT 1 FROM workspaces LIMIT 1`)))) {
+      throw new AppError(403, 'SIGNUP_CLOSED', 'Sign-up is closed on this server. Ask your admin to invite you.');
+    }
     const exists = await q1(sql`SELECT 1 FROM users WHERE email = ${body.email}`);
     if (exists) throw badRequest('An account with this email already exists', { email: 'Already registered — sign in instead' });
     const passwordHash = await hashPassword(body.password);
