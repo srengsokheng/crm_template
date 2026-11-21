@@ -6,6 +6,7 @@ import { ArrowRightLeft, Bot, CalendarClock, CheckCircle2, Circle, Mail, Message
 import { api, errorMessage, qsOf } from '../../lib/api.ts';
 import { stepLabel } from '../documents/Reminders.tsx';
 import { cn } from '../../lib/cn.ts';
+import { Tabs } from '../../components/ui/controls.tsx';
 import { dateTime, dueLabel, fromLocalInput, money, relative, toLocalInput } from '../../lib/format.ts';
 import { useMe, useMeta } from '../../lib/hooks.ts';
 import type { Activity, RecordType } from '../../lib/types.ts';
@@ -82,14 +83,9 @@ function Composer({ type, id, onDone }: { type: RecordType; id: number; onDone: 
   };
   return (
     <Card padded={false}>
-      <div className="flex items-center gap-1 border-b border-base px-3 pt-2">
-        {([['note', 'Note', MessageSquare], ['activity', 'Activity', CalendarClock], ['call', 'Log call', Phone]] as const).map(([k, l, Icon]) => (
-          <button key={k} type="button" onClick={() => { setTab(k); setErr(null); }}
-            className={cn('-mb-px inline-flex items-center gap-1.5 border-b-2 px-3 py-2 text-[13px] font-medium', tab === k ? 'border-brand-600 text-brand-700 dark:text-brand-200' : 'border-transparent text-muted hover:text-[var(--text)]')}>
-            <Icon className="size-4" />{l}
-          </button>
-        ))}
-      </div>
+      <Tabs label="Add to the record" className="px-3 pt-2" value={tab} onChange={(k) => { setTab(k); setErr(null); }}
+        items={[{ value: 'note', label: 'Note', icon: <MessageSquare className="size-4" /> }, { value: 'activity', label: 'Activity', icon: <CalendarClock className="size-4" /> },
+          { value: 'call', label: 'Log call', icon: <Phone className="size-4" /> }]} />
       <div className="space-y-3 p-3">
         {tab === 'note' && (
           <>

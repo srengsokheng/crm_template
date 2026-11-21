@@ -7,6 +7,7 @@ import { api, errorMessage } from '../../lib/api.ts';
 import { usePipelines } from '../../lib/hooks.ts';
 import type { FieldDef } from '../../lib/types.ts';
 import { Button, Checkbox, Field, Input, Select, Spinner } from '../../components/ui/primitives.tsx';
+import { RadioGroup } from '../../components/ui/controls.tsx';
 import { Dialog } from '../../components/ui/overlays.tsx';
 import { CustomFieldInput } from '../records/form.tsx';
 import { requiredFromError } from '../records/record.tsx';
@@ -104,21 +105,14 @@ function PartyChoice({ title, name, matches, value, onChange, emptyHint }: { tit
       {matches.length > 0 && (
         <div className="mb-2 flex items-start gap-1.5 rounded-md bg-amber-50 p-2 text-xs text-amber-900 dark:bg-amber-500/10 dark:text-amber-100"><AlertTriangle className="mt-0.5 size-3.5 shrink-0" />A similar {title.toLowerCase()} already exists. Linking avoids a duplicate.</div>
       )}
-      <div className="space-y-1.5 text-sm">
-        {matches.map((m) => (
-          <label key={m.id} className="flex cursor-pointer items-center gap-2">
-            <input type="radio" name={title} checked={value.mode === 'existing' && value.id === m.id} onChange={() => onChange({ mode: 'existing', id: m.id })} className="accent-[var(--color-brand-600)]" />
-            Link to existing <b>{m.title}</b> <span className="text-xs text-muted">(same {m.matchedOn})</span>
-          </label>
-        ))}
-        <label className={`flex items-center gap-2 ${name ? 'cursor-pointer' : 'opacity-50'}`}>
-          <input type="radio" name={title} disabled={!name} checked={value.mode === 'create'} onChange={() => onChange({ mode: 'create' })} className="accent-[var(--color-brand-600)]" />
-          {name ? <>Create new <b>{name}</b></> : <>Create new — {emptyHint}</>}
-        </label>
-        <label className="flex cursor-pointer items-center gap-2">
-          <input type="radio" name={title} checked={value.mode === 'skip'} onChange={() => onChange({ mode: 'skip' })} className="accent-[var(--color-brand-600)]" />Don’t create a {title.toLowerCase()}
-        </label>
-      </div>
+      <RadioGroup legend={title} hideLegend
+        value={value.mode === 'existing' ? `existing:${value.id}` : value.mode}
+        onChange={(v) => onChange(v.startsWith('existing:') ? { mode: 'existing', id: Number(v.slice(9)) } : { mode: v as 'create' | 'skip' })}
+        options={[
+          ...matches.map((m) => ({ value: `existing:${m.id}`, label: <>Link to existing <b>{m.title}</b> <span className="text-xs text-muted">(same {m.matchedOn})</span></> })),
+          { value: 'create', disabled: !name, label: name ? <>Create new <b>{name}</b></> : <>Create new — {emptyHint}</> },
+          { value: 'skip', label: <>Don’t create a {title.toLowerCase()}</> },
+        ]} />
     </section>
   );
 }
