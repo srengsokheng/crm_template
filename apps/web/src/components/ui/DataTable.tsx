@@ -4,7 +4,9 @@ import { cn } from '../../lib/cn.ts';
 import { Checkbox, ErrorState, Skeleton } from './primitives.tsx';
 
 export interface Column<T> {
-  key: string; header: ReactNode; cell: (row: T) => ReactNode; sortKey?: string; className?: string; align?: 'right'; hideOnMobile?: boolean;
+  key: string; header: ReactNode; cell: (row: T) => ReactNode;
+  /** Name in the column picker when `header` isn't plain text. */
+  label?: string; sortKey?: string; className?: string; align?: 'right'; hideOnMobile?: boolean;
 }
 
 export function DataTable<T extends { id: number }>({ columns, rows, loading, error, onRetry, sort, onSort, onRowClick, selected, onSelect, empty, footer }: {

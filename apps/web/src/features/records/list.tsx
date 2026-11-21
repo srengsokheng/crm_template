@@ -2,11 +2,12 @@ import { useEffect, useState, type ReactNode } from 'react';
 import { useSearchParams } from 'react-router';
 import { useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { Download, Search, Trash2, UserRound, X } from 'lucide-react';
+import { Columns3, Download, Search, Trash2, UserRound, X } from 'lucide-react';
 import { api, errorMessage, qsOf } from '../../lib/api.ts';
 import { useDebounced } from '../../lib/hooks.ts';
-import { Button, Input, Select } from '../../components/ui/primitives.tsx';
-import { ConfirmDialog, Dialog } from '../../components/ui/overlays.tsx';
+import { Button, Checkbox, Input, Select } from '../../components/ui/primitives.tsx';
+import { ConfirmDialog, Dialog, Popover } from '../../components/ui/overlays.tsx';
+import type { Column } from '../../components/ui/DataTable.tsx';
 import { UserSelect } from './form.tsx';
 
 /** List state kept in the URL so views are shareable and survive reloads. */
@@ -25,7 +26,8 @@ export function useListParams(defaults: { sort: string; pageSize?: number }) {
   const pageSize = Number(get('pageSize')) || defaults.pageSize || 25;
   const sort = get('sort') || defaults.sort;
   const params: Record<string, string> = {};
-  sp.forEach((v, k) => { if (!['view'].includes(k)) params[k] = v; });
+  // `view` and `cols` are for the page only (not sent to the API; `cols` is still saved with saved views).
+  sp.forEach((v, k) => { if (!['view', 'cols'].includes(k)) params[k] = v; });
   return { sp, get, set, page, pageSize, sort, params: { ...params, page: String(page), pageSize: String(pageSize), sort } };
 }
 
@@ -105,5 +107,39 @@ export function BulkBar({ entityPath, selected, clear, canDelete, canEdit }: { e
         <UserSelect value={owner} onChange={setOwner} allowEmpty emptyLabel="Choose a person" />
       </Dialog>
     </div>
+  );
+}
+
+/**
+ * Which columns a list shows, kept in the URL as `cols=key,key` (so saved views and links keep it). The first `fixed`
+ * columns (the record name) always show. Returns the columns to render and the "Columns" button for the toolbar.
+ */
+export function columnChoice<T>(lp: ReturnType<typeof useListParams>, columns: Column<T>[], fixed = 1) {
+  const raw = lp.get('cols');
+  const chosen = raw ? new Set(raw.split(',')) : null;
+  const visible = chosen ? columns.filter((c, i) => i < fixed || chosen.has(c.key)) : columns;
+  const setKeys = (keys: string[]) => {
+    const optional = columns.slice(fixed).map((c) => c.key);
+    const all = optional.every((k) => keys.includes(k));
+    lp.set({ cols: all ? null : optional.filter((k) => keys.includes(k)).join(',') || '-' }, false);
+  };
+  const picker = <ColumnPicker columns={columns} fixed={fixed} visible={visible.map((c) => c.key)} onChange={setKeys} />;
+  return { visible, picker };
+}
+
+function ColumnPicker<T>({ columns, fixed, visible, onChange }: { columns: Column<T>[]; fixed: number; visible: string[]; onChange: (keys: string[]) => void }) {
+  const hidden = columns.length - visible.length;
+  return (
+    <Popover align="end" className="w-60"
+      trigger={<Button icon={<Columns3 className="size-4" />} aria-label={`Columns${hidden ? ` (${hidden} hidden)` : ''}`}>Columns{hidden ? <span className="text-muted">· {hidden} hidden</span> : null}</Button>}>
+      <fieldset className="space-y-2">
+        <legend className="mb-1 text-[13px] font-medium">Show columns</legend>
+        {columns.map((c, i) => (
+          <div key={c.key}><Checkbox label={c.label ?? (typeof c.header === 'string' ? c.header : c.key)} checked={visible.includes(c.key)} disabled={i < fixed}
+            onChange={(v) => onChange(v ? [...visible, c.key] : visible.filter((k) => k !== c.key))} /></div>
+        ))}
+      </fieldset>
+      {hidden > 0 && <Button size="sm" variant="ghost" className="mt-2 w-full" onClick={() => onChange(columns.map((c) => c.key))}>Show all</Button>}
+    </Popover>
   );
 }

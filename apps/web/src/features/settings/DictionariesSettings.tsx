@@ -1,3 +1,4 @@
+import { Switch } from '../../components/ui/controls.tsx';
 import { useState } from 'react';
 import { DICTIONARY_KINDS, DICTIONARY_LABELS, type DictionaryKind } from '@crm/shared';
 import { useQueryClient } from '@tanstack/react-query';
@@ -6,7 +7,7 @@ import { Plus, Trash2 } from 'lucide-react';
 import { api, errorMessage } from '../../lib/api.ts';
 import { cn } from '../../lib/cn.ts';
 import { useMeta } from '../../lib/hooks.ts';
-import { Button, Card, Checkbox, IconButton, Input } from '../../components/ui/primitives.tsx';
+import { Button, Card, IconButton, Input } from '../../components/ui/primitives.tsx';
 import { ConfirmDialog } from '../../components/ui/overlays.tsx';
 import { AdminOnly } from './SettingsLayout.tsx';
 
@@ -31,7 +32,7 @@ export function DictionariesSettings() {
             {items.map((d) => (
               <li key={d.id} className="flex items-center gap-3 px-4 py-2">
                 <Input aria-label="Label" defaultValue={d.label} className="h-8" onBlur={(e) => e.target.value.trim() && e.target.value !== d.label && call(() => api.patch(`/dictionaries/${d.id}`, { label: e.target.value }), 'Saved')} />
-                <Checkbox checked={d.isActive} onChange={(v) => call(() => api.patch(`/dictionaries/${d.id}`, { isActive: v }))} label="Active" />
+                <Switch checked={d.isActive} onChange={(v) => call(() => api.patch(`/dictionaries/${d.id}`, { isActive: v }), v ? 'Option turned on' : 'Option hidden from new records')} label={`${d.label} in use`} hideLabel />
               </li>
             ))}
           </ul>

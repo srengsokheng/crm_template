@@ -17,9 +17,11 @@ into `main`.
 ## 1. Design system (frontend-design, refactoring)
 
 - ~~**Component gallery**~~ — done: `/dev/components` (every shared component and state; in the a11y scan).
-- **More shared components** — partly done: `Tabs`, `RadioGroup` and `Switch` (`components/ui/controls.tsx`) replace the
-  hand-built tab bars and radio lists; `Segmented` and `Tabs` move with the arrow keys. Still to do: `Toolbar`/`FilterBar`,
-  `Section`, `Tooltip`, `KeyValueList`, and moving settings on/off checkboxes that save at once to `Switch`.
+- ~~**More shared components**~~ — done: `Tabs`, `RadioGroup` and `Switch` (`components/ui/controls.tsx`) replace the
+  hand-built tab bars and radio lists; `Segmented` and `Tabs` move with the arrow keys; settings that save at once
+  (list options, automation rules, Telegram group chats) use `Switch`. `Toolbar`, `SearchBox` and `FilterSelect` already
+  live in `features/records/list.tsx` and `EditRow` in `record.tsx` (the key–value rows), so no new ones are needed;
+  icon-button tooltips stay native `title` + `aria-label`.
 - ~~**Touch targets**~~ — done: 44px tap areas on touch screens (global rule in `styles.css`), checked by
   `e2e/touch-targets.spec.ts`.
 
@@ -28,7 +30,7 @@ into `main`.
 - ~~**Kanban columns**: per-column "Show more"~~ — done (`more=stageId:count` on `/deals/board` and `/leads/board`, up to 500 cards a column).
 - ~~**Related deals** on contact and company pages~~ — done: 10 inline with `dealsTotal`, "Load more" pages
   `/deals?contactId=|companyId=`, open-pipeline sum over all of them; now filtered by the deal view scope too.
-- Column picker per list (saved with the saved view).
+- ~~Column picker per list~~ — done: **Columns** on Deals, Leads, Contacts and Companies lists; kept in the URL (`cols=`), so saved views and links keep it.
 
 ## 3. Missing features
 
