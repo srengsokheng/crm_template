@@ -27,7 +27,7 @@ import { requireAdmin } from '../lib/permissions.ts';
 import { assertMembers, camel, camelAll } from '../lib/records.ts';
 import { parse } from '../lib/validate.ts';
 import { createCall, guestUrlOf } from '../calls/calls.ts';
-import { sendWaTemplate } from '../inbox/waNotify.ts';
+import { sendWaTemplate, waNumber } from '../inbox/waNotify.ts';
 import type { WaTemplateSetting } from '@crm/shared';
 import { createActivity } from './activities.ts';
 import { createContact } from './parties.ts';
@@ -188,7 +188,8 @@ async function moveBooking(db: Db, b: BookingRow, start: Date, durationMinutes: 
   const host = b.host_id ? await q1<{ name: string; email: string }>(sql`SELECT name, email FROM users WHERE id = ${b.host_id}`, db) : null;
   const pg = b.page_id ? await q1<{ whatsapp: WaTemplateSetting | null }>(sql`SELECT whatsapp FROM booking_pages WHERE id = ${b.page_id}`, db) : null;
   const manage = manageLinkOf(b, by.kind === 'customer' ? by.token : undefined);
-  await sendWaTemplate(db, { workspaceId: b.workspace_id, setting: pg?.whatsapp, contactIds: b.contact_id ? [Number(b.contact_id)] : [], extraPhones: b.phone ? [b.phone] : [],
+  await sendWaTemplate(db, { workspaceId: b.workspace_id, setting: pg?.whatsapp, contactIds: b.contact_id ? [Number(b.contact_id)] : [], onlyPhones: true,
+    extraPhones: by.kind === 'team' ? (b.phone ? [b.phone] : []) : await bookingWaPhones(db, b.workspace_id, b.phone),
     values: { name: b.name, title: b.title, when: whenText(w.lang, start, w.tz), link: manage ?? '', company: w.name },
     senderName: by.kind === 'team' ? by.ctx.userName : w.name, authorId: by.kind === 'team' ? by.ctx.userId : null, title: b.name });
   await confirmationMail(db, { workspaceId: b.workspace_id, to: b.email, title: b.title, start, end, durationMinutes, tokenHash: b.token_hash,
@@ -343,6 +344,27 @@ export async function bookingRoutes(app: FastifyInstance) {
 
 // ───────────────────────── Public ─────────────────────────
 
+/** Most booking WhatsApp messages one number gets a day, and one workspace sends a day (each one costs money). */
+export const BOOKING_WA_PER_NUMBER = 3;
+export const BOOKING_WA_PER_WORKSPACE = 100;
+
+/**
+ * The number to send a booking's WhatsApp message to: the one typed on the booking form, and only while it and the
+ * workspace are under the daily limits. Anyone can book, so without them a page could be used to send paid messages to
+ * any number. Never the saved numbers of a contact matched by email (anyone can type someone else's email).
+ */
+async function bookingWaPhones(db: Db, workspaceId: number, phone: string | null | undefined): Promise<string[]> {
+  const n = phone ? waNumber(phone) : null;
+  if (!n) return [];
+  const sent = await q1<{ to_number: number; workspace: number }>(sql`SELECT
+      (SELECT count(*)::int FROM messages m JOIN conversations c ON c.id = m.conversation_id JOIN channels ch ON ch.id = c.channel_id
+        WHERE m.workspace_id = ${workspaceId} AND ch.kind = 'whatsapp' AND c.external_id = ${n} AND m.direction = 'out' AND m.template IS NOT NULL
+          AND m.author_id IS NULL AND m.created_at > now() - interval '1 day') AS to_number,
+      (SELECT count(*)::int FROM bookings WHERE workspace_id = ${workspaceId} AND phone IS NOT NULL AND created_at > now() - interval '1 day') AS workspace`, db);
+  if ((sent?.to_number ?? 0) >= BOOKING_WA_PER_NUMBER || (sent?.workspace ?? 0) > BOOKING_WA_PER_WORKSPACE) return [];
+  return [phone!];
+}
+
 export async function publicBookingRoutes(app: FastifyInstance) {
   const read = { config: { rateLimit: { max: config.isTest ? 1000 : 60, timeWindow: '1 minute' } } };
   const write = { config: { rateLimit: { max: config.isTest ? 1000 : 10, timeWindow: '1 minute' } } };
@@ -418,7 +440,7 @@ export async function publicBookingRoutes(app: FastifyInstance) {
 
       await confirmationMail(db, { workspaceId: p.workspace_id, to: body.email.trim(), title: p.title, start, end, durationMinutes: p.duration_minutes,
         tokenHash: hash(token), manage: manageUrl(token), videoUrl, place: p.location, note: body.note, host: host ?? null, sequence: 0, moved: false });
-      await sendWaTemplate(db, { workspaceId: p.workspace_id, setting: p.whatsapp, contactIds: [contactId], extraPhones: body.phone ? [body.phone] : [],
+      await sendWaTemplate(db, { workspaceId: p.workspace_id, setting: p.whatsapp, contactIds: [contactId], onlyPhones: true, extraPhones: await bookingWaPhones(db, p.workspace_id, body.phone),
         values: { name: body.name, title: p.title, when: whenText(w.lang, start, w.tz), link: manageUrl(token), company: w.name }, senderName: w.name, title: body.name });
       return { start: start.toISOString(), end: end.toISOString(), email: body.email.trim() };
     });

@@ -148,4 +148,28 @@ describe('WhatsApp payment reminders and booking confirmations', () => {
     await drainJobs();
     expect(fake.sent.length).toBe(before);
   });
+
+  it('booking pages can’t be used to message other people: only the typed number, a few a day', async () => {
+    const { c, me } = await signup();
+    const ch = await whatsappChannel(c);
+    // An existing customer with a saved number; someone else books with her email.
+    await c.post('/contacts', { firstName: 'Sophea', methods: [{ kind: 'email', value: 'sophea@wa.test' }, { kind: 'phone', value: '+855 77 111 222' }] });
+    const slug = `wa-abuse-${Date.now().toString(36)}`;
+    await c.post('/booking-pages', { title: 'Visit', slug, hostId: me.user.id, durationMinutes: 30, days: [1, 2, 3, 4, 5, 6, 7], start: '00:00', end: '23:30',
+      minNoticeHours: 1, daysAhead: 3, video: false, whatsapp: { channelId: ch.id, name: 'booking_confirmed', language: 'en_US', params: ['name', 'when', 'link'] } });
+    const app = await getApp();
+    const slots = (await app.inject({ method: 'GET', url: `/api/v1/public/book/${slug}` })).json().days.flatMap((d: any) => d.slots);
+    const book = (i: number, email: string, phone?: string) => app.inject({ method: 'POST', url: `/api/v1/public/book/${slug}`, headers: { 'content-type': 'application/json' },
+      payload: JSON.stringify({ start: slots[i], name: 'Visitor', email, ...(phone ? { phone } : {}) }) });
+    fake.sent.length = 0;
+    expect((await book(0, 'sophea@wa.test')).statusCode).toBe(201); // no number typed: nothing
+    expect((await book(1, 'sophea@wa.test', '+855 99 000 111')).statusCode).toBe(201); // typed number only
+    await drainJobs();
+    expect(fake.sent.map((m) => m.to)).toEqual(['85599000111']);
+    // One number: at most 3 a day, however many bookings.
+    fake.sent.length = 0;
+    for (let i = 0; i < 4; i++) expect((await book(2 + i, `v${i}@wa.test`, '+855 99 000 222')).statusCode).toBe(201);
+    await drainJobs();
+    expect(fake.sent.filter((m) => m.to === '85599000222')).toHaveLength(3);
+  });
 });
