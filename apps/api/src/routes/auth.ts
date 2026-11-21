@@ -3,6 +3,7 @@ import { DEFAULT_WORKING_HOURS, type WorkingHours, acceptInviteSchema, forgotPas
 import { config } from '../config.ts';
 import { pool, q, q1, sql, tx } from '../db/index.ts';
 import { createSession, destroySession, hashPassword, newToken, SESSION_COOKIE, sha256, verifyPassword } from '../lib/auth.ts';
+import { camelAll } from '../lib/records.ts';
 import { emailChangeMail, emailNoticeMail, emailTakenMail, passwordChangedMail, queueMail, resetMail } from '../lib/mailer.ts';
 import { createWorkspaceDefaults } from '../lib/bootstrap.ts';
 import { AppError, badRequest } from '../lib/errors.ts';
@@ -107,10 +108,11 @@ export async function authRoutes(app: FastifyInstance) {
     const ctx = ctxOf(req);
     const ws = await q1<{ name: string; base_currency: string; timezone: string; settings: Record<string, unknown> }>(
       sql`SELECT name, base_currency, timezone, settings FROM workspaces WHERE id = ${ctx.workspaceId}`);
-    const m = await q1<{ email_reminders: boolean; email_digest: boolean }>(sql`SELECT email_reminders, email_digest FROM memberships WHERE workspace_id = ${ctx.workspaceId} AND user_id = ${ctx.userId}`);
+    const m = await q1<{ email_reminders: boolean; email_digest: boolean; timezone: string | null }>(sql`SELECT m.email_reminders, m.email_digest, u.timezone
+      FROM memberships m JOIN users u ON u.id = m.user_id WHERE m.workspace_id = ${ctx.workspaceId} AND m.user_id = ${ctx.userId}`);
     return {
       preferences: { emailReminders: m?.email_reminders ?? true, emailDigest: m?.email_digest ?? true },
-      user: { id: ctx.userId, name: ctx.userName, email: ctx.email },
+      user: { id: ctx.userId, name: ctx.userName, email: ctx.email, timezone: m?.timezone ?? null },
       role: { id: ctx.roleId, name: ctx.roleName, isAdmin: ctx.isAdmin },
       workspace: { id: ctx.workspaceId, name: ws!.name, baseCurrency: ws!.base_currency, useLeads: ctx.useLeads, timezone: ws!.timezone,
         workingHours: (ws!.settings.workingHours as WorkingHours | undefined) ?? DEFAULT_WORKING_HOURS },
@@ -123,8 +125,28 @@ export async function authRoutes(app: FastifyInstance) {
   app.patch('/auth/profile', async (req) => {
     const ctx = ctxOf(req);
     const body = parse(profileSchema, req.body);
-    await q(sql`UPDATE users SET name = ${body.name} WHERE id = ${ctx.userId}`);
-    return { name: body.name };
+    const row = await q1<{ name: string; timezone: string | null }>(sql`UPDATE users SET
+      name = coalesce(${body.name ?? null}, name),
+      timezone = CASE WHEN ${body.timezone !== undefined} THEN ${body.timezone ?? null} ELSE timezone END
+      WHERE id = ${ctx.userId} RETURNING name, timezone`);
+    return { name: row!.name, timezone: row!.timezone };
+  });
+
+  /** Where you're signed in: this device and how many others (the session tokens themselves are never shown). */
+  app.get('/auth/sessions', async (req) => {
+    const ctx = ctxOf(req);
+    const current = sha256(req.cookies[SESSION_COOKIE] ?? '');
+    const rows = await q<{ current: boolean; user_agent: string | null; created_at: Date }>(sql`SELECT id_hash = ${current} AS current, user_agent, created_at
+      FROM sessions WHERE user_id = ${ctx.userId} AND expires_at > now() ORDER BY (id_hash = ${current}) DESC, created_at DESC LIMIT 50`);
+    return { data: camelAll(rows), others: rows.filter((r) => !r.current).length };
+  });
+
+  /** Sign out everywhere except here (a lost phone, a shared computer). */
+  app.post('/auth/sessions/sign-out-others', async (req) => {
+    const ctx = ctxOf(req);
+    const current = sha256(req.cookies[SESSION_COOKIE] ?? '');
+    const r = await q(sql`DELETE FROM sessions WHERE user_id = ${ctx.userId} AND id_hash <> ${current} RETURNING 1`);
+    return { signedOut: r.length };
   });
 
   /**

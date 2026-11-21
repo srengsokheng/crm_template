@@ -1,9 +1,10 @@
-import { useEffect, useState, type FormEvent } from 'react';
-import { useQueryClient } from '@tanstack/react-query';
+import { useEffect, useMemo, useState, type FormEvent } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { api, ApiError, errorMessage } from '../../lib/api.ts';
 import { useMe } from '../../lib/hooks.ts';
-import { Button, Card, Field, Input, Skeleton } from '../../components/ui/primitives.tsx';
+import { Button, Card, Field, Input, Select, Skeleton } from '../../components/ui/primitives.tsx';
+import { relative } from '../../lib/format.ts';
 import { TelegramAlertsCard } from './TelegramAlertsCard.tsx';
 import { InstallAppCard } from './InstallAppCard.tsx';
 
@@ -14,8 +15,10 @@ export function AccountSettings() {
   return (
     <div className="space-y-4">
       <ProfileCard name={me.user.name} />
+      <TimeZoneCard mine={me.user.timezone} workspace={me.workspace.timezone} />
       <EmailCard email={me.user.email} />
       <PasswordCard />
+      <SessionsCard />
       <TelegramAlertsCard />
       <InstallAppCard />
     </div>
@@ -46,6 +49,75 @@ function ProfileCard({ name: initial }: { name: string }) {
         </Field>
         <Button type="submit" variant="primary" disabled={saving || !name.trim() || name.trim() === initial}>{saving ? 'Saving…' : 'Save name'}</Button>
       </form>
+    </Card>
+  );
+}
+
+/** Your time zone for emails (reminders, the daily digest); empty = the workspace's. The app itself uses this device's. */
+function TimeZoneCard({ mine, workspace }: { mine: string | null; workspace: string }) {
+  const qc = useQueryClient();
+  const zones = useMemo(() => { try { return (Intl as unknown as { supportedValuesOf(k: string): string[] }).supportedValuesOf('timeZone'); } catch { return ['UTC']; } }, []);
+  const [saving, setSaving] = useState(false);
+  const save = async (tz: string) => {
+    setSaving(true);
+    try {
+      await api.patch('/auth/profile', { timezone: tz || null });
+      await qc.invalidateQueries({ queryKey: ['me'] });
+      toast.success(tz ? `Emails will use ${tz.replace(/_/g, ' ')} time` : 'Emails will use the workspace time zone');
+    } catch (e) { toast.error(errorMessage(e)); } finally { setSaving(false); }
+  };
+  const device = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  return (
+    <Card title="Time zone">
+      <div className="max-w-md space-y-2">
+        <Field label="Time zone for your emails" htmlFor="acc-tz" hint={`Reminders and the daily digest show times in this zone. The app uses this device’s time zone (${device.replace(/_/g, ' ')}).`}>
+          <Select id="acc-tz" value={mine ?? ''} disabled={saving} onChange={(e) => save(e.target.value)}>
+            <option value="">Workspace time zone ({workspace.replace(/_/g, ' ')})</option>
+            {(mine && !zones.includes(mine) ? [mine, ...zones] : zones).map((z) => <option key={z} value={z}>{z.replace(/_/g, ' ')}</option>)}
+          </Select>
+        </Field>
+        {!mine && device !== workspace && <Button size="sm" onClick={() => save(device)} disabled={saving}>Use this device’s ({device.replace(/_/g, ' ')})</Button>}
+      </div>
+    </Card>
+  );
+}
+
+/** Where you're signed in, and a way to sign out everywhere else (lost phone, shared computer). */
+function SessionsCard() {
+  const qc = useQueryClient();
+  const q = useQuery({ queryKey: ['sessions'], queryFn: () => api.get<{ data: { current: boolean; userAgent: string | null; createdAt: string }[]; others: number }>('/auth/sessions') });
+  const [busy, setBusy] = useState(false);
+  const signOut = async () => {
+    setBusy(true);
+    try {
+      const r = await api.post<{ signedOut: number }>('/auth/sessions/sign-out-others', {});
+      toast.success(r.signedOut === 1 ? 'Signed out on 1 other device' : `Signed out on ${r.signedOut} other devices`);
+      qc.invalidateQueries({ queryKey: ['sessions'] });
+    } catch (e) { toast.error(errorMessage(e)); } finally { setBusy(false); }
+  };
+  const device = (ua: string | null) => {
+    if (!ua) return 'Unknown device';
+    const os = /iPhone|iPad/.test(ua) ? 'iPhone/iPad' : /Android/.test(ua) ? 'Android' : /Windows/.test(ua) ? 'Windows' : /Mac OS/.test(ua) ? 'Mac' : /Linux/.test(ua) ? 'Linux' : 'Device';
+    const br = /Edg\//.test(ua) ? 'Edge' : /Chrome\//.test(ua) ? 'Chrome' : /Firefox\//.test(ua) ? 'Firefox' : /Safari\//.test(ua) ? 'Safari' : 'browser';
+    return `${br} on ${os}`;
+  };
+  return (
+    <Card title="Where you’re signed in">
+      {q.isLoading ? <Skeleton className="h-16" /> : q.error ? <p className="text-sm text-rose-600">{errorMessage(q.error)}</p> : (
+        <div className="max-w-md space-y-3">
+          <ul className="divide-y divide-[var(--border)] text-sm">
+            {q.data!.data.map((s, i) => (
+              <li key={i} className="flex items-center justify-between gap-3 py-1.5">
+                <span>{device(s.userAgent)}{s.current && <span className="ml-1.5 text-xs font-medium text-emerald-700 dark:text-emerald-300">· This device</span>}</span>
+                <span className="shrink-0 text-xs text-muted">since {relative(s.createdAt)}</span>
+              </li>
+            ))}
+          </ul>
+          {q.data!.others > 0
+            ? <Button onClick={signOut} loading={busy}>Sign out on {q.data!.others === 1 ? 'the other device' : `${q.data!.others} other devices`}</Button>
+            : <p className="text-sm text-muted">You’re only signed in here.</p>}
+        </div>
+      )}
     </Card>
   );
 }

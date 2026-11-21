@@ -276,7 +276,7 @@ export async function sendReminders(now = new Date()) {
         VALUES (${a.workspace_id}, ${a.assignee_id}, 'reminder', ${'Reminder: ' + a.subject},
           to_char(${a.due_at}::timestamptz AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI') || ' UTC', 'activity', ${a.id})`, db);
       const to = await q1<{ email: string; name: string; workspace: string; timezone: string }>(sql`
-        SELECT u.email, u.name, w.name AS workspace, w.timezone FROM memberships m
+        SELECT u.email, u.name, w.name AS workspace, coalesce(u.timezone, w.timezone) AS timezone FROM memberships m
         JOIN users u ON u.id = m.user_id AND u.is_active JOIN workspaces w ON w.id = m.workspace_id
         WHERE m.workspace_id = ${a.workspace_id} AND m.user_id = ${a.assignee_id} AND m.status = 'active' AND m.email_reminders`, db);
       if (!to) continue;
@@ -313,12 +313,12 @@ export const DIGEST_HOUR = 8;
 export async function sendDigests(now = new Date()): Promise<number> {
   return tx(async (db) => {
     const due = await q<{ workspace_id: number; user_id: number; role_id: number; is_admin: boolean; email: string; name: string; workspace: string; timezone: string }>(sql`
-      UPDATE memberships m SET digest_sent_on = (${now}::timestamptz AT TIME ZONE w.timezone)::date
+      UPDATE memberships m SET digest_sent_on = (${now}::timestamptz AT TIME ZONE coalesce(u.timezone, w.timezone))::date
       FROM workspaces w, users u, roles r
       WHERE w.id = m.workspace_id AND u.id = m.user_id AND r.id = m.role_id AND u.is_active AND m.status = 'active' AND m.email_digest
-        AND extract(hour FROM ${now}::timestamptz AT TIME ZONE w.timezone) >= ${DIGEST_HOUR}
-        AND (m.digest_sent_on IS NULL OR m.digest_sent_on < (${now}::timestamptz AT TIME ZONE w.timezone)::date)
-      RETURNING m.workspace_id, m.user_id, m.role_id, r.is_admin, u.email, u.name, w.name AS workspace, w.timezone`, db);
+        AND extract(hour FROM ${now}::timestamptz AT TIME ZONE coalesce(u.timezone, w.timezone)) >= ${DIGEST_HOUR}
+        AND (m.digest_sent_on IS NULL OR m.digest_sent_on < (${now}::timestamptz AT TIME ZONE coalesce(u.timezone, w.timezone))::date)
+      RETURNING m.workspace_id, m.user_id, m.role_id, r.is_admin, u.email, u.name, w.name AS workspace, coalesce(u.timezone, w.timezone) AS timezone`, db);
     let sent = 0;
     for (const d of due) {
       const items = await q<{ id: number; subject: string; kind: string; due_at: Date }>(sql`SELECT id, subject, kind, due_at FROM activities
