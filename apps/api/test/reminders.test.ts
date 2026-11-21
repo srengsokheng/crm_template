@@ -51,7 +51,10 @@ describe('payment reminders', () => {
     expect(await run(inv.id, at(addDays(DUE, 8)))).toBe(0);
     expect(await remindersOf(inv.id)).toEqual(['before:3', 'due', 'after:7']);
 
-    const mails = (await pool.query(`SELECT payload FROM jobs WHERE type = 'email.send' AND id > $1 AND payload->>'to' = 'ap@umbrella.test' ORDER BY id`, [jobsBefore])).rows.map((r) => r.payload);
+    // Only this invoice's workspace: runPaymentReminders() covers every workspace in the shared test database, and
+    // other files' invoices (also emailed to ap@umbrella.test) can fall due inside the dates simulated here.
+    const mails = (await pool.query(`SELECT payload FROM jobs WHERE type = 'email.send' AND id > $1 AND payload->>'to' = 'ap@umbrella.test'
+      AND workspace_id = (SELECT workspace_id FROM documents WHERE id = $2) ORDER BY id`, [jobsBefore, inv.id])).rows.map((r) => r.payload);
     expect(mails).toHaveLength(3);
     expect(mails[0].subject).toMatch(/^Payment reminder: invoice INV-\d+ from /);
     expect(mails[0].text).toContain('for $100.00 is due on Dec 15, 2026.');
