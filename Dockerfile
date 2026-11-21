@@ -20,6 +20,8 @@ COPY apps/web/package.json apps/web/
 COPY packages/shared/package.json packages/shared/
 RUN npm ci --omit=dev --no-audit --no-fund && npm cache clean --force
 COPY apps/api/src apps/api/src
+# PDF fonts (Khmer, Thai, Lao, Latin), read at runtime.
+COPY apps/api/assets apps/api/assets
 COPY packages/shared packages/shared
 COPY --from=build /app/apps/web/dist apps/web/dist
 # Attachments on disk (when FILES_STORAGE isn't s3): mount a volume here.
