@@ -322,4 +322,41 @@ describe('online booking', () => {
     expect((await c.get('/booking-pages')).body.data.find((x: any) => x.id === p.id)).toMatchObject({ hostId: ottoId, hostName: 'Otto Rep' });
     expect(admin).toBeTruthy();
   });
+
+  it('weighted round-robin: a share of 2 gets about twice the bookings; shares are validated and kept', async () => {
+    const { c } = await signup();
+    const { id: ritaId } = await inviteUser(c, 'Sales rep', 'Rita Rep');
+    const { id: ottoId } = await inviteUser(c, 'Sales rep', 'Otto Rep');
+    const base = { title: 'Demo', durationMinutes: 30, days: allDays, start: '00:00', end: '23:30', minNoticeHours: 1, daysAhead: 3, video: false };
+    for (const hostWeights of [[2], [0, 1], [11, 1]]) {
+      const r = await c.post('/booking-pages', { ...base, slug: slug(), hostIds: [ritaId, ottoId], hostWeights });
+      expect(r.status, JSON.stringify(hostWeights)).toBe(400);
+      expect(Object.keys(r.body.error.fields)[0]).toMatch(/^hostWeights/);
+    }
+    // No shares given: everyone 1 (and older clients keep working).
+    const plain = (await c.post('/booking-pages', { ...base, slug: slug(), hostIds: [ritaId, ottoId] })).body;
+    expect(plain.hostWeights).toEqual([1, 1]);
+    const single = (await c.post('/booking-pages', { ...base, slug: slug(), hostId: ritaId })).body;
+    expect(single.hostWeights).toEqual([1]);
+
+    const p = (await c.post('/booking-pages', { ...base, slug: slug(), hostIds: [ritaId, ottoId], hostWeights: [2, 1] })).body;
+    expect(p.hostWeights).toEqual([2, 1]);
+    const slots = (await pub('GET', `/book/${p.slug}`)).body.days.flatMap((d: any) => d.slots) as string[];
+    for (let i = 0; i < 7; i++) expect((await pub('POST', `/book/${p.slug}`, { start: slots[i * 2], name: `W ${i}`, email: `w${i}@wrr.test` })).status).toBe(201);
+    const order = (await pool.query(`SELECT host_id::int AS h FROM bookings WHERE page_id = $1 ORDER BY id`, [p.id])).rows.map((r) => (r.h === ritaId ? 'R' : 'O'));
+    // Furthest below their share goes next; ties go to whoever waited longest.
+    expect(order.join('')).toBe('RORORRO');
+
+    // Canceled bookings don't count towards a share: cancel two of Rita's, so she is behind and gets the next two.
+    await pool.query(`UPDATE bookings SET status = 'canceled', canceled_by = 'team' WHERE id IN (SELECT id FROM bookings WHERE page_id = $1 AND host_id = $2 ORDER BY id LIMIT 2)`, [p.id, ritaId]);
+    for (let i = 7; i < 9; i++) expect((await pub('POST', `/book/${p.slug}`, { start: slots[i * 2], name: `W ${i}`, email: `w${i}@wrr.test` })).status).toBe(201);
+    const next = (await pool.query(`SELECT host_id::int AS h FROM bookings WHERE page_id = $1 ORDER BY id DESC LIMIT 2`, [p.id])).rows.map((r) => r.h);
+    expect(next).toEqual([ritaId, ritaId]);
+
+    // Editing keeps the shares; all back to 1 stores nothing special.
+    const edited = (await c.put(`/booking-pages/${p.id}`, { ...base, slug: p.slug, hostIds: [ottoId, ritaId], hostWeights: [3, 1] })).body;
+    expect(edited).toMatchObject({ hostIds: [ottoId, ritaId], hostWeights: [3, 1] });
+    await c.put(`/booking-pages/${p.id}`, { ...base, slug: p.slug, hostIds: [ottoId, ritaId], hostWeights: [1, 1] });
+    expect((await pool.query(`SELECT team_weights FROM booking_pages WHERE id = $1`, [p.id])).rows[0].team_weights).toEqual([]);
+  });
 });

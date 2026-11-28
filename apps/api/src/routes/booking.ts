@@ -36,10 +36,10 @@ import { documentSettings } from './documents.ts';
 interface PageRow {
   id: number; workspace_id: number; slug: string; title: string; description: string; host_id: number; duration_minutes: number; days: number[];
   start_time: string; end_time: string; min_notice_hours: number; days_ahead: number; video: boolean; location: string; active: boolean;
-  team_ids: number[];
+  team_ids: number[]; team_weights: number[];
   whatsapp: WaTemplateSetting | null;
 }
-type Host = { id: number; name: string };
+type Host = { id: number; name: string; weight: number };
 type LivePage = PageRow & { hosts: Host[] };
 interface BookingRow {
   id: number; workspace_id: number; page_id: number | null; host_id: number | null; activity_id: number | null; contact_id: number | null; call_id: number | null;
@@ -95,21 +95,39 @@ async function slotsOf(db: Db, p: LivePage, tz: string, now = new Date(), except
 /** The people a page books with: the team (round-robin) or the one host. */
 const hostIdsOf = (p: { host_id: number; team_ids: number[] | null }) => (p.team_ids?.length ? p.team_ids.map(Number) : [Number(p.host_id)]);
 
+/**
+ * Who of the free people gets the next booking of a shared page. Everyone has a share (weight 1–10): the person furthest
+ * below their share of this page's bookings in the last 30 days (booked, not canceled) goes first — with equal shares
+ * that is plain turn-taking. Ties: whoever went longest without a booking from the page (never = first), then the page's
+ * order. Counting only 30 days means someone just added catches up for a while instead of getting every booking.
+ */
+async function nextHost(db: Db, pageId: number, free: Host[]): Promise<number> {
+  const rows = await q<{ host_id: number; n: number; at: Date }>(sql`SELECT host_id,
+      count(*) FILTER (WHERE status = 'booked' AND created_at > now() - interval '30 days')::int AS n, max(created_at) AS at
+    FROM bookings WHERE page_id = ${pageId} AND host_id = ANY(${free.map((h) => h.id)}) GROUP BY host_id`, db);
+  const stat = new Map(rows.map((r) => [Number(r.host_id), { n: r.n, at: new Date(r.at).getTime() }]));
+  const load = (h: Host) => (stat.get(h.id)?.n ?? 0) / h.weight;
+  const last = (h: Host) => stat.get(h.id)?.at ?? -Infinity;
+  return [...free].sort((a, b) => load(a) - load(b) || last(a) - last(b))[0].id;
+}
+
 /** An active page with the people on it who are still active members (none left: the page is closed). */
 async function publicPage(slug: string, db: Db = pool): Promise<LivePage> {
   const p = await q1<PageRow>(sql`SELECT * FROM booking_pages WHERE slug = ${slug.toLowerCase()} AND active`, db);
   if (!p) throw notFound('Booking page');
   const ids = hostIdsOf(p);
-  const hosts = await q<Host>(sql`SELECT u.id, u.name FROM users u
+  const hosts = await q<Omit<Host, 'weight'>>(sql`SELECT u.id, u.name FROM users u
     JOIN memberships m ON m.user_id = u.id AND m.workspace_id = ${p.workspace_id} AND m.status = 'active'
     WHERE u.id = ANY(${ids}) ORDER BY array_position(${ids}::bigint[], u.id)`, db);
   if (!hosts.length) throw notFound('Booking page');
-  return { ...p, hosts };
+  const weights = new Map((p.team_ids ?? []).map((id, i) => [Number(id), Number(p.team_weights?.[i] ?? 1)]));
+  return { ...p, hosts: hosts.map((h) => ({ ...h, weight: weights.get(h.id) ?? 1 })) };
 }
 
 const PAGE_FIELDS = sql`bp.id, bp.slug, bp.title, bp.description, bp.host_id,
   coalesce((SELECT string_agg(x.name, ', ' ORDER BY array_position(bp.team_ids, x.id)) FROM users x WHERE x.id = ANY(bp.team_ids)), u.name) AS host_name,
-  CASE WHEN cardinality(bp.team_ids) > 0 THEN bp.team_ids ELSE ARRAY[bp.host_id] END AS host_ids, bp.duration_minutes, bp.days, bp.start_time, bp.end_time,
+  CASE WHEN cardinality(bp.team_ids) > 0 THEN bp.team_ids ELSE ARRAY[bp.host_id] END AS host_ids,
+  CASE WHEN cardinality(bp.team_weights) > 0 THEN bp.team_weights ELSE array_fill(1, ARRAY[greatest(cardinality(bp.team_ids), 1)]) END AS host_weights, bp.duration_minutes, bp.days, bp.start_time, bp.end_time,
   bp.min_notice_hours, bp.days_ahead, bp.video, bp.location, bp.active, bp.whatsapp, bp.created_at,
   (SELECT count(*)::int FROM bookings b WHERE b.page_id = bp.id AND b.status = 'booked' AND b.starts_at > now()) AS upcoming`;
 const pageOut = (r: Record<string, unknown>) => ({ ...camel(r), url: pageUrl(String(r.slug)) });
@@ -117,6 +135,7 @@ const pageOut = (r: Record<string, unknown>) => ({ ...camel(r), url: pageUrl(Str
 function dbFields(b: ReturnType<typeof bookingPageSchema.parse>) {
   return {
     slug: b.slug, title: b.title, description: b.description, host_id: b.hostIds[0], team_ids: b.hostIds.length > 1 ? b.hostIds : [],
+    team_weights: b.hostIds.length > 1 && b.hostWeights.some((w) => w !== 1) ? b.hostWeights : [],
     whatsapp: b.whatsapp?.channelId ? JSON.stringify(b.whatsapp) : null, duration_minutes: b.durationMinutes, days: b.days,
     start_time: b.start, end_time: b.end, min_notice_hours: b.minNoticeHours, days_ahead: b.daysAhead, video: b.video, location: b.location, active: b.active,
   };
@@ -244,9 +263,9 @@ export async function bookingRoutes(app: FastifyInstance) {
     const b = parse(bookingPageSchema, req.body);
     await assertMembers(ctx, b.hostIds);
     const f = dbFields(b);
-    const r = await q1<{ id: number }>(sql`INSERT INTO booking_pages (workspace_id, slug, title, description, host_id, team_ids, whatsapp, duration_minutes, days, start_time, end_time,
+    const r = await q1<{ id: number }>(sql`INSERT INTO booking_pages (workspace_id, slug, title, description, host_id, team_ids, team_weights, whatsapp, duration_minutes, days, start_time, end_time,
         min_notice_hours, days_ahead, video, location, active, created_by)
-      VALUES (${ctx.workspaceId}, ${f.slug}, ${f.title}, ${f.description}, ${f.host_id}, ${f.team_ids}::bigint[], ${f.whatsapp}::jsonb, ${f.duration_minutes}, ${f.days}, ${f.start_time}, ${f.end_time},
+      VALUES (${ctx.workspaceId}, ${f.slug}, ${f.title}, ${f.description}, ${f.host_id}, ${f.team_ids}::bigint[], ${f.team_weights}::int[], ${f.whatsapp}::jsonb, ${f.duration_minutes}, ${f.days}, ${f.start_time}, ${f.end_time},
         ${f.min_notice_hours}, ${f.days_ahead}, ${f.video}, ${f.location}, ${f.active}, ${ctx.userId})
       ON CONFLICT (slug) DO NOTHING RETURNING id`);
     if (!r) throw slugTaken();
@@ -263,7 +282,7 @@ export async function bookingRoutes(app: FastifyInstance) {
     const f = dbFields(b);
     const id = Number(req.params.id);
     if (await q1(sql`SELECT 1 FROM booking_pages WHERE slug = ${f.slug} AND id <> ${id}`)) throw slugTaken();
-    const r = await q1(sql`UPDATE booking_pages SET slug = ${f.slug}, title = ${f.title}, description = ${f.description}, host_id = ${f.host_id}, team_ids = ${f.team_ids}::bigint[], whatsapp = ${f.whatsapp}::jsonb,
+    const r = await q1(sql`UPDATE booking_pages SET slug = ${f.slug}, title = ${f.title}, description = ${f.description}, host_id = ${f.host_id}, team_ids = ${f.team_ids}::bigint[], team_weights = ${f.team_weights}::int[], whatsapp = ${f.whatsapp}::jsonb,
         duration_minutes = ${f.duration_minutes}, days = ${f.days}, start_time = ${f.start_time}, end_time = ${f.end_time}, min_notice_hours = ${f.min_notice_hours},
         days_ahead = ${f.days_ahead}, video = ${f.video}, location = ${f.location}, active = ${f.active}
       WHERE id = ${id} AND workspace_id = ${ctx.workspaceId} RETURNING id`);
@@ -392,10 +411,7 @@ export async function publicBookingRoutes(app: FastifyInstance) {
       const { byHost } = await slotsByHost(db, p, w.tz, p.hosts.map((h) => h.id));
       const free = p.hosts.filter((h) => byHost.get(h.id)?.has(start.toISOString()));
       if (!free.length) throw new AppError(409, 'TAKEN', ct(w.lang, 'bookTaken'));
-      // Taking turns: whoever went longest without a booking from this page (never = first), then the page's order.
-      const last = new Map((await q<{ host_id: number; at: Date }>(sql`SELECT host_id, max(created_at) AS at FROM bookings
-        WHERE page_id = ${p.id} AND host_id = ANY(${free.map((h) => h.id)}) GROUP BY host_id`, db)).map((r) => [Number(r.host_id), new Date(r.at).getTime()]));
-      const hostId = [...free].sort((a, b) => (last.get(a.id) ?? -Infinity) - (last.get(b.id) ?? -Infinity))[0].id;
+      const hostId = await nextHost(db, p.id, free);
       const email = body.email.trim().toLowerCase();
       const mine = await q1<{ n: number }>(sql`SELECT count(*)::int AS n FROM bookings WHERE page_id = ${p.id} AND lower(email) = ${email} AND status = 'booked' AND starts_at > now()`, db);
       if (mine!.n >= 3) throw new AppError(429, 'TOO_MANY', 'You already have several bookings here. Cancel one first, or contact us.');

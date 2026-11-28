@@ -13,7 +13,7 @@ import { ConfirmDialog, Dialog } from '../../components/ui/overlays.tsx';
 
 export interface BookingPageRow {
   whatsapp: WaTemplateSetting | null;
-  id: number; slug: string; title: string; description: string; hostId: number; hostIds: (number | string)[]; hostName: string; durationMinutes: number; days: number[];
+  id: number; slug: string; title: string; description: string; hostId: number; hostIds: (number | string)[]; hostWeights?: number[]; hostName: string; durationMinutes: number; days: number[];
   startTime: string; endTime: string; minNoticeHours: number; daysAhead: number; video: boolean; location: string; active: boolean; upcoming: number; url: string;
 }
 interface Booking { id: number; name: string; email: string; phone: string; note: string; startsAt: string; endsAt: string; status: 'booked' | 'canceled'; canceledBy: string | null; hostName: string | null }
@@ -65,14 +65,24 @@ export function BookingSettings() {
   );
 }
 
+const SHARES = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10] as const;
+
+/** "Everyone gets about the same number of bookings." or "Out of every 3 bookings: Rita 2, Otto 1." */
+function shareHint(people: [string, number][]) {
+  if (people.every(([, w]) => w === people[0][1])) return 'Everyone gets about the same number of bookings.';
+  const total = people.reduce((sum, [, w]) => sum + w, 0);
+  return `Out of every ${total} bookings, about: ${people.map(([n, w]) => `${n} ${w}`).join(', ')}.`;
+}
+
 function PageDialog({ page, onClose }: { page: BookingPageRow | null; onClose: () => void }) {
   const qc = useQueryClient();
   const { data: me } = useMe();
   const [f, setF] = useState(() => page ? {
-    title: page.title, slug: page.slug, description: page.description, hostIds: page.hostIds.map(Number), durationMinutes: page.durationMinutes, days: page.days,
+    title: page.title, slug: page.slug, description: page.description, hostIds: page.hostIds.map(Number),
+    weights: Object.fromEntries(page.hostIds.map((id, i) => [Number(id), page.hostWeights?.[i] ?? 1])) as Record<number, number>, durationMinutes: page.durationMinutes, days: page.days,
     start: page.startTime, end: page.endTime, minNoticeHours: page.minNoticeHours, daysAhead: page.daysAhead, video: page.video, location: page.location, active: page.active,
     whatsapp: page.whatsapp,
-  } : { title: '', slug: '', description: '', hostIds: me ? [me.user.id] : [], durationMinutes: 30, days: [1, 2, 3, 4, 5], start: '09:00', end: '17:00', minNoticeHours: 4, daysAhead: 30, video: true, location: '', active: true, whatsapp: null as WaTemplateSetting | null });
+  } : { title: '', slug: '', description: '', hostIds: me ? [me.user.id] : [], weights: {} as Record<number, number>, durationMinutes: 30, days: [1, 2, 3, 4, 5], start: '09:00', end: '17:00', minNoticeHours: 4, daysAhead: 30, video: true, location: '', active: true, whatsapp: null as WaTemplateSetting | null });
   const meta = useMeta();
   const users = (meta.data?.users ?? []).filter((u) => u.status === 'active' || f.hostIds.includes(u.id));
   const [slugTouched, setSlugTouched] = useState(!!page);
@@ -83,7 +93,9 @@ function PageDialog({ page, onClose }: { page: BookingPageRow | null; onClose: (
   const save = async () => {
     setBusy(true); setErrors({});
     try {
-      if (page) await api.put(`/booking-pages/${page.id}`, f); else await api.post('/booking-pages', f);
+      const { weights, ...rest } = f;
+      const body = { ...rest, hostWeights: f.hostIds.map((id) => weights[id] ?? 1) };
+      if (page) await api.put(`/booking-pages/${page.id}`, body); else await api.post('/booking-pages', body);
       await qc.invalidateQueries({ queryKey: ['booking-pages'] });
       toast.success(page ? 'Booking page saved' : 'Booking page created — copy the link and share it');
       onClose();
@@ -114,9 +126,31 @@ function PageDialog({ page, onClose }: { page: BookingPageRow | null; onClose: (
             </div>
             <p className={errors.hostIds ? 'mt-1 text-xs text-rose-600' : 'mt-1 text-xs text-muted'} role={errors.hostIds ? 'alert' : undefined}>
               {errors.hostIds ?? (f.hostIds.length > 1
-                ? 'Shared: a time is offered when any of them is free, and each booking goes to one of them, taking turns.'
+                ? 'Shared: a time is offered when any of them is free, and each booking goes to one of them, taking turns by their share.'
                 : 'Bookings become their meetings.')}
             </p>
+            {f.hostIds.length > 1 && (
+              <div className="mt-3 rounded-lg border border-base p-3">
+                <p className="mb-2 text-[13px] font-medium" id="bp-shares">Share of bookings</p>
+                <ul className="grid gap-2 sm:grid-cols-2" aria-labelledby="bp-shares">
+                  {f.hostIds.map((id) => {
+                    const name = users.find((u) => u.id === id)?.name ?? `#${id}`;
+                    return (
+                      <li key={id} className="flex items-center justify-between gap-3">
+                        <label htmlFor={`bp-w-${id}`} className="truncate text-sm">{name}</label>
+                        <Select id={`bp-w-${id}`} aria-label={`${name}’s share`} className="w-24 shrink-0" value={f.weights[id] ?? 1}
+                          onChange={(e) => setF({ ...f, weights: { ...f.weights, [id]: Number(e.target.value) } })}>
+                          {SHARES.map((n) => <option key={n} value={n}>{n}×</option>)}
+                        </Select>
+                      </li>
+                    );
+                  })}
+                </ul>
+                <p className={errors.hostWeights ? 'mt-2 text-xs text-rose-600' : 'mt-2 text-xs text-muted'} role={errors.hostWeights ? 'alert' : undefined}>
+                  {errors.hostWeights ?? shareHint(f.hostIds.map((id) => [users.find((u) => u.id === id)?.name ?? `#${id}`, f.weights[id] ?? 1]))}
+                </p>
+              </div>
+            )}
           </fieldset>
           <Field label="Length" htmlFor="bp-len" error={errors.durationMinutes}>
             <Select id="bp-len" value={f.durationMinutes} onChange={(e) => setF({ ...f, durationMinutes: Number(e.target.value) })}>

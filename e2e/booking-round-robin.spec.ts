@@ -20,6 +20,9 @@ test('round-robin booking page: two people share the link, bookings take turns',
   await expect(dialog.getByText('Bookings become their meetings.')).toBeVisible();
   await dialog.getByLabel('Rita Rep').check();
   await expect(dialog.getByText(/^Shared: a time is offered when any of them is free/)).toBeVisible();
+  await expect(dialog.getByText('Everyone gets about the same number of bookings.')).toBeVisible();
+  await dialog.getByLabel('Rita Rep’s share').selectOption('2');
+  await expect(dialog.getByText('Out of every 3 bookings, about: Ada Admin 1, Rita Rep 2.')).toBeVisible();
   for (const d of ['Sat', 'Sun']) await dialog.getByLabel(d, { exact: true }).check();
   await dialog.getByLabel('From').fill('00:00');
   await dialog.getByLabel('Until').fill('23:30');
@@ -27,6 +30,9 @@ test('round-robin booking page: two people share the link, bookings take turns',
   await dialog.getByRole('button', { name: 'Create' }).click();
   await expect(page.getByText('Booking page created')).toBeVisible();
   await expect(page.getByRole('list', { name: 'Booking pages' })).toContainText('Ada Admin, Rita Rep');
+
+  const saved = (await api(page, 'GET', '/booking-pages')).data.find((x: any) => x.slug === slug);
+  expect(saved.hostWeights).toEqual([1, 2]);
 
   // Two customers book; the bookings go to different people.
   const info = await (await page.request.get(`/api/v1/public/book/${slug}`)).json();

@@ -578,6 +578,8 @@ export const bookingPageSchema = z.object({
   hostId: idSchema.optional(),
   /** …or several, sharing the bookings (round-robin). */
   hostIds: z.array(idSchema).max(20, 'Up to 20 people').optional(),
+  /** Each person's share of the bookings (1–10, default 1), in the order of hostIds: 2 gets about twice as many as 1. */
+  hostWeights: z.array(z.coerce.number().int().min(1, 'At least 1').max(10, 'At most 10')).max(20).optional(),
   durationMinutes: z.coerce.number().int().refine((v) => (BOOKING_DURATIONS as readonly number[]).includes(v), 'Pick a length'),
   days: z.array(z.coerce.number().int().min(1).max(7)).min(1, 'Pick at least one day').max(7).transform((a) => [...new Set(a)].sort()),
   start: hhmm.default('09:00'),
@@ -591,7 +593,11 @@ export const bookingPageSchema = z.object({
   whatsapp: waBookingSchema.nullable().default(null),
 }).refine((v) => v.end > v.start, { message: 'Must be after the start', path: ['end'] })
   .refine((v) => v.hostId || v.hostIds?.length, { message: 'Pick who customers meet', path: ['hostIds'] })
-  .transform(({ hostId, hostIds, ...v }) => ({ ...v, hostIds: [...new Set([...(hostId ? [hostId] : []), ...(hostIds ?? [])])] }));
+  .refine((v) => !v.hostWeights || v.hostWeights.length === (v.hostIds?.length ?? 0), { message: 'One share per person', path: ['hostWeights'] })
+  .transform(({ hostId, hostIds = [], hostWeights, ...v }) => {
+    const ids = [...new Set([...(hostId ? [hostId] : []), ...hostIds])];
+    return { ...v, hostIds: ids, hostWeights: ids.map((id) => hostWeights?.[hostIds.indexOf(id)] ?? 1) };
+  });
 export type BookingPageInput = z.infer<typeof bookingPageSchema>;
 /** A customer moves their booking to another free time (public). */
 export const bookingRescheduleSchema = z.object({ start: z.iso.datetime({ offset: true }) });

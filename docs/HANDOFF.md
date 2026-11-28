@@ -465,8 +465,11 @@ The research behind every decision is in this folder:
   timeline notes it. Team moves don't count against the customer's 3 moves (the calendar version has its own counter).
   The customer's link is now also kept encrypted, so team emails can include it (bookings made before: no link).
   **Shared pages (round-robin, migration 0042)**: "With" can be several people (`team_ids`; `host_id` stays the first).
-  A time is offered when any of them is free; each booking goes to a free one, taking turns (whoever went longest
-  without a booking from this page, then the page's order); the meeting, new contact and video call are theirs. The
+  A time is offered when any of them is free; each booking goes to a free one, taking turns by **share** (migration
+  0045, `team_weights` / API `hostWeights`, 1–10 per person, default 1): the person furthest below their share of the
+  page's bookings in the last 30 days (canceled ones don't count) goes next; ties go to whoever went longest without a
+  booking from this page, then the page's order. Equal shares = plain turn-taking; someone just added catches up for
+  a while (30-day window) rather than getting every booking. The meeting, new contact and video call are theirs. The
   customer page says "with <company>". Everyone on the page sees its bookings ("with Rita"). A customer's move stays
   with their person (only their free times are offered); people taken off the page keep their bookings, but those
   customers can't move them any more (cancel still works). The API takes `hostIds` (or the old `hostId`). Bookings for one host are serialised
@@ -573,9 +576,7 @@ The earlier list is done (see section 2). Known follow-ups, collected from the p
    bulk-mail rules (SPF/DKIM/DMARC for the sending domain).
 7. Payment reminders: they stop when an invoice is paid in the CRM — record bank payments promptly. WhatsApp uses one
    template language per workspace/page (no per-customer language choice yet); cancellations aren't sent on WhatsApp.
-8. Booking: no sync with Google/Outlook calendars (only CRM meetings block times); round-robin takes turns but doesn't
-   weigh people (e.g. "Rita gets twice as many");
-   editing a booked meeting directly in Activities doesn't update the booking or email the customer (use Move).
+8. Booking: no sync with Google/Outlook calendars (only CRM meetings block times); editing a booked meeting directly in Activities doesn't update the booking or email the customer (use Move).
 9. KHQR: confirm payments automatically through the Bakong Open API (needs a token from the NBC); scan a printed QR
    with a real bank app before relying on it.
 

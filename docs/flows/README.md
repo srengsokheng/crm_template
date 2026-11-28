@@ -89,7 +89,7 @@ flowchart TD
   B --> C[Name, email, phone, note]
   C --> D{Time still free?}
   D -->|no| B
-  D -->|yes| E[Host: the page's person, or round-robin<br/>whoever waited longest]
+  D -->|yes| E[Host: the page's person, or round-robin<br/>furthest below their share]
   E --> F[Contact found by email, or created]
   F --> G[Meeting activity + video call link if on]
   G --> H[Confirmation email with calendar file<br/>WhatsApp only to the typed number, daily limits]
