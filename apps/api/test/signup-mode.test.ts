@@ -1,4 +1,5 @@
 import { afterAll, afterEach, describe, expect, it } from 'vitest';
+import { fileURLToPath } from 'node:url';
 import { config } from '../src/config.ts';
 import { pool } from '../src/db/pool.ts';
 import { client, getApp, signup, uniq } from './helpers.ts';
@@ -23,7 +24,7 @@ describe('who may sign up (SIGNUP)', () => {
   it('first is the production default', async () => {
     const { execFileSync } = await import('node:child_process');
     const read = (extra: Record<string, string>) => execFileSync(process.execPath, ['-e', "import('./src/config.ts').then((m) => console.log(m.config.signup))"],
-      { cwd: new URL('..', import.meta.url).pathname, env: { ...process.env, SIGNUP: '', ...extra }, encoding: 'utf8' }).trim();
+      { cwd: fileURLToPath(new URL('..', import.meta.url)), env: { ...process.env, SIGNUP: '', ...extra }, encoding: 'utf8' }).trim();
     expect(read({ NODE_ENV: 'production', SIGNUP: '' })).toBe('first');
     expect(read({ NODE_ENV: 'production', SIGNUP: 'open' })).toBe('open');
     expect(read({ NODE_ENV: 'development' })).toBe('open');
